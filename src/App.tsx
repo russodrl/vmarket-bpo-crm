@@ -1,29 +1,30 @@
 import { useEffect, useMemo, useState } from 'react'
+import type { DragEvent, FormEvent, ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import {
   Activity,
   Building2,
   CalendarClock,
   CheckCircle2,
-  CircleDollarSign,
-  ClipboardList,
   Contact,
   Filter,
-  HandCoins,
+  GripVertical,
   LayoutDashboard,
+  List,
   LogOut,
+  MoreHorizontal,
   Plus,
   RefreshCw,
-  ShieldCheck,
-  Star,
+  Search,
+  Settings,
   Tags,
-  UserRound,
   UsersRound,
   Workflow,
 } from 'lucide-react'
 import { supabase, supabaseConfigured, type ActivityRow, type BpoPartner, type Deal, type HistoryRow, type Organization, type Person, type Profile, type Stage } from './supabase'
 import './App.css'
 
+type View = 'pipeline' | 'contacts' | 'companies' | 'activities' | 'fields' | 'owners'
 type NewDeal = {
   title: string
   organization_name: string
@@ -40,19 +41,19 @@ const money = (value?: number | null) =>
 
 const statusLabel: Record<string, string> = { quente: 'Quente', morno: 'Morno', risco: 'Risco', ganho: 'Ganho', perdido: 'Perdido' }
 const statusTone: Record<string, string> = {
-  quente: 'bg-emerald-100 text-emerald-800 ring-emerald-200',
-  ganho: 'bg-emerald-100 text-emerald-800 ring-emerald-200',
-  morno: 'bg-amber-100 text-amber-800 ring-amber-200',
-  risco: 'bg-rose-100 text-rose-800 ring-rose-200',
-  perdido: 'bg-slate-100 text-slate-600 ring-slate-200',
+  quente: 'bg-red-100 text-red-700',
+  ganho: 'bg-emerald-100 text-emerald-700',
+  morno: 'bg-amber-100 text-amber-700',
+  risco: 'bg-rose-100 text-rose-700',
+  perdido: 'bg-slate-100 text-slate-500',
 }
 
 function cn(...classes: Array<string | false | undefined | null>) { return classes.filter(Boolean).join(' ') }
-function Badge({ children, tone }: { children: React.ReactNode; tone?: string }) {
-  return <span className={cn('inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ring-1', tone || 'bg-slate-100 text-slate-700 ring-slate-200')}>{children}</span>
+function Badge({ children, tone }: { children: ReactNode; tone?: string }) {
+  return <span className={cn('inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] font-semibold', tone || 'bg-slate-100 text-slate-600')}>{children}</span>
 }
-function Card({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <section className={cn('rounded-2xl border border-white/70 bg-white/85 p-4 card-shadow backdrop-blur', className)}>{children}</section>
+function Panel({ children, className }: { children: ReactNode; className?: string }) {
+  return <section className={cn('rounded border border-slate-200 bg-white', className)}>{children}</section>
 }
 
 function Login() {
@@ -62,7 +63,7 @@ function Login() {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
 
-  async function submit(e: React.FormEvent) {
+  async function submit(e: FormEvent) {
     e.preventDefault()
     setBusy(true)
     setMessage('')
@@ -75,18 +76,18 @@ function Login() {
   }
 
   return (
-    <main className="min-h-screen bg-[#10241c] bg-grid p-6 text-white">
+    <main className="min-h-screen bg-[#f4f5f7] p-6 text-slate-900">
       <div className="mx-auto flex min-h-[calc(100vh-3rem)] max-w-6xl items-center justify-center">
-        <div className="grid w-full overflow-hidden rounded-[2rem] bg-white text-slate-900 shadow-2xl lg:grid-cols-[1.1fr_0.9fr]">
-          <section className="bg-[#183b2e] p-8 text-white md:p-12">
+        <div className="grid w-full overflow-hidden rounded-2xl bg-white shadow-2xl lg:grid-cols-[1.1fr_0.9fr]">
+          <section className="bg-[#262a3d] p-8 text-white md:p-12">
             <div className="mb-8 flex items-center gap-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-400 text-[#10241c]"><Workflow /></div>
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#2cbf6d] text-white"><Workflow /></div>
               <div><p className="text-xs uppercase tracking-[0.25em] text-emerald-200">VMarket</p><h1 className="text-xl font-black">BPO CRM</h1></div>
             </div>
-            <h2 className="text-4xl font-black leading-tight md:text-5xl">CRM real conectado ao Supabase</h2>
-            <p className="mt-4 max-w-xl text-emerald-50/80">Login por email e senha, RLS para Admin VMarket ver tudo e BPO parceiro ver apenas sua carteira, pipeline, contatos, empresas, atividades e histórico.</p>
+            <h2 className="text-4xl font-black leading-tight md:text-5xl">CRM estilo Pipedrive conectado ao Supabase</h2>
+            <p className="mt-4 max-w-xl text-slate-200">Funil em Kanban, menu lateral navegável, negócios, contatos, empresas e atividades usando dados reais do banco.</p>
             <div className="mt-8 grid gap-3 text-sm md:grid-cols-2">
-              {['Pipeline com banco real', 'CRUD de negócios', 'Atividades vinculadas', 'Permissões por BPO'].map((item) => <div key={item} className="rounded-2xl bg-white/10 p-3 ring-1 ring-white/10"><CheckCircle2 className="mb-2 text-emerald-300" size={18}/>{item}</div>)}
+              {['Funil Kanban', 'Cards por etapa', 'Menu lateral funcional', 'Permissões por BPO'].map((item) => <div key={item} className="rounded-xl bg-white/10 p-3 ring-1 ring-white/10"><CheckCircle2 className="mb-2 text-emerald-300" size={18}/>{item}</div>)}
             </div>
           </section>
           <section className="p-8 md:p-12">
@@ -94,13 +95,13 @@ function Login() {
             <p className="mt-2 text-sm text-slate-500">Use um usuário criado no Supabase Auth.</p>
             {!supabaseConfigured && <p className="mt-4 rounded-xl bg-rose-50 p-3 text-sm text-rose-700">Supabase não configurado no ambiente.</p>}
             <form onSubmit={submit} className="mt-6 space-y-4">
-              <input className="w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:ring-2 focus:ring-emerald-400" placeholder="email@empresa.com" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-              <input className="w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:ring-2 focus:ring-emerald-400" placeholder="Senha" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-              <button disabled={busy} className="w-full rounded-xl bg-[#183b2e] px-4 py-3 font-bold text-white disabled:opacity-60">{busy ? 'Aguarde...' : mode === 'login' ? 'Entrar' : 'Criar usuário'}</button>
+              <input className="w-full rounded border border-slate-300 px-4 py-3 outline-none focus:ring-2 focus:ring-emerald-400" placeholder="email@empresa.com" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+              <input className="w-full rounded border border-slate-300 px-4 py-3 outline-none focus:ring-2 focus:ring-emerald-400" placeholder="Senha" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+              <button disabled={busy} className="w-full rounded bg-[#2cbf6d] px-4 py-3 font-bold text-white disabled:opacity-60">{busy ? 'Aguarde...' : mode === 'login' ? 'Entrar' : 'Criar usuário'}</button>
             </form>
             <button onClick={() => setMode(mode === 'login' ? 'signup' : 'login')} className="mt-4 text-sm font-semibold text-emerald-700">{mode === 'login' ? 'Criar conta de teste' : 'Já tenho conta'}</button>
-            {message && <p className="mt-4 rounded-xl bg-slate-50 p-3 text-sm text-slate-700">{message}</p>}
-            <div className="mt-6 rounded-2xl bg-emerald-50 p-4 text-sm text-emerald-900 ring-1 ring-emerald-100">
+            {message && <p className="mt-4 rounded bg-slate-50 p-3 text-sm text-slate-700">{message}</p>}
+            <div className="mt-6 rounded bg-emerald-50 p-4 text-sm text-emerald-900 ring-1 ring-emerald-100">
               <b>Banco configurado:</b> o CRM já está conectado ao Supabase com tabelas, permissões e dados iniciais.
             </div>
           </section>
@@ -121,9 +122,11 @@ function App() {
   const [people, setPeople] = useState<Person[]>([])
   const [bpos, setBpos] = useState<BpoPartner[]>([])
   const [selectedId, setSelectedId] = useState<string>('')
+  const [activeView, setActiveView] = useState<View>('pipeline')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [creating, setCreating] = useState(false)
+  const [draggingId, setDraggingId] = useState<string | null>(null)
   const [newDeal, setNewDeal] = useState<NewDeal>({ title: '', organization_name: '', contact_name: '', value: '399', monthly_purchase: '50000', plan: 'BPO completo + Essencial', stage_id: '', bpo_id: '' })
 
   const selected = useMemo(() => deals.find((d) => d.id === selectedId) || deals[0], [deals, selectedId])
@@ -131,10 +134,9 @@ function App() {
   const selectedActivities = selected ? activities.filter((a) => a.deal_id === selected.id) : []
   const selectedHistory = selected ? history.filter((h) => h.deal_id === selected.id) : []
   const totals = useMemo(() => ({
+    value: deals.reduce((acc, d) => acc + Number(d.value || 0), 0),
     gmv: deals.reduce((acc, d) => acc + Number(d.monthly_purchase || 0), 0),
-    savings: deals.reduce((acc, d) => acc + Number(d.estimated_savings || 0), 0),
     openActivities: activities.filter((a) => a.status === 'open').length,
-    partners: new Set(deals.map((d) => d.bpo_id).filter(Boolean)).size,
   }), [deals, activities])
 
   useEffect(() => {
@@ -181,7 +183,7 @@ function App() {
     }
   }
 
-  async function createDeal(e: React.FormEvent) {
+  async function createDeal(e: FormEvent) {
     e.preventDefault()
     setCreating(true)
     setError('')
@@ -199,6 +201,7 @@ function App() {
       setNewDeal({ title: '', organization_name: '', contact_name: '', value: '399', monthly_purchase: '50000', plan: 'BPO completo + Essencial', stage_id: stages[0]?.id || '', bpo_id: bpoId || '' })
       await loadAll()
       setSelectedId(deal.id)
+      setActiveView('pipeline')
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -206,13 +209,16 @@ function App() {
     }
   }
 
-  async function moveDeal(stageId: string) {
-    if (!selected) return
-    const { error } = await supabase.from('deals').update({ stage_id: stageId }).eq('id', selected.id)
+  async function moveDeal(stageId: string, dealId = selected?.id) {
+    if (!dealId) return
+    const deal = deals.find((d) => d.id === dealId)
+    if (deal?.stage_id === stageId) return
+    const { error } = await supabase.from('deals').update({ stage_id: stageId }).eq('id', dealId)
     if (error) setError(error.message)
     else {
-      await supabase.from('deal_history').insert({ deal_id: selected.id, event_type: 'Campo', title: 'Etapa do pipeline alterada', description: `Nova etapa: ${stages.find((s) => s.id === stageId)?.name || ''}` })
+      await supabase.from('deal_history').insert({ deal_id: dealId, event_type: 'Campo', title: 'Etapa do pipeline alterada', description: `Nova etapa: ${stages.find((s) => s.id === stageId)?.name || ''}` })
       await loadAll()
+      setSelectedId(dealId)
     }
   }
 
@@ -222,48 +228,169 @@ function App() {
     else await loadAll()
   }
 
+  function handleDrop(e: DragEvent, stageId: string) {
+    e.preventDefault()
+    if (draggingId) void moveDeal(stageId, draggingId)
+    setDraggingId(null)
+  }
+
   if (!session) return <Login />
 
+  const navItems: Array<[View, ReactNode, string]> = [
+    ['pipeline', <LayoutDashboard size={19}/>, 'Negócios'],
+    ['contacts', <Contact size={19}/>, 'Contatos'],
+    ['companies', <Building2 size={19}/>, 'Empresas'],
+    ['activities', <Activity size={19}/>, 'Atividades'],
+    ['fields', <Tags size={19}/>, 'Campos'],
+    ['owners', <UsersRound size={19}/>, 'Proprietários'],
+  ]
+
   return (
-    <main className="min-h-screen bg-[#f4f7f1] bg-grid text-slate-900">
+    <main className="min-h-screen bg-[#f4f5f7] text-slate-900">
       <div className="flex min-h-screen">
-        <aside className="hidden w-72 border-r border-emerald-900/10 bg-[#10241c] p-5 text-white lg:block">
-          <div className="mb-8 flex items-center gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-400 text-[#10241c]"><Workflow size={24} /></div><div><p className="text-xs uppercase tracking-[0.24em] text-emerald-200">VMarket</p><h1 className="text-lg font-bold">BPO CRM</h1></div></div>
-          <nav className="space-y-2 text-sm">{[[LayoutDashboard,'Pipeline'],[Contact,'Contatos'],[Building2,'Empresas'],[Activity,'Atividades'],[Tags,'Campos'],[UsersRound,'Proprietários']].map(([Icon,label],i)=><button key={label as string} className={cn('flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left', i===0?'bg-white text-[#10241c]':'text-emerald-50 hover:bg-white/10')}><Icon size={18}/>{label as string}</button>)}</nav>
-          <div className="mt-8 rounded-2xl bg-emerald-400/12 p-4 ring-1 ring-emerald-300/20"><p className="text-sm font-semibold text-emerald-100">Sessão ativa</p><p className="mt-2 break-all text-xs text-emerald-50/75">{session.user.email}</p><p className="mt-2 text-xs text-emerald-50/75">Perfil: {profile?.role === 'admin_vmarket' ? 'Admin VMarket' : 'BPO parceiro'}</p></div>
-          <button onClick={() => supabase.auth.signOut()} className="mt-4 flex w-full items-center gap-2 rounded-xl bg-white/10 px-3 py-2 text-sm font-bold text-white hover:bg-white/20"><LogOut size={16}/>Sair</button>
+        <aside className="flex w-14 shrink-0 flex-col items-center gap-2 bg-[#211746] py-3 text-white">
+          <div className="mb-3 text-2xl font-black">p</div>
+          {navItems.map(([key, icon, label]) => <button key={key} onClick={() => setActiveView(key)} title={label} className={cn('grid h-10 w-10 place-items-center rounded-lg transition', activeView === key ? 'bg-[#6f5cf6] text-white' : 'text-white/70 hover:bg-white/10 hover:text-white')}>{icon}</button>)}
+          <button onClick={() => supabase.auth.signOut()} title="Sair" className="mt-auto grid h-10 w-10 place-items-center rounded-lg text-white/70 hover:bg-white/10 hover:text-white"><LogOut size={18}/></button>
         </aside>
-        <div className="flex-1 p-4 md:p-6 lg:p-8">
-          <header className="mb-6 flex flex-col gap-4 rounded-3xl bg-[#183b2e] p-5 text-white card-shadow lg:flex-row lg:items-center lg:justify-between">
-            <div><p className="mb-2 text-sm font-semibold uppercase tracking-[0.25em] text-emerald-200">CRM REAL COM SUPABASE</p><h2 className="text-2xl font-black md:text-4xl">Pipeline VMarket para parceiros BPO</h2><p className="mt-2 max-w-3xl text-sm text-emerald-50/80">Dados reais no Supabase, autenticação por email e senha, RLS por perfil, pipeline, negócios, contatos, empresas, atividades e histórico.</p></div>
-            <div className="flex flex-wrap gap-2"><button onClick={loadAll} className="rounded-xl bg-white px-4 py-2 text-sm font-bold text-[#183b2e]"><RefreshCw className="mr-2 inline" size={16}/>Atualizar</button><button className="rounded-xl bg-emerald-400 px-4 py-2 text-sm font-bold text-[#183b2e]"><Filter className="mr-2 inline" size={16}/>Filtros</button></div>
+
+        <div className="flex min-w-0 flex-1 flex-col">
+          <header className="flex h-14 items-center gap-3 border-b border-slate-200 bg-white px-5">
+            <h1 className="min-w-[155px] text-base font-semibold">{navItems.find(([key]) => key === activeView)?.[2]}</h1>
+            <div className="mx-auto hidden w-full max-w-xl items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-400 md:flex"><Search size={17}/>Pesquisar no Pipedrive</div>
+            <button onClick={() => setActiveView('pipeline')} className="grid h-9 w-9 place-items-center rounded-full border border-slate-200 text-slate-600 hover:bg-slate-50"><Plus size={19}/></button>
+            <button onClick={loadAll} className="grid h-9 w-9 place-items-center rounded-full border border-slate-200 text-slate-600 hover:bg-slate-50"><RefreshCw size={17}/></button>
+            <button onClick={() => supabase.auth.signOut()} className="hidden rounded border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 sm:block">Sair</button>
           </header>
-          {error && <div className="mb-6 rounded-2xl bg-rose-50 p-4 text-sm text-rose-800 ring-1 ring-rose-100"><b>Erro:</b> {error}<br/>Se for erro de tabela inexistente, rode <code>supabase-schema.sql</code> no SQL Editor do Supabase.</div>}
-          {loading ? <Card>Carregando dados do Supabase...</Card> : (
-            <>
-              <section className="mb-6 grid gap-4 md:grid-cols-4">{[[CircleDollarSign,'GMV em negociação',money(totals.gmv),'Soma das compras mensais'],[HandCoins,'Economia projetada',money(totals.savings),'Estimativa média de 12%'],[CalendarClock,'Atividades abertas',String(totals.openActivities),'Próximos follow-ups'],[ShieldCheck,'Parceiros ativos',String(totals.partners),'BPOs com negócios']].map(([Icon,label,value,sub])=><Card key={label as string} className="p-5"><div className="rounded-xl bg-emerald-100 p-2 text-emerald-700 w-fit"><Icon size={20}/></div><p className="mt-4 text-sm text-slate-500">{label as string}</p><p className="text-2xl font-black text-slate-950">{value as string}</p><p className="mt-1 text-xs text-slate-500">{sub as string}</p></Card>)}</section>
-              <div className="grid gap-6 xl:grid-cols-[1.05fr_1.4fr]">
-                <Card>
-                  <h3 className="text-lg font-black">Negócios por etapa</h3><p className="mb-4 text-sm text-slate-500">Cards lidos do Supabase.</p>
-                  <div className="grid gap-3">{stages.slice(0,5).map(stage=>{const stageDeals=deals.filter(d=>d.stage_id===stage.id);return <div key={stage.id} className="rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200"><div className="mb-3 flex items-center justify-between"><p className="text-sm font-bold text-slate-800">{stage.name}</p><Badge>{stageDeals.length}</Badge></div><div className="space-y-2">{stageDeals.map(deal=><button key={deal.id} onClick={()=>setSelectedId(deal.id)} className={cn('w-full rounded-xl border p-3 text-left transition hover:-translate-y-0.5', selected?.id===deal.id?'border-emerald-400 bg-white shadow-lg':'border-slate-200 bg-white/75')}><div className="flex items-start justify-between gap-2"><p className="font-bold leading-tight">{deal.title}</p><Badge tone={statusTone[deal.status || 'morno']}>{statusLabel[deal.status || 'morno']}</Badge></div><p className="mt-2 text-xs text-slate-500">{deal.organizations?.name || 'Sem empresa'}</p><div className="mt-3 flex items-center justify-between text-xs"><span className="font-semibold text-emerald-700">{money(deal.value)}</span><span className="text-slate-500">{deal.bpo_partners?.name || 'Sem BPO'}</span></div></button>)}{stageDeals.length===0 && <div className="rounded-xl border border-dashed border-slate-300 p-3 text-xs text-slate-400">Sem cards nesta etapa</div>}</div></div>})}</div>
-                </Card>
-                <Card className="p-0 overflow-hidden">
-                  {selected ? <>
-                    <div className="border-b border-slate-200 bg-white p-5"><div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between"><div><div className="mb-2 flex flex-wrap gap-2"><Badge>{selected.source || 'Sem origem'}</Badge><Badge tone="bg-emerald-100 text-emerald-800 ring-emerald-200">Score {selected.score || 0}</Badge><Badge>Fechamento {selected.expected_close_date || 'sem data'}</Badge></div><h3 className="text-2xl font-black">{selected.title}</h3><p className="mt-1 text-sm text-slate-500">{selected.people?.full_name || 'Sem contato'} em {selected.organizations?.name || 'Sem empresa'}</p></div><button onClick={()=>moveDeal(stages[Math.min(selectedStageIndex+1, stages.length-1)]?.id)} className="rounded-xl bg-[#183b2e] px-4 py-2 text-sm font-bold text-white">Avançar etapa</button></div><div className="mt-5 flex flex-wrap items-center gap-1 pb-2">{stages.map((stage,i)=><button key={stage.id} onClick={()=>moveDeal(stage.id)} className={cn('rounded-full px-3 py-1.5 text-xs font-bold', i<=selectedStageIndex?'bg-emerald-500 text-white':'bg-slate-100 text-slate-500')}>{stage.name}</button>)}</div></div>
-                    <div className="grid gap-0 lg:grid-cols-[1.25fr_0.85fr]"><div className="p-5"><div className="mb-5 rounded-2xl bg-emerald-50 p-4 ring-1 ring-emerald-100"><div className="flex items-center gap-3"><Star className="text-emerald-700" size={20}/><div><p className="font-black">Foco do negócio</p><p className="text-sm text-slate-600">Próximos passos salvos no banco.</p></div></div><div className="mt-3 space-y-2">{(selected.focus_items||[]).map(item=><label key={item} className="flex items-center gap-2 rounded-xl bg-white p-2 text-sm"><CheckCircle2 size={16} className="text-emerald-600"/>{item}</label>)}</div></div><h4 className="mb-3 font-black">Histórico</h4><div className="space-y-3">{selectedHistory.map(h=><div key={h.id} className="rounded-2xl border border-slate-200 bg-white p-3"><p className="text-sm font-bold">{h.event_type}: {h.title}</p><p className="text-xs text-slate-500">{h.description}</p></div>)}{selectedHistory.length===0 && <p className="text-sm text-slate-500">Sem histórico ainda.</p>}</div><h4 className="mb-3 mt-5 font-black">Atividades abertas</h4><div className="grid gap-3 md:grid-cols-2">{selectedActivities.map(a=><div key={a.id} className="rounded-2xl border border-slate-200 bg-white p-3"><div className="flex items-center justify-between"><CalendarClock size={18} className="text-emerald-700"/><Badge>{a.status === 'open' ? 'Aberta' : 'Concluída'}</Badge></div><p className="mt-2 text-sm font-bold">{a.title}</p><p className="text-xs text-slate-500">{a.activity_type} · {a.due_at ? new Date(a.due_at).toLocaleString('pt-BR') : 'sem data'}</p>{a.status==='open' && <button onClick={()=>completeActivity(a.id)} className="mt-2 text-xs font-bold text-emerald-700">Marcar concluída</button>}</div>)}</div></div><aside className="border-l border-slate-200 bg-slate-50/80 p-5"><h4 className="mb-3 font-black">Resumo</h4>{[['Valor', money(selected.value), CircleDollarSign], ['Probabilidade', `${selected.probability || 0}%`, UserRound], ['BPO parceiro', selected.bpo_partners?.name || 'Sem BPO', UsersRound], ['Plano', selected.plan || 'N/A', ClipboardList], ['Volume compras', money(selected.monthly_purchase), CircleDollarSign], ['Economia estimada', money(selected.estimated_savings), HandCoins]].map(([k,v,Icon])=><div key={k as string} className="mb-2 flex items-center justify-between gap-3 rounded-xl bg-white p-3 ring-1 ring-slate-200"><div className="flex items-center gap-2 text-sm text-slate-500"><Icon size={15}/>{k as string}</div><p className="text-right text-sm font-bold">{v as string}</p></div>)}</aside></div>
-                  </> : <div className="p-5">Nenhum negócio encontrado. Crie o primeiro abaixo.</div>}
-                </Card>
-              </div>
-              <section className="mt-6 grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
-                <Card><h3 className="mb-3 flex items-center gap-2 text-lg font-black"><Plus size={20}/>Criar negócio real</h3><form onSubmit={createDeal} className="grid gap-3"><input className="rounded-xl border p-3" placeholder="Título do negócio" value={newDeal.title} onChange={e=>setNewDeal({...newDeal,title:e.target.value})} required/><input className="rounded-xl border p-3" placeholder="Empresa" value={newDeal.organization_name} onChange={e=>setNewDeal({...newDeal,organization_name:e.target.value})} required/><input className="rounded-xl border p-3" placeholder="Contato" value={newDeal.contact_name} onChange={e=>setNewDeal({...newDeal,contact_name:e.target.value})} required/><div className="grid grid-cols-2 gap-3"><input className="rounded-xl border p-3" placeholder="Mensalidade" value={newDeal.value} onChange={e=>setNewDeal({...newDeal,value:e.target.value})}/><input className="rounded-xl border p-3" placeholder="Compras mensais" value={newDeal.monthly_purchase} onChange={e=>setNewDeal({...newDeal,monthly_purchase:e.target.value})}/></div><select className="rounded-xl border p-3" value={newDeal.stage_id} onChange={e=>setNewDeal({...newDeal,stage_id:e.target.value})}>{stages.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select><select className="rounded-xl border p-3" value={newDeal.bpo_id} onChange={e=>setNewDeal({...newDeal,bpo_id:e.target.value})}>{bpos.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select><button disabled={creating} className="rounded-xl bg-[#183b2e] p-3 font-bold text-white disabled:opacity-60">{creating?'Criando...':'Criar no Supabase'}</button></form></Card>
-                <Card><h3 className="mb-3 text-lg font-black">Base real</h3><div className="grid gap-3 md:grid-cols-2"><div><h4 className="mb-2 font-bold">Empresas</h4>{organizations.slice(0,5).map(o=><p key={o.id} className="mb-2 rounded-xl bg-slate-50 p-3 text-sm ring-1 ring-slate-200"><b>{o.name}</b><br/><span className="text-slate-500">{o.segment} · {money(o.monthly_purchase)}</span></p>)}</div><div><h4 className="mb-2 font-bold">Contatos</h4>{people.slice(0,5).map(p=><p key={p.id} className="mb-2 rounded-xl bg-slate-50 p-3 text-sm ring-1 ring-slate-200"><b>{p.full_name}</b><br/><span className="text-slate-500">{p.role_title || 'Contato'} · {p.email || 'sem email'}</span></p>)}</div></div></Card>
-              </section>
-            </>
-          )}
+
+          <section className="min-h-0 flex-1 overflow-hidden">
+            {error && <div className="m-4 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><b>Erro:</b> {error}</div>}
+            {loading ? <div className="m-4 rounded bg-white p-4 text-sm shadow-sm">Carregando dados do Supabase...</div> : (
+              <>
+                {activeView === 'pipeline' && <PipelineView stages={stages} deals={deals} selectedId={selected?.id} setSelectedId={setSelectedId} setDraggingId={setDraggingId} handleDrop={handleDrop} totals={totals} selected={selected} selectedStageIndex={selectedStageIndex} selectedActivities={selectedActivities} selectedHistory={selectedHistory} moveDeal={moveDeal} completeActivity={completeActivity} newDeal={newDeal} setNewDeal={setNewDeal} createDeal={createDeal} creating={creating} bpos={bpos} />}
+                {activeView === 'contacts' && <ListView title="Contatos" icon={<Contact size={18}/>} rows={people.map((p) => ({ id: p.id, title: p.full_name, sub: `${p.role_title || 'Contato'} · ${p.email || 'sem email'}`, meta: p.phone || 'sem telefone' }))} />}
+                {activeView === 'companies' && <ListView title="Empresas" icon={<Building2 size={18}/>} rows={organizations.map((o) => ({ id: o.id, title: o.name, sub: `${o.segment || 'Segmento não informado'} · ${o.city || ''} ${o.state || ''}`, meta: money(o.monthly_purchase) }))} />}
+                {activeView === 'activities' && <ActivitiesView activities={activities} deals={deals} completeActivity={completeActivity} />}
+                {activeView === 'fields' && <SettingsView title="Campos" items={['Volume mensal de compras', 'Plano recomendado', 'Economia estimada', 'Tipo de operação', 'Perfil do decisor', 'Cotação coletiva']} />}
+                {activeView === 'owners' && <SettingsView title="Proprietários e parceiros" items={[`Usuário atual: ${session.user.email}`, `Perfil: ${profile?.role === 'admin_vmarket' ? 'Admin VMarket' : 'BPO parceiro'}`, ...bpos.map((b) => `${b.name} · ${b.contact_name || 'sem contato'}`)]} />}
+              </>
+            )}
+          </section>
         </div>
       </div>
     </main>
   )
+}
+
+function PipelineView({ stages, deals, selectedId, setSelectedId, setDraggingId, handleDrop, totals, selected, selectedStageIndex, selectedActivities, selectedHistory, moveDeal, completeActivity, newDeal, setNewDeal, createDeal, creating, bpos }: {
+  stages: Stage[]
+  deals: Deal[]
+  selectedId?: string
+  setSelectedId: (id: string) => void
+  setDraggingId: (id: string | null) => void
+  handleDrop: (e: DragEvent, stageId: string) => void
+  totals: { value: number; gmv: number; openActivities: number }
+  selected?: Deal
+  selectedStageIndex: number
+  selectedActivities: ActivityRow[]
+  selectedHistory: HistoryRow[]
+  moveDeal: (stageId: string, dealId?: string) => Promise<void>
+  completeActivity: (id: string) => Promise<void>
+  newDeal: NewDeal
+  setNewDeal: (deal: NewDeal) => void
+  createDeal: (e: FormEvent) => Promise<void>
+  creating: boolean
+  bpos: BpoPartner[]
+}) {
+  return <div className="flex h-full min-h-0 flex-col">
+    <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-5 py-3">
+      <button className="rounded border border-[#2cbf6d] bg-[#2cbf6d] px-3 py-2 text-sm font-semibold text-white">+ Negócio</button>
+      <button className="rounded border border-slate-200 px-3 py-2 text-sm text-slate-600"><GripVertical size={15} className="inline"/> Kanban</button>
+      <button className="rounded border border-slate-200 px-3 py-2 text-sm text-slate-600"><List size={15} className="inline"/> Lista</button>
+      <button className="rounded border border-slate-200 px-3 py-2 text-sm text-slate-600"><Filter size={15} className="inline"/> Filtros</button>
+      <div className="ml-auto text-sm text-slate-500"><b>{deals.length}</b> negócios · {money(totals.value)} · GMV {money(totals.gmv)}</div>
+    </div>
+
+    <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden xl:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="min-w-0 overflow-x-auto overflow-y-hidden p-4">
+        <div className="flex h-full min-w-max gap-3">
+          {stages.map((stage) => {
+            const stageDeals = deals.filter((d) => d.stage_id === stage.id)
+            const stageValue = stageDeals.reduce((acc, d) => acc + Number(d.value || 0), 0)
+            return <div key={stage.id} onDragOver={(e) => e.preventDefault()} onDrop={(e) => handleDrop(e, stage.id)} className="flex h-full w-[180px] flex-col rounded bg-[#edf0f3] ring-1 ring-slate-200 xl:w-[190px]">
+              <div className="border-b border-slate-200 p-3">
+                <p className="truncate text-sm font-bold text-slate-800">{stage.name}</p>
+                <p className="mt-1 text-[11px] text-slate-500">{money(stageValue)} · {stageDeals.length} negócios</p>
+              </div>
+              <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2">
+                {stageDeals.map((deal) => <button key={deal.id} draggable onDragStart={() => setDraggingId(deal.id)} onDragEnd={() => setDraggingId(null)} onClick={() => setSelectedId(deal.id)} className={cn('w-full rounded border bg-white p-2 text-left shadow-sm transition hover:shadow-md', selectedId === deal.id ? 'border-[#6f5cf6] ring-2 ring-[#6f5cf6]/20' : 'border-slate-200')}>
+                  <div className="h-1 w-12 rounded-full bg-[#c251a3]" />
+                  <p className="mt-2 line-clamp-2 text-xs font-bold leading-snug text-slate-900">{deal.title}</p>
+                  <p className="mt-1 truncate text-[11px] text-slate-500">{deal.organizations?.name || 'Sem empresa'}</p>
+                  <p className="mt-1 text-[11px] text-slate-500">{deal.expected_close_date ? new Date(deal.expected_close_date).toLocaleDateString('pt-BR') : 'Sem data'}</p>
+                  <div className="mt-2 flex items-center justify-between">
+                    <span className="text-[11px] font-semibold text-slate-700">{money(deal.value)}</span>
+                    <Badge tone={statusTone[deal.status || 'morno']}>{statusLabel[deal.status || 'morno']}</Badge>
+                  </div>
+                </button>)}
+                {stageDeals.length === 0 && <div className="rounded border border-dashed border-slate-300 p-3 text-center text-xs text-slate-400">Solte cards aqui</div>}
+              </div>
+            </div>
+          })}
+        </div>
+      </div>
+
+      <aside className="hidden min-h-0 overflow-y-auto border-l border-slate-200 bg-white xl:block">
+        {selected ? <div>
+          <div className="border-b border-slate-200 p-4">
+            <div className="mb-2 flex items-center justify-between"><Badge>{selected.source || 'Sem origem'}</Badge><MoreHorizontal size={18} className="text-slate-400"/></div>
+            <h2 className="text-lg font-black leading-tight">{selected.title}</h2>
+            <p className="mt-1 text-sm text-slate-500">{selected.people?.full_name || 'Sem contato'} · {selected.organizations?.name || 'Sem empresa'}</p>
+            <div className="mt-4 flex flex-wrap gap-1">{stages.map((stage, i) => <button key={stage.id} onClick={() => void moveDeal(stage.id, selected.id)} className={cn('rounded px-2 py-1 text-[11px] font-bold', i <= selectedStageIndex ? 'bg-[#2cbf6d] text-white' : 'bg-slate-100 text-slate-500')}>{stage.name}</button>)}</div>
+          </div>
+          <div className="grid grid-cols-2 gap-2 border-b border-slate-200 p-4 text-sm">
+            <Metric label="Valor" value={money(selected.value)} />
+            <Metric label="Probabilidade" value={`${selected.probability || 0}%`} />
+            <Metric label="Plano" value={selected.plan || 'Sem plano'} />
+            <Metric label="BPO" value={selected.bpo_partners?.name || 'Sem BPO'} />
+          </div>
+          <div className="p-4">
+            <h3 className="mb-2 text-sm font-black">Atividades</h3>
+            <div className="space-y-2">{selectedActivities.map((a) => <div key={a.id} className="rounded border border-slate-200 p-2 text-sm"><div className="flex justify-between gap-2"><b>{a.title}</b><Badge>{a.status === 'open' ? 'Aberta' : 'OK'}</Badge></div><p className="text-xs text-slate-500">{a.due_at ? new Date(a.due_at).toLocaleString('pt-BR') : 'sem data'}</p>{a.status === 'open' && <button onClick={() => void completeActivity(a.id)} className="mt-1 text-xs font-bold text-emerald-700">Concluir</button>}</div>)}</div>
+            <h3 className="mb-2 mt-5 text-sm font-black">Histórico</h3>
+            <div className="space-y-2">{selectedHistory.map((h) => <div key={h.id} className="rounded bg-slate-50 p-2 text-sm"><b>{h.event_type}: {h.title}</b><p className="text-xs text-slate-500">{h.description}</p></div>)}</div>
+          </div>
+        </div> : <div className="p-4 text-sm text-slate-500">Selecione um negócio.</div>}
+      </aside>
+    </div>
+
+    <div className="border-t border-slate-200 bg-white p-4">
+      <form onSubmit={createDeal} className="grid gap-2 md:grid-cols-7">
+        <input className="rounded border border-slate-200 px-3 py-2 text-sm md:col-span-2" placeholder="Título do negócio" value={newDeal.title} onChange={e=>setNewDeal({...newDeal,title:e.target.value})} required/>
+        <input className="rounded border border-slate-200 px-3 py-2 text-sm" placeholder="Empresa" value={newDeal.organization_name} onChange={e=>setNewDeal({...newDeal,organization_name:e.target.value})} required/>
+        <input className="rounded border border-slate-200 px-3 py-2 text-sm" placeholder="Contato" value={newDeal.contact_name} onChange={e=>setNewDeal({...newDeal,contact_name:e.target.value})} required/>
+        <select className="rounded border border-slate-200 px-3 py-2 text-sm" value={newDeal.stage_id} onChange={e=>setNewDeal({...newDeal,stage_id:e.target.value})}>{stages.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select>
+        <select className="rounded border border-slate-200 px-3 py-2 text-sm" value={newDeal.bpo_id} onChange={e=>setNewDeal({...newDeal,bpo_id:e.target.value})}>{bpos.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select>
+        <button disabled={creating} className="rounded bg-[#2cbf6d] px-3 py-2 text-sm font-bold text-white disabled:opacity-60">{creating?'Criando...':'+ Negócio'}</button>
+      </form>
+    </div>
+  </div>
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return <div className="rounded bg-slate-50 p-2"><p className="text-[11px] text-slate-500">{label}</p><p className="truncate text-sm font-bold">{value}</p></div>
+}
+
+function ListView({ title, icon, rows }: { title: string; icon: ReactNode; rows: Array<{ id: string; title: string; sub: string; meta: string }> }) {
+  return <div className="h-full overflow-y-auto p-5"><Panel><div className="flex items-center gap-2 border-b border-slate-200 p-4"><span className="text-[#6f5cf6]">{icon}</span><h2 className="text-lg font-bold">{title}</h2></div><div className="divide-y divide-slate-100">{rows.map((row) => <div key={row.id} className="grid gap-2 p-4 text-sm hover:bg-slate-50 md:grid-cols-[1fr_1fr_160px]"><b>{row.title}</b><span className="text-slate-500">{row.sub}</span><span className="font-semibold text-slate-700">{row.meta}</span></div>)}</div></Panel></div>
+}
+
+function ActivitiesView({ activities, deals, completeActivity }: { activities: ActivityRow[]; deals: Deal[]; completeActivity: (id: string) => Promise<void> }) {
+  return <div className="h-full overflow-y-auto p-5"><Panel><div className="flex items-center gap-2 border-b border-slate-200 p-4"><CalendarClock size={18} className="text-[#6f5cf6]"/><h2 className="text-lg font-bold">Atividades</h2></div><div className="divide-y divide-slate-100">{activities.map((a) => { const deal = deals.find((d) => d.id === a.deal_id); return <div key={a.id} className="grid gap-2 p-4 text-sm hover:bg-slate-50 md:grid-cols-[1fr_220px_140px_100px]"><b>{a.title}</b><span className="text-slate-500">{deal?.title || 'Sem negócio'}</span><span>{a.due_at ? new Date(a.due_at).toLocaleDateString('pt-BR') : 'sem data'}</span>{a.status === 'open' ? <button onClick={() => void completeActivity(a.id)} className="text-left font-bold text-emerald-700">Concluir</button> : <Badge>OK</Badge>}</div> })}</div></Panel></div>
+}
+
+function SettingsView({ title, items }: { title: string; items: string[] }) {
+  return <div className="h-full overflow-y-auto p-5"><Panel><div className="flex items-center gap-2 border-b border-slate-200 p-4"><Settings size={18} className="text-[#6f5cf6]"/><h2 className="text-lg font-bold">{title}</h2></div><div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">{items.map((item) => <div key={item} className="rounded border border-slate-200 bg-slate-50 p-4 text-sm"><b>{item}</b><p className="mt-2 text-xs text-slate-500">Configurado no CRM VMarket.</p></div>)}</div></Panel></div>
 }
 
 export default App
