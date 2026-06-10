@@ -264,21 +264,21 @@ orgs as (
   returning *
 ), people_seed as (
   insert into public.people (full_name, role_title, email, phone, organization_id, labels, bpo_id)
-  select 'Mariana Alves', 'Dona', 'mariana@donalia.example', '(21) 99900-1212', id, array['Decisor','Food service'], bpo_id from public.organizations where name = 'Dona Lia Cozinha Brasileira'
-  union all select 'Paulo Nogueira', 'Gerente geral', 'paulo@atlantico.example', '(21) 98800-4455', id, array['Hotel','Operação média'], bpo_id from public.organizations where name = 'Hotel Atlântico Mar'
-  union all select 'Rafael Torres', 'Sócio operador', 'rafael@botanico.example', '(11) 97777-5522', id, array['Bar','Contrato'], bpo_id from public.organizations where name = 'Botânico Bar e Cozinha'
+  select 'Mariana Alves', 'Dona', 'mariana@donalia.example', '(21) 99900-1212', id, array['Decisor','Food service'], bpo_id from orgs where name = 'Dona Lia Cozinha Brasileira'
+  union all select 'Paulo Nogueira', 'Gerente geral', 'paulo@atlantico.example', '(21) 98800-4455', id, array['Hotel','Operação média'], bpo_id from orgs where name = 'Hotel Atlântico Mar'
+  union all select 'Rafael Torres', 'Sócio operador', 'rafael@botanico.example', '(11) 97777-5522', id, array['Bar','Contrato'], bpo_id from orgs where name = 'Botânico Bar e Cozinha'
   returning *
 ), deals_seed as (
   insert into public.deals (title, organization_id, person_id, stage_id, bpo_id, value, monthly_purchase, estimated_savings, probability, status, source, plan, expected_close_date, score, focus_items)
-  select 'Restaurante Dona Lia, BPO completo', o.id, p.id, (select id from st_prop), o.bpo_id, 1899, 82000, 9840, 72, 'quente', 'Lead sub-50k VMarket', 'BPO completo + Essencial', current_date + 8, 86, array['Enviar simulação de economia por CMV','Confirmar CNPJs e fornecedores ativos','Agendar diagnóstico de 5 dias úteis'] from public.organizations o join public.people p on p.organization_id=o.id where o.name='Dona Lia Cozinha Brasileira'
-  union all select 'Hotel Atlântico, implantação + consultoria', o.id, p.id, (select id from st_diag), o.bpo_id, 1200, 190000, 15200, 54, 'morno', 'Prospecção BPO', 'Implantação + Consultoria', current_date + 15, 71, array['Receber planilha de fornecedores','Validar integração com fluxo atual','Marcar demo de dashboard e curva ABC'] from public.organizations o join public.people p on p.organization_id=o.id where o.name='Hotel Atlântico Mar'
-  union all select 'Bar Botânico, implantação', o.id, p.id, (select id from st_contract), o.bpo_id, 2500, 42000, 3360, 88, 'ganho', 'Indicação BPO', 'Implantação', current_date + 2, 79, array['Subir cadastro de fornecedores','Programar capacitação de 8 horas','Abrir projeto de onboarding'] from public.organizations o join public.people p on p.organization_id=o.id where o.name='Botânico Bar e Cozinha'
+  select 'Restaurante Dona Lia, BPO completo', o.id, p.id, (select id from st_prop), o.bpo_id, 1899, 82000, 9840, 72, 'quente'::public.deal_status, 'Lead sub-50k VMarket', 'BPO completo + Essencial', current_date + 8, 86, array['Enviar simulação de economia por CMV','Confirmar CNPJs e fornecedores ativos','Agendar diagnóstico de 5 dias úteis'] from orgs o join people_seed p on p.organization_id=o.id where o.name='Dona Lia Cozinha Brasileira'
+  union all select 'Hotel Atlântico, implantação + consultoria', o.id, p.id, (select id from st_diag), o.bpo_id, 1200, 190000, 15200, 54, 'morno'::public.deal_status, 'Prospecção BPO', 'Implantação + Consultoria', current_date + 15, 71, array['Receber planilha de fornecedores','Validar integração com fluxo atual','Marcar demo de dashboard e curva ABC'] from orgs o join people_seed p on p.organization_id=o.id where o.name='Hotel Atlântico Mar'
+  union all select 'Bar Botânico, implantação', o.id, p.id, (select id from st_contract), o.bpo_id, 2500, 42000, 3360, 88, 'ganho'::public.deal_status, 'Indicação BPO', 'Implantação', current_date + 2, 79, array['Subir cadastro de fornecedores','Programar capacitação de 8 horas','Abrir projeto de onboarding'] from orgs o join people_seed p on p.organization_id=o.id where o.name='Botânico Bar e Cozinha'
   returning *
 )
 insert into public.activities (title, activity_type, due_at, status, deal_id, organization_id, person_id, bpo_id, note)
-select 'Qualificar lead sub-50k', 'call', now() + interval '4 hours', 'open', d.id, d.organization_id, d.person_id, d.bpo_id, 'Confirmar dor de compras por WhatsApp' from public.deals d where d.title like 'Restaurante Dona Lia%'
-union all select 'Diagnóstico gratuito', 'meeting', now() + interval '1 day', 'open', d.id, d.organization_id, d.person_id, d.bpo_id, 'Solicitar compras dos últimos 3 meses' from public.deals d where d.title like 'Hotel Atlântico%'
-union all select 'Enviar proposta com ROI', 'email', now() + interval '6 hours', 'open', d.id, d.organization_id, d.person_id, d.bpo_id, 'Enviar PDF e simulação de economia' from public.deals d where d.title like 'Bar Botânico%';
+select 'Qualificar lead sub-50k', 'call', now() + interval '4 hours', 'open'::public.activity_status, d.id, d.organization_id, d.person_id, d.bpo_id, 'Confirmar dor de compras por WhatsApp' from deals_seed d where d.title like 'Restaurante Dona Lia%'
+union all select 'Diagnóstico gratuito', 'meeting', now() + interval '1 day', 'open'::public.activity_status, d.id, d.organization_id, d.person_id, d.bpo_id, 'Solicitar compras dos últimos 3 meses' from deals_seed d where d.title like 'Hotel Atlântico%'
+union all select 'Enviar proposta com ROI', 'email', now() + interval '6 hours', 'open'::public.activity_status, d.id, d.organization_id, d.person_id, d.bpo_id, 'Enviar PDF e simulação de economia' from deals_seed d where d.title like 'Bar Botânico%';
 
 insert into public.deal_history (deal_id, event_type, title, description)
 select id, 'Atividade', 'Call de qualificação concluída', 'Cliente confirmou dor com cotação por WhatsApp' from public.deals where title like 'Restaurante Dona Lia%'
