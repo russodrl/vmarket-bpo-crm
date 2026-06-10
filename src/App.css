@@ -1,0 +1,17 @@
+#root {
+  min-height: 100vh;
+}
+
+button {
+  cursor: pointer;
+}
+
+::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(16, 36, 28, 0.22);
+  border-radius: 999px;
+}
