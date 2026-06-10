@@ -284,3 +284,13 @@ insert into public.deal_history (deal_id, event_type, title, description)
 select id, 'Atividade', 'Call de qualificação concluída', 'Cliente confirmou dor com cotação por WhatsApp' from public.deals where title like 'Restaurante Dona Lia%'
 union all select id, 'Campo', 'Plano recomendado alterado para BPO completo', 'Atualizado durante diagnóstico' from public.deals where title like 'Restaurante Dona Lia%'
 union all select id, 'Nota', 'Compras representam 36% do faturamento', 'Dado usado na proposta' from public.deals where title like 'Restaurante Dona Lia%';
+
+-- Promote Russo if the auth user already exists before this migration runs.
+insert into public.profiles (id, full_name, role, bpo_id)
+select id, 'Russo', 'admin_vmarket', null
+from auth.users
+where email = 'russo@digitalrootslab.com.br'
+on conflict (id) do update
+set full_name = excluded.full_name,
+    role = 'admin_vmarket',
+    bpo_id = null;
