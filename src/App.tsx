@@ -100,8 +100,8 @@ function Login() {
             </form>
             <button onClick={() => setMode(mode === 'login' ? 'signup' : 'login')} className="mt-4 text-sm font-semibold text-emerald-700">{mode === 'login' ? 'Criar conta de teste' : 'Já tenho conta'}</button>
             {message && <p className="mt-4 rounded-xl bg-slate-50 p-3 text-sm text-slate-700">{message}</p>}
-            <div className="mt-6 rounded-2xl bg-amber-50 p-4 text-sm text-amber-900 ring-1 ring-amber-100">
-              <b>Antes do primeiro login:</b> rode o arquivo <code>supabase-schema.sql</code> no SQL Editor do Supabase para criar tabelas, RLS e dados mockados.
+            <div className="mt-6 rounded-2xl bg-emerald-50 p-4 text-sm text-emerald-900 ring-1 ring-emerald-100">
+              <b>Banco configurado:</b> o CRM já está conectado ao Supabase com tabelas, permissões e dados iniciais.
             </div>
           </section>
         </div>
