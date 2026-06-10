@@ -123,6 +123,7 @@ function App() {
   const [bpos, setBpos] = useState<BpoPartner[]>([])
   const [selectedId, setSelectedId] = useState<string>('')
   const [activeView, setActiveView] = useState<View>('pipeline')
+  const [activePipeline, setActivePipeline] = useState('Pipeline de Vendas BPO')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [creating, setCreating] = useState(false)
@@ -267,7 +268,7 @@ function App() {
             {error && <div className="m-4 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><b>Erro:</b> {error}</div>}
             {loading ? <div className="m-4 rounded bg-white p-4 text-sm shadow-sm">Carregando dados do Supabase...</div> : (
               <>
-                {activeView === 'pipeline' && <PipelineView stages={stages} deals={deals} selectedId={selected?.id} setSelectedId={setSelectedId} setDraggingId={setDraggingId} handleDrop={handleDrop} totals={totals} selected={selected} selectedStageIndex={selectedStageIndex} selectedActivities={selectedActivities} selectedHistory={selectedHistory} moveDeal={moveDeal} completeActivity={completeActivity} newDeal={newDeal} setNewDeal={setNewDeal} createDeal={createDeal} creating={creating} bpos={bpos} />}
+                {activeView === 'pipeline' && <PipelineView stages={stages} deals={deals} selectedId={selected?.id} setSelectedId={setSelectedId} setDraggingId={setDraggingId} handleDrop={handleDrop} totals={totals} selected={selected} selectedStageIndex={selectedStageIndex} selectedActivities={selectedActivities} selectedHistory={selectedHistory} moveDeal={moveDeal} completeActivity={completeActivity} newDeal={newDeal} setNewDeal={setNewDeal} createDeal={createDeal} creating={creating} bpos={bpos} activePipeline={activePipeline} setActivePipeline={setActivePipeline} />}
                 {activeView === 'contacts' && <ListView title="Contatos" icon={<Contact size={18}/>} rows={people.map((p) => ({ id: p.id, title: p.full_name, sub: `${p.role_title || 'Contato'} · ${p.email || 'sem email'}`, meta: p.phone || 'sem telefone' }))} />}
                 {activeView === 'companies' && <ListView title="Empresas" icon={<Building2 size={18}/>} rows={organizations.map((o) => ({ id: o.id, title: o.name, sub: `${o.segment || 'Segmento não informado'} · ${o.city || ''} ${o.state || ''}`, meta: money(o.monthly_purchase) }))} />}
                 {activeView === 'activities' && <ActivitiesView activities={activities} deals={deals} completeActivity={completeActivity} />}
@@ -282,7 +283,7 @@ function App() {
   )
 }
 
-function PipelineView({ stages, deals, selectedId, setSelectedId, setDraggingId, handleDrop, totals, selected, selectedStageIndex, selectedActivities, selectedHistory, moveDeal, completeActivity, newDeal, setNewDeal, createDeal, creating, bpos }: {
+function PipelineView({ stages, deals, selectedId, setSelectedId, setDraggingId, handleDrop, totals, selected, selectedStageIndex, selectedActivities, selectedHistory, moveDeal, completeActivity, newDeal, setNewDeal, createDeal, creating, bpos, activePipeline, setActivePipeline }: {
   stages: Stage[]
   deals: Deal[]
   selectedId?: string
@@ -301,14 +302,42 @@ function PipelineView({ stages, deals, selectedId, setSelectedId, setDraggingId,
   createDeal: (e: FormEvent) => Promise<void>
   creating: boolean
   bpos: BpoPartner[]
+  activePipeline: string
+  setActivePipeline: (pipeline: string) => void
 }) {
   return <div className="flex h-full min-h-0 flex-col">
-    <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-5 py-3">
-      <button className="rounded border border-[#2cbf6d] bg-[#2cbf6d] px-3 py-2 text-sm font-semibold text-white">+ Negócio</button>
-      <button className="rounded border border-slate-200 px-3 py-2 text-sm text-slate-600"><GripVertical size={15} className="inline"/> Kanban</button>
-      <button className="rounded border border-slate-200 px-3 py-2 text-sm text-slate-600"><List size={15} className="inline"/> Lista</button>
-      <button className="rounded border border-slate-200 px-3 py-2 text-sm text-slate-600"><Filter size={15} className="inline"/> Filtros</button>
-      <div className="ml-auto text-sm text-slate-500"><b>{deals.length}</b> negócios · {money(totals.value)} · GMV {money(totals.gmv)}</div>
+    <div className="border-b border-slate-200 bg-white">
+      <div className="flex h-12 items-center gap-2 px-4">
+        <div className="flex overflow-hidden rounded border border-slate-300">
+          <button className="grid h-8 w-9 place-items-center bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-300"><GripVertical size={15}/></button>
+          <button className="grid h-8 w-9 place-items-center border-l border-slate-300 text-slate-600 hover:bg-slate-50"><List size={15}/></button>
+          <button className="grid h-8 w-9 place-items-center border-l border-slate-300 text-slate-600 hover:bg-slate-50">◎</button>
+          <button className="grid h-8 w-9 place-items-center border-l border-slate-300 text-slate-600 hover:bg-slate-50">▣</button>
+        </div>
+        <button className="rounded-l border border-[#008f4c] bg-[#2cbf6d] px-3 py-1.5 text-sm font-semibold text-white">+ Negócio</button>
+        <button className="-ml-2 rounded-r border border-[#008f4c] bg-[#1f9d58] px-2 py-1.5 text-sm font-semibold text-white">⌄</button>
+        <button className="ml-1 rounded border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50">Adicionar condição</button>
+        <div className="ml-auto flex items-center gap-2 text-sm text-slate-600">
+          <span><b>{deals.length}</b> negócios · {money(totals.value)}</span>
+          <span className="hidden text-slate-300 md:inline">|</span>
+          <label className="flex items-center gap-1 rounded border border-slate-300 bg-white px-2 py-1.5 font-semibold text-slate-700">
+            <Workflow size={15}/>
+            <select value={activePipeline} onChange={(e) => setActivePipeline(e.target.value)} className="max-w-[170px] bg-transparent text-sm outline-none">
+              <option>Pipeline de Vendas BPO</option>
+              <option>Pipeline de Onboarding</option>
+              <option>Carteira ativa</option>
+            </select>
+          </label>
+          <button className="grid h-8 w-8 place-items-center rounded border border-slate-200 text-slate-500 hover:bg-slate-50">✎</button>
+          <button className="grid h-8 w-8 place-items-center rounded border border-slate-200 text-slate-500 hover:bg-slate-50">ⓘ</button>
+          <button className="rounded border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-600 hover:bg-slate-50"><Filter size={14} className="inline"/> Filtro</button>
+          <button className="grid h-8 w-8 place-items-center rounded border border-slate-200 text-slate-500 hover:bg-slate-50"><MoreHorizontal size={17}/></button>
+        </div>
+      </div>
+      <div className="flex h-8 items-center justify-between border-t border-slate-100 px-4 text-xs text-slate-500">
+        <span><Filter size={12} className="inline"/> Add condition</span>
+        <span className="font-semibold text-blue-600">Sort by: Next activity ▾</span>
+      </div>
     </div>
 
     <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden xl:grid-cols-[minmax(0,1fr)_360px]">
