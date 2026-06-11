@@ -346,20 +346,30 @@ function PipelineView({ stages, deals, selectedId, setSelectedId, setDraggingId,
           {stages.map((stage) => {
             const stageDeals = deals.filter((d) => d.stage_id === stage.id)
             const stageValue = stageDeals.reduce((acc, d) => acc + Number(d.value || 0), 0)
-            return <div key={stage.id} onDragOver={(e) => e.preventDefault()} onDrop={(e) => handleDrop(e, stage.id)} className="flex h-full w-[180px] flex-col rounded bg-[#edf0f3] ring-1 ring-slate-200 xl:w-[190px]">
+            return <div key={stage.id} onDragOver={(e) => e.preventDefault()} onDrop={(e) => handleDrop(e, stage.id)} className="flex h-full w-[232px] flex-col rounded bg-[#edf0f3] ring-1 ring-slate-200 xl:w-[244px]">
               <div className="border-b border-slate-200 p-3">
-                <p className="truncate text-sm font-bold text-slate-800">{stage.name}</p>
-                <p className="mt-1 text-[11px] text-slate-500">{money(stageValue)} · {stageDeals.length} negócios</p>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="truncate text-sm font-bold text-slate-800">{stage.name}</p>
+                  <button className="grid h-6 w-6 place-items-center rounded border border-slate-300 bg-white text-slate-500 hover:bg-slate-50">+</button>
+                </div>
+                <p className="mt-1 text-[11px] text-slate-500">{stageDeals.length} negócios · {money(stageValue)}</p>
               </div>
               <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2">
-                {stageDeals.map((deal) => <button key={deal.id} draggable onDragStart={() => setDraggingId(deal.id)} onDragEnd={() => setDraggingId(null)} onClick={() => setSelectedId(deal.id)} className={cn('w-full rounded border bg-white p-2 text-left shadow-sm transition hover:shadow-md', selectedId === deal.id ? 'border-[#6f5cf6] ring-2 ring-[#6f5cf6]/20' : 'border-slate-200')}>
-                  <div className="h-1 w-12 rounded-full bg-[#c251a3]" />
-                  <p className="mt-2 line-clamp-2 text-xs font-bold leading-snug text-slate-900">{deal.title}</p>
-                  <p className="mt-1 truncate text-[11px] text-slate-500">{deal.organizations?.name || 'Sem empresa'}</p>
-                  <p className="mt-1 text-[11px] text-slate-500">{deal.expected_close_date ? new Date(deal.expected_close_date).toLocaleDateString('pt-BR') : 'Sem data'}</p>
-                  <div className="mt-2 flex items-center justify-between">
-                    <span className="text-[11px] font-semibold text-slate-700">{money(deal.value)}</span>
+                {stageDeals.map((deal) => <button key={deal.id} draggable onDragStart={() => setDraggingId(deal.id)} onDragEnd={() => setDraggingId(null)} onClick={() => setSelectedId(deal.id)} className={cn('w-full rounded border bg-white p-3 text-left shadow-sm transition hover:shadow-md', selectedId === deal.id ? 'border-[#6f5cf6] ring-2 ring-[#6f5cf6]/20' : 'border-slate-200')}>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <span className="h-2 w-10 rounded-full bg-[#c251a3]" />
+                    <span className="grid h-6 w-6 place-items-center rounded-full bg-[#6f5cf6] text-[10px] font-bold text-white">R</span>
+                  </div>
+                  <p className="line-clamp-2 text-sm font-bold leading-snug text-slate-900">{deal.title}</p>
+                  <p className="mt-1 truncate text-xs text-slate-600">{deal.people?.full_name || 'Sem contato'}</p>
+                  <p className="truncate text-xs text-slate-500">{deal.organizations?.name || 'Sem empresa'}</p>
+                  <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-2">
+                    <span className="text-xs font-bold text-slate-800">{money(deal.value)}</span>
                     <Badge tone={statusTone[deal.status || 'morno']}>{statusLabel[deal.status || 'morno']}</Badge>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500">
+                    <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-700">● Próxima atividade</span>
+                    <span>{deal.expected_close_date ? new Date(deal.expected_close_date).toLocaleDateString('pt-BR') : 'Sem data'}</span>
                   </div>
                 </button>)}
                 {stageDeals.length === 0 && <div className="rounded border border-dashed border-slate-300 p-3 text-center text-xs text-slate-400">Solte cards aqui</div>}
@@ -384,9 +394,12 @@ function PipelineView({ stages, deals, selectedId, setSelectedId, setDraggingId,
             <Metric label="BPO" value={selected.bpo_partners?.name || 'Sem BPO'} />
           </div>
           <div className="p-4">
-            <h3 className="mb-2 text-sm font-black">Atividades</h3>
-            <div className="space-y-2">{selectedActivities.map((a) => <div key={a.id} className="rounded border border-slate-200 p-2 text-sm"><div className="flex justify-between gap-2"><b>{a.title}</b><Badge>{a.status === 'open' ? 'Aberta' : 'OK'}</Badge></div><p className="text-xs text-slate-500">{a.due_at ? new Date(a.due_at).toLocaleString('pt-BR') : 'sem data'}</p>{a.status === 'open' && <button onClick={() => void completeActivity(a.id)} className="mt-1 text-xs font-bold text-emerald-700">Concluir</button>}</div>)}</div>
-            <h3 className="mb-2 mt-5 text-sm font-black">Histórico</h3>
+            <div className="mb-4 flex rounded border border-slate-200 bg-slate-50 p-1 text-xs font-semibold text-slate-600">
+              {['Notas', 'Atividades', 'Emails', 'Arquivos'].map((tab, i) => <button key={tab} className={cn('flex-1 rounded px-2 py-1.5', i === 1 ? 'bg-white text-[#6f5cf6] shadow-sm' : 'hover:bg-white')}>{tab}</button>)}
+            </div>
+            <h3 className="mb-2 text-sm font-black">Atividades planejadas</h3>
+            <div className="space-y-2">{selectedActivities.map((a) => <div key={a.id} className="rounded border border-slate-200 p-2 text-sm"><div className="flex justify-between gap-2"><b>{a.title}</b><Badge>{a.status === 'open' ? 'Aberta' : 'OK'}</Badge></div><p className="text-xs text-slate-500">{a.due_at ? new Date(a.due_at).toLocaleString('pt-BR') : 'sem data'}</p>{a.status === 'open' && <button onClick={() => void completeActivity(a.id)} className="mt-1 text-xs font-bold text-emerald-700">Marcar como feita</button>}</div>)}</div>
+            <h3 className="mb-2 mt-5 text-sm font-black">Linha do tempo</h3>
             <div className="space-y-2">{selectedHistory.map((h) => <div key={h.id} className="rounded bg-slate-50 p-2 text-sm"><b>{h.event_type}: {h.title}</b><p className="text-xs text-slate-500">{h.description}</p></div>)}</div>
           </div>
         </div> : <div className="p-4 text-sm text-slate-500">Selecione um negócio.</div>}
