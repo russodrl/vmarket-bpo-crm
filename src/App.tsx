@@ -5,14 +5,18 @@ import {
   Activity,
   Building2,
   CalendarClock,
+  ChevronDown,
   CheckCircle2,
   Contact,
+  FileText,
   Filter,
   GripVertical,
   LayoutDashboard,
   List,
   LogOut,
+  Mail,
   MoreHorizontal,
+  Phone,
   Plus,
   RefreshCw,
   Search,
@@ -40,13 +44,6 @@ const money = (value?: number | null) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(Number(value || 0))
 
 const statusLabel: Record<string, string> = { quente: 'Quente', morno: 'Morno', risco: 'Risco', ganho: 'Ganho', perdido: 'Perdido' }
-const statusTone: Record<string, string> = {
-  quente: 'bg-red-100 text-red-700',
-  ganho: 'bg-emerald-100 text-emerald-700',
-  morno: 'bg-amber-100 text-amber-700',
-  risco: 'bg-rose-100 text-rose-700',
-  perdido: 'bg-slate-100 text-slate-500',
-}
 
 function cn(...classes: Array<string | false | undefined | null>) { return classes.filter(Boolean).join(' ') }
 function Badge({ children, tone }: { children: ReactNode; tone?: string }) {
@@ -250,7 +247,7 @@ function App() {
     <main className="min-h-screen bg-[#f4f5f7] text-slate-900">
       <div className="flex min-h-screen">
         <aside className="flex w-14 shrink-0 flex-col items-center gap-2 bg-[#211746] py-3 text-white">
-          <div className="mb-3 text-2xl font-black">p</div>
+          <div className="mb-3 grid h-10 w-10 place-items-center rounded-xl bg-white text-[13px] font-black tracking-[-0.08em] text-[#211746] shadow-sm">VM</div>
           {navItems.map(([key, icon, label]) => <button key={key} onClick={() => setActiveView(key)} title={label} className={cn('grid h-10 w-10 place-items-center rounded-lg transition', activeView === key ? 'bg-[#6f5cf6] text-white' : 'text-white/70 hover:bg-white/10 hover:text-white')}>{icon}</button>)}
           <button onClick={() => supabase.auth.signOut()} title="Sair" className="mt-auto grid h-10 w-10 place-items-center rounded-lg text-white/70 hover:bg-white/10 hover:text-white"><LogOut size={18}/></button>
         </aside>
@@ -258,9 +255,10 @@ function App() {
         <div className="flex min-w-0 flex-1 flex-col">
           <header className="flex h-14 items-center gap-3 border-b border-slate-200 bg-white px-5">
             <h1 className="min-w-[155px] text-base font-semibold">{navItems.find(([key]) => key === activeView)?.[2]}</h1>
-            <div className="mx-auto hidden w-full max-w-xl items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-400 md:flex"><Search size={17}/>Pesquisar no Pipedrive</div>
+            <div className="mx-auto hidden w-full max-w-xl items-center gap-2 rounded-full border border-slate-300 bg-white px-4 py-2 text-sm text-slate-400 shadow-inner md:flex"><Search size={17}/>Search VMarket</div>
             <button onClick={() => setActiveView('pipeline')} className="grid h-9 w-9 place-items-center rounded-full border border-slate-200 text-slate-600 hover:bg-slate-50"><Plus size={19}/></button>
             <button onClick={loadAll} className="grid h-9 w-9 place-items-center rounded-full border border-slate-200 text-slate-600 hover:bg-slate-50"><RefreshCw size={17}/></button>
+            <div className="hidden items-center gap-2 sm:flex"><span className="grid h-8 w-8 place-items-center rounded-full bg-slate-100 text-xs font-bold text-slate-600">{profile?.full_name?.slice(0,1) || 'V'}</span><span className="text-xs font-semibold leading-tight text-slate-700">VMarket<br/><span className="font-normal text-slate-500">BPO CRM</span></span></div>
             <button onClick={() => supabase.auth.signOut()} className="hidden rounded border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 sm:block">Sair</button>
           </header>
 
@@ -305,6 +303,10 @@ function PipelineView({ stages, deals, selectedId, setSelectedId, setDraggingId,
   activePipeline: string
   setActivePipeline: (pipeline: string) => void
 }) {
+  const selectedStage = selected ? stages.find((s) => s.id === selected.stage_id) : undefined
+  const ageDays = Math.max(1, Math.min(96, selected?.score || 36))
+  const stageSegments = stages.length ? stages : [{ id: 'empty', name: 'Sem etapa' } as Stage]
+
   return <div className="flex h-full min-h-0 flex-col">
     <div className="border-b border-slate-200 bg-white">
       <div className="flex h-12 items-center gap-2 px-4">
@@ -314,9 +316,9 @@ function PipelineView({ stages, deals, selectedId, setSelectedId, setDraggingId,
           <button className="grid h-8 w-9 place-items-center border-l border-slate-300 text-slate-600 hover:bg-slate-50">◎</button>
           <button className="grid h-8 w-9 place-items-center border-l border-slate-300 text-slate-600 hover:bg-slate-50">▣</button>
         </div>
-        <button className="rounded-l border border-[#008f4c] bg-[#2cbf6d] px-3 py-1.5 text-sm font-semibold text-white">+ Negócio</button>
-        <button className="-ml-2 rounded-r border border-[#008f4c] bg-[#1f9d58] px-2 py-1.5 text-sm font-semibold text-white">⌄</button>
-        <button className="ml-1 rounded border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50">Adicionar condição</button>
+        <button className="rounded-l border border-[#087d3e] bg-[#238847] px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-[#1f7a40]">+ Deal</button>
+        <button className="-ml-2 rounded-r border border-[#087d3e] bg-[#1f7a40] px-2 py-1.5 text-sm font-semibold text-white"><ChevronDown size={14}/></button>
+<button className="ml-1 rounded border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50">Adicionar condição</button>
         <div className="ml-auto flex items-center gap-2 text-sm text-slate-600">
           <span><b>{deals.length}</b> negócios · {money(totals.value)}</span>
           <span className="hidden text-slate-300 md:inline">|</span>
@@ -346,30 +348,30 @@ function PipelineView({ stages, deals, selectedId, setSelectedId, setDraggingId,
           {stages.map((stage) => {
             const stageDeals = deals.filter((d) => d.stage_id === stage.id)
             const stageValue = stageDeals.reduce((acc, d) => acc + Number(d.value || 0), 0)
-            return <div key={stage.id} onDragOver={(e) => e.preventDefault()} onDrop={(e) => handleDrop(e, stage.id)} className="flex h-full w-[232px] flex-col rounded bg-[#edf0f3] ring-1 ring-slate-200 xl:w-[244px]">
-              <div className="border-b border-slate-200 p-3">
-                <div className="flex items-center justify-between gap-2">
+            return <div key={stage.id} onDragOver={(e) => e.preventDefault()} onDrop={(e) => handleDrop(e, stage.id)} className="flex h-full w-[142px] flex-col bg-[#f0f2f4] ring-1 ring-slate-200 xl:w-[146px]">
+              <div className="border-b border-slate-200 bg-white/60 p-2">
+                <div className="flex items-center justify-between gap-1">
                   <p className="truncate text-sm font-bold text-slate-800">{stage.name}</p>
-                  <button className="grid h-6 w-6 place-items-center rounded border border-slate-300 bg-white text-slate-500 hover:bg-slate-50">+</button>
+                  <button className="grid h-6 w-6 shrink-0 place-items-center rounded border border-slate-300 bg-white text-slate-500 hover:bg-slate-50">+</button>
                 </div>
-                <p className="mt-1 text-[11px] text-slate-500">{stageDeals.length} negócios · {money(stageValue)}</p>
+                <p className="mt-1 truncate text-[11px] text-slate-500">{money(stageValue)} · {stageDeals.length} negócios</p>
               </div>
-              <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2">
-                {stageDeals.map((deal) => <button key={deal.id} draggable onDragStart={() => setDraggingId(deal.id)} onDragEnd={() => setDraggingId(null)} onClick={() => setSelectedId(deal.id)} className={cn('w-full rounded border bg-white p-3 text-left shadow-sm transition hover:shadow-md', selectedId === deal.id ? 'border-[#6f5cf6] ring-2 ring-[#6f5cf6]/20' : 'border-slate-200')}>
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <span className="h-2 w-10 rounded-full bg-[#c251a3]" />
-                    <span className="grid h-6 w-6 place-items-center rounded-full bg-[#6f5cf6] text-[10px] font-bold text-white">R</span>
+              <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-1.5">
+                {stageDeals.map((deal) => <button key={deal.id} draggable onDragStart={() => setDraggingId(deal.id)} onDragEnd={() => setDraggingId(null)} onClick={() => setSelectedId(deal.id)} className={cn('group w-full rounded border p-2 text-left shadow-sm transition hover:shadow-md', selectedId === deal.id ? 'border-blue-300 bg-[#fff3f0] ring-2 ring-blue-200/70' : 'border-[#eadfda] bg-[#fff2ef] hover:border-blue-200')}>
+                  <div className="mb-1.5 flex items-center gap-1">
+                    <span className="h-1 w-8 rounded-full bg-[#5c7cfa]" />
+                    <span className="h-1 w-8 rounded-full bg-[#e6509c]" />
                   </div>
                   <p className="line-clamp-2 text-sm font-bold leading-snug text-slate-900">{deal.title}</p>
-                  <p className="mt-1 truncate text-xs text-slate-600">{deal.people?.full_name || 'Sem contato'}</p>
-                  <p className="truncate text-xs text-slate-500">{deal.organizations?.name || 'Sem empresa'}</p>
-                  <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-2">
-                    <span className="text-xs font-bold text-slate-800">{money(deal.value)}</span>
-                    <Badge tone={statusTone[deal.status || 'morno']}>{statusLabel[deal.status || 'morno']}</Badge>
+                  <p className="mt-1 truncate text-xs text-slate-600">{deal.organizations?.name || 'Sem empresa'}</p>
+                  <p className="truncate text-xs text-slate-500">{deal.people?.full_name || 'Sem contato'}</p>
+                  <div className="mt-2 flex items-center justify-between">
+                    <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-bold text-white">{Math.max(1, Math.min(96, deal.score || deal.probability || 14))}d</span>
+                    <span className="text-[11px] font-semibold text-slate-700">{money(deal.value)}</span>
                   </div>
-                  <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500">
-                    <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-700">● Próxima atividade</span>
-                    <span>{deal.expected_close_date ? new Date(deal.expected_close_date).toLocaleDateString('pt-BR') : 'Sem data'}</span>
+                  <div className="mt-2 flex items-center justify-between">
+                    <span className="grid h-5 w-5 place-items-center rounded-full bg-slate-200 text-[10px] text-slate-500">{deal.people?.full_name?.slice(0,1) || '•'}</span>
+                    <span className="grid h-5 w-5 place-items-center rounded-full bg-[#ff695f] text-xs font-bold text-white">‹</span>
                   </div>
                 </button>)}
                 {stageDeals.length === 0 && <div className="rounded border border-dashed border-slate-300 p-3 text-center text-xs text-slate-400">Solte cards aqui</div>}
@@ -379,28 +381,69 @@ function PipelineView({ stages, deals, selectedId, setSelectedId, setDraggingId,
         </div>
       </div>
 
-      <aside className="hidden min-h-0 overflow-y-auto border-l border-slate-200 bg-white xl:block">
+      <aside className="hidden min-h-0 overflow-y-auto border-l border-slate-200 bg-[#f5f6f8] xl:block">
         {selected ? <div>
-          <div className="border-b border-slate-200 p-4">
-            <div className="mb-2 flex items-center justify-between"><Badge>{selected.source || 'Sem origem'}</Badge><MoreHorizontal size={18} className="text-slate-400"/></div>
-            <h2 className="text-lg font-black leading-tight">{selected.title}</h2>
-            <p className="mt-1 text-sm text-slate-500">{selected.people?.full_name || 'Sem contato'} · {selected.organizations?.name || 'Sem empresa'}</p>
-            <div className="mt-4 flex flex-wrap gap-1">{stages.map((stage, i) => <button key={stage.id} onClick={() => void moveDeal(stage.id, selected.id)} className={cn('rounded px-2 py-1 text-[11px] font-bold', i <= selectedStageIndex ? 'bg-[#2cbf6d] text-white' : 'bg-slate-100 text-slate-500')}>{stage.name}</button>)}</div>
-          </div>
-          <div className="grid grid-cols-2 gap-2 border-b border-slate-200 p-4 text-sm">
-            <Metric label="Valor" value={money(selected.value)} />
-            <Metric label="Probabilidade" value={`${selected.probability || 0}%`} />
-            <Metric label="Plano" value={selected.plan || 'Sem plano'} />
-            <Metric label="BPO" value={selected.bpo_partners?.name || 'Sem BPO'} />
-          </div>
-          <div className="p-4">
-            <div className="mb-4 flex rounded border border-slate-200 bg-slate-50 p-1 text-xs font-semibold text-slate-600">
-              {['Notas', 'Atividades', 'Emails', 'Arquivos'].map((tab, i) => <button key={tab} className={cn('flex-1 rounded px-2 py-1.5', i === 1 ? 'bg-white text-[#6f5cf6] shadow-sm' : 'hover:bg-white')}>{tab}</button>)}
+          <div className="border-b border-slate-200 bg-white p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-2xl font-normal leading-tight text-slate-900">{selected.title}</h2>
+                <p className="mt-2 text-xs text-slate-500"><span className="font-semibold text-blue-600">{activePipeline}</span> → {selectedStage?.name || 'Sem etapa'}</p>
+              </div>
+              <MoreHorizontal size={20} className="mt-1 text-slate-500"/>
             </div>
-            <h3 className="mb-2 text-sm font-black">Atividades planejadas</h3>
-            <div className="space-y-2">{selectedActivities.map((a) => <div key={a.id} className="rounded border border-slate-200 p-2 text-sm"><div className="flex justify-between gap-2"><b>{a.title}</b><Badge>{a.status === 'open' ? 'Aberta' : 'OK'}</Badge></div><p className="text-xs text-slate-500">{a.due_at ? new Date(a.due_at).toLocaleString('pt-BR') : 'sem data'}</p>{a.status === 'open' && <button onClick={() => void completeActivity(a.id)} className="mt-1 text-xs font-bold text-emerald-700">Marcar como feita</button>}</div>)}</div>
-            <h3 className="mb-2 mt-5 text-sm font-black">Linha do tempo</h3>
-            <div className="space-y-2">{selectedHistory.map((h) => <div key={h.id} className="rounded bg-slate-50 p-2 text-sm"><b>{h.event_type}: {h.title}</b><p className="text-xs text-slate-500">{h.description}</p></div>)}</div>
+            <div className="mt-4 flex items-center justify-between gap-2">
+              <span className="rounded-full bg-red-500 px-2 py-1 text-[11px] font-bold uppercase text-white">Rotting for {ageDays} days</span>
+              <div className="flex items-center gap-2 text-xs text-slate-600"><span className="grid h-8 w-8 place-items-center rounded-full bg-slate-200 text-slate-500">{selected.people?.full_name?.slice(0,1) || 'V'}</span><span><b>{profileName(selected)}</b><br/>Owner</span></div>
+            </div>
+            <div className="mt-4 flex overflow-hidden rounded-sm">
+              {stageSegments.map((stage, i) => <button key={stage.id} onClick={() => void moveDeal(stage.id, selected.id)} className={cn('h-6 min-w-[68px] flex-1 border-r border-white text-[11px]', i <= selectedStageIndex ? 'bg-[#27864d] text-white' : 'bg-slate-200 text-slate-500')}>{i === selectedStageIndex ? `${ageDays} days` : '0 days'}</button>)}
+            </div>
+            <div className="mt-4 flex gap-2">
+              <button className="rounded bg-[#238847] px-4 py-2 text-sm font-bold text-white">Won</button>
+              <button className="rounded bg-red-500 px-4 py-2 text-sm font-bold text-white">Lost</button>
+              <button className="rounded border border-slate-300 bg-white px-3 py-2 text-slate-600">▦</button>
+            </div>
+          </div>
+
+          <div className="grid min-h-[620px] grid-cols-[40%_60%]">
+            <section className="border-r border-slate-200 bg-white">
+              <div className="border-b border-slate-200 p-4">
+                <div className="mb-3 rounded-lg bg-emerald-50 p-3 text-sm text-slate-700"><b>Organize your sidebar</b><br/>Campos principais, resumo e detalhes do negócio ficam aqui.</div>
+                <div className="flex items-center gap-2 rounded border border-slate-300 px-3 py-2 text-sm text-slate-500"><Search size={15}/> Filter fields</div>
+              </div>
+              <DetailSection title="Please fill" accent>
+                <FieldLine label="Quantidade de CNPJs" value={`${selected.organizations?.cnpjs || 1}`} />
+                <FieldLine label="Plano recomendado" value={selected.plan || 'BPO completo'} />
+              </DetailSection>
+              <DetailSection title="Summary">
+                <FieldLine label="Pessoa" value={selected.people?.full_name || 'Sem contato'} blue />
+                <FieldLine label="Empresa" value={selected.organizations?.name || 'Sem empresa'} blue />
+                <FieldLine label="Valor" value={money(selected.value)} />
+                <FieldLine label="Status" value={statusLabel[selected.status || 'morno']} />
+                <FieldLine label="Data esperada" value={selected.expected_close_date ? new Date(selected.expected_close_date).toLocaleDateString('pt-BR') : 'Sem data'} />
+              </DetailSection>
+              <DetailSection title="Details">
+                <FieldLine label="GMV mensal" value={money(selected.monthly_purchase)} />
+                <FieldLine label="Economia estimada" value={money(selected.estimated_savings)} />
+                <FieldLine label="Probabilidade" value={`${selected.probability || 0}%`} />
+                <FieldLine label="BPO" value={selected.bpo_partners?.name || 'Sem BPO'} />
+              </DetailSection>
+            </section>
+
+            <section className="bg-[#f5f6f8] p-4">
+              <div className="rounded border border-slate-200 bg-white shadow-sm">
+                <div className="flex overflow-x-auto border-b border-slate-200 text-sm text-slate-600">
+                  {[['Notas', <FileText size={15}/>], ['Atividade', <CalendarClock size={15}/>], ['Call', <Phone size={15}/>], ['Email', <Mail size={15}/>], ['Arquivos', <FileText size={15}/>], ['Documentos', <FileText size={15}/>]].map(([tab, icon], i) => <button key={String(tab)} className={cn('flex items-center gap-1 border-b-2 px-4 py-3 whitespace-nowrap', i === 0 ? 'border-blue-600 text-blue-700' : 'border-transparent hover:bg-slate-50')}>{icon}{tab}</button>)}
+                </div>
+                <div className="flex items-center justify-between px-4 py-4 text-sm text-slate-400"><span>Take a note, @name...</span><span>0/100 notes ⓘ</span></div>
+              </div>
+              <div className="mt-6 flex items-center justify-between"><h3 className="font-bold">Focus <ChevronDown size={15} className="inline"/></h3><span className="text-sm text-slate-500">○ Expand all items</span></div>
+              <div className="mt-4 space-y-3">
+                {selectedActivities.length ? selectedActivities.map((a) => <div key={a.id} className="rounded border border-slate-200 bg-white shadow-sm"><div className="flex items-center justify-between p-4"><div className="flex items-center gap-3"><button onClick={() => void completeActivity(a.id)} className="h-4 w-4 rounded-full border-2 border-slate-300 hover:border-emerald-500" title="Marcar como feita"/><div><b>{a.title}</b><p className="text-xs text-slate-500"><span className="rounded bg-red-500 px-1.5 py-0.5 font-bold text-white">OVERDUE</span> · {a.due_at ? new Date(a.due_at).toLocaleDateString('pt-BR') : 'sem data'} · {selected.people?.full_name || 'Contato'} · {selected.organizations?.name || 'Empresa'}</p></div></div><MoreHorizontal size={18} className="text-slate-400"/></div><div className="border-t border-amber-200 bg-amber-50 px-4 py-3 text-sm text-slate-700">Oi, {selected.people?.full_name || 'contato'}! Aqui é da VMarket, a plataforma de compras que ajuda bares, restaurantes e hotéis a economizar.</div></div>) : <div className="rounded border border-slate-200 bg-white p-4 text-sm text-slate-500">Nenhuma atividade planejada para este negócio.</div>}
+              </div>
+              <h3 className="mt-8 font-bold">History ›</h3>
+              <div className="mt-3 space-y-2">{selectedHistory.map((h) => <div key={h.id} className="rounded border border-slate-200 bg-white p-3 text-sm"><b>{h.event_type}: {h.title}</b><p className="text-xs text-slate-500">{h.description}</p></div>)}</div>
+            </section>
           </div>
         </div> : <div className="p-4 text-sm text-slate-500">Selecione um negócio.</div>}
       </aside>
@@ -419,9 +462,18 @@ function PipelineView({ stages, deals, selectedId, setSelectedId, setDraggingId,
   </div>
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
-  return <div className="rounded bg-slate-50 p-2"><p className="text-[11px] text-slate-500">{label}</p><p className="truncate text-sm font-bold">{value}</p></div>
+function profileName(deal: Deal) {
+  return deal.bpo_partners?.contact_name || deal.people?.full_name || 'VMarket'
 }
+
+function DetailSection({ title, children, accent }: { title: string; children: ReactNode; accent?: boolean }) {
+  return <section className={cn('border-b border-slate-200 p-4', accent && 'border-r-4 border-r-amber-300')}><div className="mb-3 flex items-center justify-between"><h3 className="font-bold text-slate-800">⌃ {title}</h3><span className="text-slate-400">•••</span></div><div className="space-y-3">{children}</div></section>
+}
+
+function FieldLine({ label, value, blue }: { label: string; value: string; blue?: boolean }) {
+  return <div className="grid grid-cols-[18px_1fr] gap-2 text-sm"><span className="mt-0.5 text-slate-400">▣</span><div><p className="text-[11px] font-semibold text-slate-500">{label}</p><p className={cn('font-semibold', blue ? 'text-blue-600' : 'text-slate-800')}>{value}</p></div></div>
+}
+
 
 function ListView({ title, icon, rows }: { title: string; icon: ReactNode; rows: Array<{ id: string; title: string; sub: string; meta: string }> }) {
   return <div className="h-full overflow-y-auto p-5"><Panel><div className="flex items-center gap-2 border-b border-slate-200 p-4"><span className="text-[#6f5cf6]">{icon}</span><h2 className="text-lg font-bold">{title}</h2></div><div className="divide-y divide-slate-100">{rows.map((row) => <div key={row.id} className="grid gap-2 p-4 text-sm hover:bg-slate-50 md:grid-cols-[1fr_1fr_160px]"><b>{row.title}</b><span className="text-slate-500">{row.sub}</span><span className="font-semibold text-slate-700">{row.meta}</span></div>)}</div></Panel></div>
