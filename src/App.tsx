@@ -125,6 +125,7 @@ function App() {
   const [error, setError] = useState('')
   const [creating, setCreating] = useState(false)
   const [draggingId, setDraggingId] = useState<string | null>(null)
+  const [pipelineView, setPipelineView] = useState<'kanban' | 'list' | 'forecast'>('kanban')
   const [newDeal, setNewDeal] = useState<NewDeal>({ title: '', organization_name: '', contact_name: '', value: '399', monthly_purchase: '50000', plan: 'BPO completo + Essencial', stage_id: '', bpo_id: '' })
 
   const selected = useMemo(() => deals.find((d) => d.id === selectedId) || deals[0], [deals, selectedId])
@@ -266,7 +267,7 @@ function App() {
             {error && <div className="m-4 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><b>Erro:</b> {error}</div>}
             {loading ? <div className="m-4 rounded bg-white p-4 text-sm shadow-sm">Carregando dados do Supabase...</div> : (
               <>
-                {activeView === 'pipeline' && <PipelineView stages={stages} deals={deals} selectedId={selected?.id} setSelectedId={setSelectedId} setDraggingId={setDraggingId} handleDrop={handleDrop} totals={totals} selected={selected} selectedStageIndex={selectedStageIndex} selectedActivities={selectedActivities} selectedHistory={selectedHistory} moveDeal={moveDeal} completeActivity={completeActivity} newDeal={newDeal} setNewDeal={setNewDeal} createDeal={createDeal} creating={creating} bpos={bpos} activePipeline={activePipeline} setActivePipeline={setActivePipeline} />}
+                {activeView === 'pipeline' && <PipelineView stages={stages} deals={deals} selectedId={selected?.id} setSelectedId={setSelectedId} setDraggingId={setDraggingId} handleDrop={handleDrop} totals={totals} selected={selected} selectedStageIndex={selectedStageIndex} selectedActivities={selectedActivities} selectedHistory={selectedHistory} moveDeal={moveDeal} completeActivity={completeActivity} newDeal={newDeal} setNewDeal={setNewDeal} createDeal={createDeal} creating={creating} bpos={bpos} activePipeline={activePipeline} setActivePipeline={setActivePipeline} pipelineView={pipelineView} setPipelineView={setPipelineView} />}
                 {activeView === 'contacts' && <ListView title="Contatos" icon={<Contact size={18}/>} rows={people.map((p) => ({ id: p.id, title: p.full_name, sub: `${p.role_title || 'Contato'} · ${p.email || 'sem email'}`, meta: p.phone || 'sem telefone' }))} />}
                 {activeView === 'companies' && <ListView title="Empresas" icon={<Building2 size={18}/>} rows={organizations.map((o) => ({ id: o.id, title: o.name, sub: `${o.segment || 'Segmento não informado'} · ${o.city || ''} ${o.state || ''}`, meta: money(o.monthly_purchase) }))} />}
                 {activeView === 'activities' && <ActivitiesView activities={activities} deals={deals} completeActivity={completeActivity} />}
@@ -281,7 +282,7 @@ function App() {
   )
 }
 
-function PipelineView({ stages, deals, selectedId, setSelectedId, setDraggingId, handleDrop, totals, selected, selectedStageIndex, selectedActivities, selectedHistory, moveDeal, completeActivity, newDeal, setNewDeal, createDeal, creating, bpos, activePipeline, setActivePipeline }: {
+function PipelineView({ stages, deals, selectedId, setSelectedId, setDraggingId, handleDrop, totals, selected, selectedStageIndex, selectedActivities, selectedHistory, moveDeal, completeActivity, newDeal, setNewDeal, createDeal, creating, bpos, activePipeline, setActivePipeline, pipelineView, setPipelineView }: {
   stages: Stage[]
   deals: Deal[]
   selectedId?: string
@@ -302,6 +303,8 @@ function PipelineView({ stages, deals, selectedId, setSelectedId, setDraggingId,
   bpos: BpoPartner[]
   activePipeline: string
   setActivePipeline: (pipeline: string) => void
+  pipelineView: 'kanban' | 'list' | 'forecast'
+  setPipelineView: (view: 'kanban' | 'list' | 'forecast') => void
 }) {
   const selectedStage = selected ? stages.find((s) => s.id === selected.stage_id) : undefined
   const ageDays = Math.max(1, Math.min(96, selected?.score || 36))
@@ -311,10 +314,9 @@ function PipelineView({ stages, deals, selectedId, setSelectedId, setDraggingId,
     <div className="border-b border-slate-200 bg-white">
       <div className="flex h-12 items-center gap-2 px-4">
         <div className="flex overflow-hidden rounded border border-slate-300">
-          <button className="grid h-8 w-9 place-items-center bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-300"><GripVertical size={15}/></button>
-          <button className="grid h-8 w-9 place-items-center border-l border-slate-300 text-slate-600 hover:bg-slate-50"><List size={15}/></button>
-          <button className="grid h-8 w-9 place-items-center border-l border-slate-300 text-slate-600 hover:bg-slate-50">◎</button>
-          <button className="grid h-8 w-9 place-items-center border-l border-slate-300 text-slate-600 hover:bg-slate-50">▣</button>
+          <button onClick={() => setPipelineView('kanban')} className={cn('grid h-8 w-9 place-items-center', pipelineView === 'kanban' ? 'bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-300' : 'text-slate-600 hover:bg-slate-50')} title="Kanban"><GripVertical size={15}/></button>
+          <button onClick={() => setPipelineView('list')} className={cn('grid h-8 w-9 place-items-center border-l border-slate-300', pipelineView === 'list' ? 'bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-300' : 'text-slate-600 hover:bg-slate-50')} title="Lista"><List size={15}/></button>
+          <button onClick={() => setPipelineView('forecast')} className={cn('grid h-8 w-9 place-items-center border-l border-slate-300', pipelineView === 'forecast' ? 'bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-300' : 'text-slate-600 hover:bg-slate-50')} title="Previsão"><CalendarClock size={15}/></button>
         </div>
         <button className="rounded-l border border-[#087d3e] bg-[#238847] px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-[#1f7a40]">+ Deal</button>
         <button className="-ml-2 rounded-r border border-[#087d3e] bg-[#1f7a40] px-2 py-1.5 text-sm font-semibold text-white"><ChevronDown size={14}/></button>
@@ -342,7 +344,7 @@ function PipelineView({ stages, deals, selectedId, setSelectedId, setDraggingId,
       </div>
     </div>
 
-    <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden xl:grid-cols-[minmax(0,1fr)_360px]">
+    {pipelineView === 'kanban' ? <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden xl:grid-cols-[minmax(0,1fr)_360px]">
       <div className="min-w-0 overflow-x-auto overflow-y-hidden p-4">
         <div className="flex h-full min-w-max gap-3">
           {stages.map((stage) => {
@@ -357,7 +359,7 @@ function PipelineView({ stages, deals, selectedId, setSelectedId, setDraggingId,
                 <p className="mt-1 truncate text-[11px] text-slate-500">{money(stageValue)} · {stageDeals.length} negócios</p>
               </div>
               <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-1.5">
-                {stageDeals.map((deal) => <button key={deal.id} draggable onDragStart={() => setDraggingId(deal.id)} onDragEnd={() => setDraggingId(null)} onClick={() => setSelectedId(deal.id)} className={cn('group w-full rounded border p-2 text-left shadow-sm transition hover:shadow-md', selectedId === deal.id ? 'border-blue-300 bg-[#fff3f0] ring-2 ring-blue-200/70' : 'border-[#eadfda] bg-[#fff2ef] hover:border-blue-200')}>
+                {stageDeals.map((deal) => <button key={deal.id} draggable onDragStart={() => setDraggingId(deal.id)} onDragEnd={() => setDraggingId(null)} onClick={() => setSelectedId(deal.id)} className={cn('group w-full rounded border p-2 text-left shadow-sm transition hover:shadow-md cursor-pointer', selectedId === deal.id ? 'border-blue-300 bg-[#fff3f0] ring-2 ring-blue-200/70' : 'border-[#eadfda] bg-[#fff2ef] hover:border-blue-200')}>
                   <div className="mb-1.5 flex items-center gap-1">
                     <span className="h-1 w-8 rounded-full bg-[#5c7cfa]" />
                     <span className="h-1 w-8 rounded-full bg-[#e6509c]" />
@@ -447,7 +449,7 @@ function PipelineView({ stages, deals, selectedId, setSelectedId, setDraggingId,
           </div>
         </div> : <div className="p-4 text-sm text-slate-500">Selecione um negócio.</div>}
       </aside>
-    </div>
+    </div> : pipelineView === 'list' ? <ListViewDeals deals={deals} stages={stages} selectedId={selectedId} setSelectedId={setSelectedId} /> : <ForecastView deals={deals} stages={stages} selectedId={selectedId} setSelectedId={setSelectedId} />}
 
     <div className="border-t border-slate-200 bg-white p-4">
       <form onSubmit={createDeal} className="grid gap-2 md:grid-cols-7">
@@ -485,6 +487,92 @@ function ActivitiesView({ activities, deals, completeActivity }: { activities: A
 
 function SettingsView({ title, items }: { title: string; items: string[] }) {
   return <div className="h-full overflow-y-auto p-5"><Panel><div className="flex items-center gap-2 border-b border-slate-200 p-4"><Settings size={18} className="text-[#6f5cf6]"/><h2 className="text-lg font-bold">{title}</h2></div><div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">{items.map((item) => <div key={item} className="rounded border border-slate-200 bg-slate-50 p-4 text-sm"><b>{item}</b><p className="mt-2 text-xs text-slate-500">Configurado no CRM VMarket.</p></div>)}</div></Panel></div>
+}
+
+function ListViewDeals({ deals, stages, selectedId, setSelectedId }: { deals: Deal[]; stages: Stage[]; selectedId?: string; setSelectedId: (id: string) => void }) {
+  const stageName = (id: string) => stages.find((s) => s.id === id)?.name || ''
+  return <div className="min-h-0 flex-1 overflow-auto">
+    <table className="w-full text-sm">
+      <thead className="sticky top-0 bg-white">
+        <tr className="border-b border-slate-200 text-left text-[11px] font-semibold uppercase text-slate-500">
+          <th className="px-4 py-3">Negócio</th>
+          <th className="px-4 py-3">Empresa</th>
+          <th className="px-4 py-3">Contato</th>
+          <th className="px-4 py-3">Etapa</th>
+          <th className="px-4 py-3">Valor</th>
+          <th className="px-4 py-3">Status</th>
+          <th className="px-4 py-3">Data esperada</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-slate-100">
+        {deals.map((deal) => <tr key={deal.id} onClick={() => setSelectedId(deal.id)} className={cn('cursor-pointer transition hover:bg-blue-50', selectedId === deal.id ? 'bg-blue-50 ring-1 ring-inset ring-blue-200' : '')}>
+          <td className="px-4 py-3 font-semibold text-slate-900">{deal.title}</td>
+          <td className="px-4 py-3 text-slate-600">{deal.organizations?.name || '-'}</td>
+          <td className="px-4 py-3 text-slate-600">{deal.people?.full_name || '-'}</td>
+          <td className="px-4 py-3"><span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-700">{stageName(deal.stage_id || '') || '-'}</span></td>
+          <td className="px-4 py-3 font-semibold text-slate-800">{money(deal.value)}</td>
+          <td className="px-4 py-3"><span className={cn('rounded-full px-2 py-0.5 text-[10px] font-bold uppercase', deal.status === 'ganho' ? 'bg-green-100 text-green-700' : deal.status === 'perdido' ? 'bg-red-100 text-red-700' : deal.status === 'quente' ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-600')}>{statusLabel[deal.status || 'morno']}</span></td>
+          <td className="px-4 py-3 text-slate-500">{deal.expected_close_date ? new Date(deal.expected_close_date).toLocaleDateString('pt-BR') : '-'}</td>
+        </tr>)}
+      </tbody>
+    </table>
+    {deals.length === 0 && <div className="p-8 text-center text-slate-400">Nenhum negócio encontrado.</div>}
+  </div>
+}
+
+function ForecastView({ deals, stages, selectedId, setSelectedId }: { deals: Deal[]; stages: Stage[]; selectedId?: string; setSelectedId: (id: string) => void }) {
+  const stageName = (id: string) => stages.find((s) => s.id === id)?.name || ''
+  const byMonth: Record<string, { deals: Deal[]; total: number; won: number }> = {}
+  deals.forEach((deal) => {
+    const date = deal.expected_close_date ? new Date(deal.expected_close_date) : new Date()
+    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+    if (!byMonth[key]) byMonth[key] = { deals: [], total: 0, won: 0 }
+    byMonth[key].deals.push(deal)
+    byMonth[key].total += Number(deal.value || 0)
+    if (deal.status === 'ganho') byMonth[key].won += Number(deal.value || 0)
+  })
+  const sorted = Object.entries(byMonth).sort(([a], [b]) => a.localeCompare(b))
+  const months: Record<string, string> = { '01': 'Jan', '02': 'Fev', '03': 'Mar', '04': 'Abr', '05': 'Mai', '06': 'Jun', '07': 'Jul', '08': 'Ago', '09': 'Set', '10': 'Out', '11': 'Nov', '12': 'Dez' }
+
+  return <div className="min-h-0 flex-1 overflow-auto">
+    {sorted.map(([key, group]) => {
+      const [year, month] = key.split('-')
+      const pctWon = group.total > 0 ? Math.round((group.won / group.total) * 100) : 0
+      return <div key={key} className="border-b border-slate-200">
+        <div className="flex items-center gap-4 bg-slate-50 px-5 py-3">
+          <h2 className="text-lg font-bold text-slate-800">{months[month] || month} {year}</h2>
+          <span className="text-sm text-slate-500">{group.deals.length} negócios</span>
+          <span className="text-sm font-semibold text-slate-700">Previsto: {money(group.total)}</span>
+          <span className="text-sm font-semibold text-green-700">Ganho: {money(group.won)}</span>
+          <div className="ml-auto h-3 w-48 overflow-hidden rounded-full bg-slate-200">
+            <div className="h-full rounded-full bg-green-500 transition-all" style={{ width: `${pctWon}%` }}/>
+          </div>
+          <span className="text-xs font-semibold text-slate-600">{pctWon}%</span>
+        </div>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-slate-100 text-left text-[11px] font-semibold uppercase text-slate-400">
+              <th className="px-5 py-2">Negócio</th>
+              <th className="px-5 py-2">Empresa</th>
+              <th className="px-5 py-2">Etapa</th>
+              <th className="px-5 py-2">Valor</th>
+              <th className="px-5 py-2">Status</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-50">
+            {group.deals.map((deal) => <tr key={deal.id} onClick={() => setSelectedId(deal.id)} className={cn('cursor-pointer transition hover:bg-blue-50', selectedId === deal.id ? 'bg-blue-50' : '')}>
+              <td className="px-5 py-2 font-semibold text-slate-900">{deal.title}</td>
+              <td className="px-5 py-2 text-slate-600">{deal.organizations?.name || '-'}</td>
+              <td className="px-5 py-2"><span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-700">{stageName(deal.stage_id || '') || '-'}</span></td>
+              <td className="px-5 py-2 font-semibold text-slate-800">{money(deal.value)}</td>
+              <td className="px-5 py-2"><span className={cn('rounded-full px-2 py-0.5 text-[10px] font-bold uppercase', deal.status === 'ganho' ? 'bg-green-100 text-green-700' : deal.status === 'perdido' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700')}>{statusLabel[deal.status || 'morno']}</span></td>
+            </tr>)}
+          </tbody>
+        </table>
+      </div>
+    })}
+    {sorted.length === 0 && <div className="p-8 text-center text-slate-400">Nenhum negócio com data prevista.</div>}
+  </div>
 }
 
 export default App
