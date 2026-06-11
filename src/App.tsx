@@ -73,33 +73,80 @@ function Login() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f4f5f7] p-6 text-slate-900">
-      <div className="mx-auto flex min-h-[calc(100vh-3rem)] max-w-6xl items-center justify-center">
-        <div className="grid w-full overflow-hidden rounded-2xl bg-white shadow-2xl lg:grid-cols-[1.1fr_0.9fr]">
-          <section className="bg-[#262a3d] p-8 text-white md:p-12">
-            <div className="mb-8 flex items-center gap-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#2cbf6d] text-white"><Workflow /></div>
-              <div><p className="text-xs uppercase tracking-[0.25em] text-emerald-200">VMarket</p><h1 className="text-xl font-black">BPO CRM</h1></div>
+    <main className="min-h-screen bg-[#f5f6f8] text-slate-900">
+      <div className="mx-auto flex min-h-screen max-w-6xl items-center justify-center px-5 py-8">
+        <div className="grid w-full overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.12)] lg:grid-cols-[0.92fr_1.08fr]">
+          <section className="flex flex-col justify-center px-7 py-10 md:px-12 lg:px-14">
+            <div className="mb-10 flex items-center gap-3">
+              <div className="grid h-12 w-12 place-items-center rounded-xl bg-[#211746] text-[14px] font-black tracking-[-0.08em] text-white shadow-sm">VM</div>
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.28em] text-[#2cbf6d]">VMarket</p>
+                <h1 className="text-lg font-black text-[#211746]">CRM programa de parceria BPO VMarket</h1>
+              </div>
             </div>
-            <h2 className="text-4xl font-black leading-tight md:text-5xl">CRM estilo Pipedrive conectado ao Supabase</h2>
-            <p className="mt-4 max-w-xl text-slate-200">Funil em Kanban, menu lateral navegável, negócios, contatos, empresas e atividades usando dados reais do banco.</p>
-            <div className="mt-8 grid gap-3 text-sm md:grid-cols-2">
-              {['Funil Kanban', 'Cards por etapa', 'Menu lateral funcional', 'Permissões por BPO'].map((item) => <div key={item} className="rounded-xl bg-white/10 p-3 ring-1 ring-white/10"><CheckCircle2 className="mb-2 text-emerald-300" size={18}/>{item}</div>)}
+
+            <div className="max-w-md">
+              <p className="mb-2 text-sm font-semibold text-slate-500">Bem-vindo de volta</p>
+              <h2 className="text-3xl font-bold tracking-[-0.04em] text-slate-950">Entrar no CRM</h2>
+              <p className="mt-3 text-sm leading-6 text-slate-500">Acesse o funil de parceiros BPO, acompanhe negócios, atividades e previsões de vendas da operação VMarket.</p>
             </div>
-          </section>
-          <section className="p-8 md:p-12">
-            <h3 className="text-2xl font-black">Entrar no CRM</h3>
-            <p className="mt-2 text-sm text-slate-500">Use um usuário criado no Supabase Auth.</p>
-            {!supabaseConfigured && <p className="mt-4 rounded-xl bg-rose-50 p-3 text-sm text-rose-700">Supabase não configurado no ambiente.</p>}
-            <form onSubmit={submit} className="mt-6 space-y-4">
-              <input className="w-full rounded border border-slate-300 px-4 py-3 outline-none focus:ring-2 focus:ring-emerald-400" placeholder="email@empresa.com" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-              <input className="w-full rounded border border-slate-300 px-4 py-3 outline-none focus:ring-2 focus:ring-emerald-400" placeholder="Senha" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-              <button disabled={busy} className="w-full rounded bg-[#2cbf6d] px-4 py-3 font-bold text-white disabled:opacity-60">{busy ? 'Aguarde...' : mode === 'login' ? 'Entrar' : 'Criar usuário'}</button>
+
+            {!supabaseConfigured && <p className="mt-6 rounded-lg bg-rose-50 p-3 text-sm text-rose-700 ring-1 ring-rose-100">Supabase não configurado no ambiente.</p>}
+
+            <form onSubmit={submit} className="mt-8 max-w-md space-y-4">
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-semibold text-slate-700">Email</span>
+                <input className="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-[#2cbf6d] focus:ring-4 focus:ring-emerald-100" placeholder="email@empresa.com" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-semibold text-slate-700">Senha</span>
+                <input className="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-[#2cbf6d] focus:ring-4 focus:ring-emerald-100" placeholder="Digite sua senha" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+              </label>
+              <button disabled={busy} className="w-full rounded-lg bg-[#2cbf6d] px-4 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#26a961] disabled:opacity-60">{busy ? 'Aguarde...' : mode === 'login' ? 'Entrar' : 'Criar usuário'}</button>
             </form>
-            <button onClick={() => setMode(mode === 'login' ? 'signup' : 'login')} className="mt-4 text-sm font-semibold text-emerald-700">{mode === 'login' ? 'Criar conta de teste' : 'Já tenho conta'}</button>
-            {message && <p className="mt-4 rounded bg-slate-50 p-3 text-sm text-slate-700">{message}</p>}
-            <div className="mt-6 rounded bg-emerald-50 p-4 text-sm text-emerald-900 ring-1 ring-emerald-100">
-              <b>Banco configurado:</b> o CRM já está conectado ao Supabase com tabelas, permissões e dados iniciais.
+
+            <div className="mt-5 flex max-w-md items-center justify-between text-sm">
+              <button onClick={() => setMode(mode === 'login' ? 'signup' : 'login')} className="font-semibold text-[#238847] hover:text-[#1f7a40]">{mode === 'login' ? 'Criar conta de teste' : 'Já tenho conta'}</button>
+              <span className="text-slate-400">Ambiente seguro VMarket</span>
+            </div>
+
+            {message && <p className="mt-5 max-w-md rounded-lg bg-slate-50 p-3 text-sm text-slate-700 ring-1 ring-slate-100">{message}</p>}
+          </section>
+
+          <section className="relative hidden min-h-[680px] overflow-hidden bg-[#211746] p-10 text-white lg:block">
+            <div className="absolute -right-24 -top-24 h-72 w-72 rounded-full bg-[#6f5cf6]/50 blur-2xl" />
+            <div className="absolute -bottom-28 left-16 h-80 w-80 rounded-full bg-[#2cbf6d]/35 blur-2xl" />
+            <div className="relative z-10 flex h-full flex-col justify-between">
+              <div>
+                <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-2 text-sm font-semibold ring-1 ring-white/15">
+                  <CheckCircle2 size={16} className="text-emerald-300" /> Pipeline, lista e previsão de vendas
+                </div>
+                <h3 className="mt-8 max-w-lg text-5xl font-black leading-[0.95] tracking-[-0.05em]">CRM para acelerar o programa de parceria BPO.</h3>
+                <p className="mt-5 max-w-md text-base leading-7 text-white/70">Interface inspirada no Pipedrive, adaptada para gestão de parceiros, oportunidades e forecast da VMarket.</p>
+              </div>
+
+              <div className="relative mt-10 rounded-2xl bg-white/95 p-4 text-slate-900 shadow-2xl ring-1 ring-white/20">
+                <div className="mb-4 flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Pipeline BPO</p>
+                    <h4 className="text-lg font-black">Negócios ativos</h4>
+                  </div>
+                  <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700">VMarket</span>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  {['Kanban', 'Lista Excel', 'Previsão'].map((item, index) => <div key={item} className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-100">
+                    <div className={cn('mb-3 h-1.5 rounded-full', index === 0 ? 'bg-[#6f5cf6]' : index === 1 ? 'bg-[#2cbf6d]' : 'bg-[#ff695f]')} />
+                    <p className="text-xs font-bold text-slate-700">{item}</p>
+                    <p className="mt-1 text-[11px] text-slate-400">{index === 0 ? 'Funil' : index === 1 ? 'Tabela' : 'Datas'}</p>
+                  </div>)}
+                </div>
+                <div className="mt-4 space-y-2">
+                  {['Lead diagnóstico BPO', 'Proposta VMarket', 'Onboarding parceiro'].map((item, index) => <div key={item} className="flex items-center justify-between rounded-lg border border-slate-100 bg-white px-3 py-2 shadow-sm">
+                    <div className="flex items-center gap-2"><span className="grid h-7 w-7 place-items-center rounded-full bg-slate-100 text-xs font-bold text-slate-500">{index + 1}</span><span className="text-sm font-semibold">{item}</span></div>
+                    <span className="text-xs font-bold text-slate-500">R$ {(index + 2) * 399}</span>
+                  </div>)}
+                </div>
+              </div>
             </div>
           </section>
         </div>
