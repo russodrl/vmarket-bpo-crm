@@ -186,14 +186,19 @@ function App() {
   }), [deals, activities])
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setSession(data.session))
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => setSession(s))
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session)
+      if (!data.session) setLoading(false)
+    })
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
+      setSession(s)
+      if (!s) setLoading(false)
+    })
     return () => sub.subscription.unsubscribe()
   }, [])
 
   useEffect(() => {
-    if (!session) { setLoading(false); return }
-    void loadAll()
+    if (session) void loadAll()
   }, [session])
 
   async function loadAll() {
