@@ -40,6 +40,32 @@ type NewDeal = {
   bpo_id: string
 }
 
+type DealForm = {
+  title: string
+  stage_id: string
+  bpo_id: string
+  status: string
+  value: string
+  monthly_purchase: string
+  estimated_savings: string
+  probability: string
+  score: string
+  source: string
+  plan: string
+  expected_close_date: string
+  focus_items: string
+  organization_name: string
+  organization_segment: string
+  organization_city: string
+  organization_state: string
+  organization_cnpjs: string
+  organization_supplier_count: string
+  person_name: string
+  person_role: string
+  person_email: string
+  person_phone: string
+}
+
 const money = (value?: number | null) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(Number(value || 0))
 
@@ -173,9 +199,11 @@ function App() {
   const [creating, setCreating] = useState(false)
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [pipelineView, setPipelineView] = useState<'kanban' | 'list' | 'forecast'>('kanban')
+  const [detailDealId, setDetailDealId] = useState(() => new URLSearchParams(window.location.search).get('deal') || '')
   const [newDeal, setNewDeal] = useState<NewDeal>({ title: '', organization_name: '', contact_name: '', value: '399', monthly_purchase: '50000', plan: 'BPO completo + Essencial', stage_id: '', bpo_id: '' })
 
-  const selected = useMemo(() => deals.find((d) => d.id === selectedId) || deals[0], [deals, selectedId])
+  const detailDeal = useMemo(() => deals.find((d) => d.id === detailDealId), [deals, detailDealId])
+  const selected = useMemo(() => deals.find((d) => d.id === selectedId) || detailDeal || deals[0], [deals, selectedId, detailDeal])
   const selectedStageIndex = selected ? stages.findIndex((s) => s.id === selected.stage_id) : -1
   const selectedActivities = selected ? activities.filter((a) => a.deal_id === selected.id) : []
   const selectedHistory = selected ? history.filter((h) => h.deal_id === selected.id) : []
@@ -200,6 +228,12 @@ function App() {
   useEffect(() => {
     if (session) void loadAll()
   }, [session])
+
+  useEffect(() => {
+    const syncDealFromUrl = () => setDetailDealId(new URLSearchParams(window.location.search).get('deal') || '')
+    window.addEventListener('popstate', syncDealFromUrl)
+    return () => window.removeEventListener('popstate', syncDealFromUrl)
+  }, [])
 
   async function loadAll() {
     setLoading(true)
@@ -285,7 +319,79 @@ function App() {
     setDraggingId(null)
   }
 
+  function openDealPage(id: string) {
+    setSelectedId(id)
+    setDetailDealId(id)
+    const nextUrl = `${window.location.pathname}?deal=${encodeURIComponent(id)}`
+    window.history.pushState({}, '', nextUrl)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  function closeDealPage() {
+    setDetailDealId('')
+    window.history.pushState({}, '', window.location.pathname)
+  }
+
+  async function saveDeal(form: DealForm) {
+    if (!detailDeal) return
+    setError('')
+    const numberOrNull = (value: string) => value.trim() === '' ? null : Number(value)
+    try {
+      const { error: dealErr } = await supabase.from('deals').update({
+        title: form.title,
+        stage_id: form.stage_id || null,
+        bpo_id: form.bpo_id || null,
+        status: form.status as Deal['status'],
+        value: numberOrNull(form.value),
+        monthly_purchase: numberOrNull(form.monthly_purchase),
+        estimated_savings: numberOrNull(form.estimated_savings),
+        probability: numberOrNull(form.probability),
+        score: numberOrNull(form.score),
+        source: form.source || null,
+        plan: form.plan || null,
+        expected_close_date: form.expected_close_date || null,
+        focus_items: form.focus_items.split('\n').map((item) => item.trim()).filter(Boolean),
+      }).eq('id', detailDeal.id)
+      if (dealErr) throw dealErr
+
+      if (detailDeal.organization_id) {
+        const { error: orgErr } = await supabase.from('organizations').update({
+          name: form.organization_name,
+          segment: form.organization_segment || null,
+          city: form.organization_city || null,
+          state: form.organization_state || null,
+          cnpjs: numberOrNull(form.organization_cnpjs),
+          supplier_count: numberOrNull(form.organization_supplier_count),
+          monthly_purchase: numberOrNull(form.monthly_purchase),
+          bpo_id: form.bpo_id || null,
+        }).eq('id', detailDeal.organization_id)
+        if (orgErr) throw orgErr
+      }
+
+      if (detailDeal.person_id) {
+        const { error: personErr } = await supabase.from('people').update({
+          full_name: form.person_name,
+          role_title: form.person_role || null,
+          email: form.person_email || null,
+          phone: form.person_phone || null,
+          bpo_id: form.bpo_id || null,
+        }).eq('id', detailDeal.person_id)
+        if (personErr) throw personErr
+      }
+
+      await supabase.from('deal_history').insert({ deal_id: detailDeal.id, event_type: 'Edição', title: 'Ficha do negócio atualizada', description: 'Campos editados na URL da ficha completa.' })
+      await loadAll()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+      throw e
+    }
+  }
+
   if (!session) return <Login />
+
+  if (detailDealId) {
+    return <DealPage key={detailDealId} deal={detailDeal} loading={loading} error={error} stages={stages} bpos={bpos} activities={activities.filter((a) => a.deal_id === detailDealId)} history={history.filter((h) => h.deal_id === detailDealId)} activePipeline={activePipeline} closeDealPage={closeDealPage} saveDeal={saveDeal} completeActivity={completeActivity} moveDeal={moveDeal} />
+  }
 
   const navItems: Array<[View, ReactNode, string]> = [
     ['pipeline', <LayoutDashboard size={19}/>, 'Negócios'],
@@ -319,7 +425,7 @@ function App() {
             {error && <div className="m-4 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><b>Erro:</b> {error}</div>}
             {loading ? <div className="m-4 rounded bg-white p-4 text-sm shadow-sm">Carregando dados do Supabase...</div> : (
               <>
-                {activeView === 'pipeline' && <PipelineView stages={stages} deals={deals} selectedId={selected?.id} setSelectedId={setSelectedId} setDraggingId={setDraggingId} handleDrop={handleDrop} totals={totals} selected={selected} selectedStageIndex={selectedStageIndex} selectedActivities={selectedActivities} selectedHistory={selectedHistory} moveDeal={moveDeal} completeActivity={completeActivity} newDeal={newDeal} setNewDeal={setNewDeal} createDeal={createDeal} creating={creating} bpos={bpos} activePipeline={activePipeline} setActivePipeline={setActivePipeline} pipelineView={pipelineView} setPipelineView={setPipelineView} />}
+                {activeView === 'pipeline' && <PipelineView stages={stages} deals={deals} selectedId={selected?.id} setSelectedId={setSelectedId} openDealPage={openDealPage} setDraggingId={setDraggingId} handleDrop={handleDrop} totals={totals} selected={selected} selectedStageIndex={selectedStageIndex} selectedActivities={selectedActivities} selectedHistory={selectedHistory} moveDeal={moveDeal} completeActivity={completeActivity} newDeal={newDeal} setNewDeal={setNewDeal} createDeal={createDeal} creating={creating} bpos={bpos} activePipeline={activePipeline} setActivePipeline={setActivePipeline} pipelineView={pipelineView} setPipelineView={setPipelineView} />}
                 {activeView === 'contacts' && <ListView title="Contatos" icon={<Contact size={18}/>} rows={people.map((p) => ({ id: p.id, title: p.full_name, sub: `${p.role_title || 'Contato'} · ${p.email || 'sem email'}`, meta: p.phone || 'sem telefone' }))} />}
                 {activeView === 'companies' && <ListView title="Empresas" icon={<Building2 size={18}/>} rows={organizations.map((o) => ({ id: o.id, title: o.name, sub: `${o.segment || 'Segmento não informado'} · ${o.city || ''} ${o.state || ''}`, meta: money(o.monthly_purchase) }))} />}
                 {activeView === 'activities' && <ActivitiesView activities={activities} deals={deals} completeActivity={completeActivity} />}
@@ -334,11 +440,12 @@ function App() {
   )
 }
 
-function PipelineView({ stages, deals, selectedId, setSelectedId, setDraggingId, handleDrop, totals, selected, selectedStageIndex, selectedActivities, selectedHistory, moveDeal, completeActivity, newDeal, setNewDeal, createDeal, creating, bpos, activePipeline, setActivePipeline, pipelineView, setPipelineView }: {
+function PipelineView({ stages, deals, selectedId, setSelectedId, openDealPage, setDraggingId, handleDrop, totals, selected, selectedStageIndex, selectedActivities, selectedHistory, moveDeal, completeActivity, newDeal, setNewDeal, createDeal, creating, bpos, activePipeline, setActivePipeline, pipelineView, setPipelineView }: {
   stages: Stage[]
   deals: Deal[]
   selectedId?: string
   setSelectedId: (id: string) => void
+  openDealPage: (id: string) => void
   setDraggingId: (id: string | null) => void
   handleDrop: (e: DragEvent, stageId: string) => void
   totals: { value: number; gmv: number; openActivities: number }
@@ -411,7 +518,7 @@ function PipelineView({ stages, deals, selectedId, setSelectedId, setDraggingId,
                 <p className="mt-1 truncate text-[11px] text-slate-500">{money(stageValue)} · {stageDeals.length} negócios</p>
               </div>
               <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-1.5">
-                {stageDeals.map((deal) => <button key={deal.id} draggable onDragStart={() => setDraggingId(deal.id)} onDragEnd={() => setDraggingId(null)} onClick={() => setSelectedId(deal.id)} className={cn('group w-full rounded border p-2 text-left shadow-sm transition hover:shadow-md cursor-pointer', selectedId === deal.id ? 'border-blue-300 bg-[#fff3f0] ring-2 ring-blue-200/70' : 'border-[#eadfda] bg-[#fff2ef] hover:border-blue-200')}>
+                {stageDeals.map((deal) => <button key={deal.id} draggable onDragStart={() => setDraggingId(deal.id)} onDragEnd={() => setDraggingId(null)} onClick={() => openDealPage(deal.id)} className={cn('group w-full rounded border p-2 text-left shadow-sm transition hover:shadow-md cursor-pointer', selectedId === deal.id ? 'border-blue-300 bg-[#fff3f0] ring-2 ring-blue-200/70' : 'border-[#eadfda] bg-[#fff2ef] hover:border-blue-200')}>
                   <div className="mb-1.5 flex items-center gap-1">
                     <span className="h-1 w-8 rounded-full bg-[#5c7cfa]" />
                     <span className="h-1 w-8 rounded-full bg-[#e6509c]" />
@@ -435,7 +542,7 @@ function PipelineView({ stages, deals, selectedId, setSelectedId, setDraggingId,
         </div>
       </div>
 
-      <MobileDealDetail selected={selected} selectedStage={selectedStage} activePipeline={activePipeline} ageDays={ageDays} stages={stageSegments} selectedStageIndex={selectedStageIndex} moveDeal={moveDeal} selectedActivities={selectedActivities} completeActivity={completeActivity} />
+      <MobileDealDetail selected={selected} openDealPage={openDealPage} selectedStage={selectedStage} activePipeline={activePipeline} ageDays={ageDays} stages={stageSegments} selectedStageIndex={selectedStageIndex} moveDeal={moveDeal} selectedActivities={selectedActivities} completeActivity={completeActivity} />
 
       <aside className="hidden min-h-0 overflow-y-auto border-l border-slate-200 bg-[#f5f6f8] xl:block">
         {selected ? <div>
@@ -457,7 +564,7 @@ function PipelineView({ stages, deals, selectedId, setSelectedId, setDraggingId,
             <div className="mt-4 flex gap-2">
               <button className="rounded bg-[#238847] px-4 py-2 text-sm font-bold text-white">Won</button>
               <button className="rounded bg-red-500 px-4 py-2 text-sm font-bold text-white">Lost</button>
-              <button className="rounded border border-slate-300 bg-white px-3 py-2 text-slate-600">▦</button>
+              <button onClick={() => openDealPage(selected.id)} className="rounded border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Abrir ficha</button>
             </div>
           </div>
 
@@ -503,7 +610,7 @@ function PipelineView({ stages, deals, selectedId, setSelectedId, setDraggingId,
           </div>
         </div> : <div className="p-4 text-sm text-slate-500">Selecione um negócio.</div>}
       </aside>
-    </div> : pipelineView === 'list' ? <ListViewDeals deals={deals} stages={stages} selectedId={selectedId} setSelectedId={setSelectedId} /> : <ForecastView deals={deals} stages={stages} selectedId={selectedId} setSelectedId={setSelectedId} />}
+    </div> : pipelineView === 'list' ? <ListViewDeals deals={deals} stages={stages} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} /> : <ForecastView deals={deals} stages={stages} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} />}
 
     <div className="border-t border-slate-200 bg-white p-4">
       <form onSubmit={createDeal} className="grid gap-2 md:grid-cols-7">
@@ -518,12 +625,189 @@ function PipelineView({ stages, deals, selectedId, setSelectedId, setDraggingId,
   </div>
 }
 
+
+function DealPage({ deal, loading, error, stages, bpos, activities, history, activePipeline, closeDealPage, saveDeal, completeActivity, moveDeal }: {
+  deal?: Deal
+  loading: boolean
+  error: string
+  stages: Stage[]
+  bpos: BpoPartner[]
+  activities: ActivityRow[]
+  history: HistoryRow[]
+  activePipeline: string
+  closeDealPage: () => void
+  saveDeal: (form: DealForm) => Promise<void>
+  completeActivity: (id: string) => Promise<void>
+  moveDeal: (stageId: string, dealId?: string) => Promise<void>
+}) {
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [form, setForm] = useState<DealForm>(() => dealToForm(deal))
+  const selectedStageIndex = deal ? stages.findIndex((s) => s.id === deal.stage_id) : -1
+  const ageDays = Math.max(1, Math.min(96, deal?.score || deal?.probability || 36))
+
+  async function submit(e: FormEvent) {
+    e.preventDefault()
+    setSaving(true)
+    setSaved(false)
+    try {
+      await saveDeal(form)
+      setSaved(true)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading) return <main className="min-h-screen bg-[#f4f5f7] p-5 text-slate-900"><div className="rounded bg-white p-4 shadow-sm">Carregando ficha do negócio...</div></main>
+  if (!deal) return <main className="min-h-screen bg-[#f4f5f7] p-5 text-slate-900"><div className="rounded bg-white p-6 shadow-sm"><h1 className="text-xl font-bold">Negócio não encontrado</h1><button onClick={closeDealPage} className="mt-4 rounded bg-[#238847] px-4 py-2 text-sm font-bold text-white">Voltar ao funil</button></div></main>
+
+  const update = (key: keyof DealForm, value: string) => setForm((current) => ({ ...current, [key]: value }))
+
+  return <main className="min-h-screen bg-[#f4f5f7] text-slate-900">
+    <header className="sticky top-0 z-30 border-b border-slate-200 bg-white px-4 py-3 shadow-sm">
+      <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-3">
+        <button onClick={closeDealPage} className="rounded border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">← Voltar ao funil</button>
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-semibold text-blue-600">{activePipeline} → {stages.find((s) => s.id === deal.stage_id)?.name || 'Sem etapa'}</p>
+          <h1 className="truncate text-2xl font-semibold tracking-[-0.03em] text-slate-950">{deal.title}</h1>
+        </div>
+        {saved && <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700">Salvo</span>}
+        <button form="deal-edit-form" disabled={saving} className="rounded bg-[#238847] px-5 py-2 text-sm font-bold text-white shadow-sm hover:bg-[#1f7a40] disabled:opacity-60">{saving ? 'Salvando...' : 'Salvar alterações'}</button>
+      </div>
+    </header>
+
+    <form id="deal-edit-form" onSubmit={submit} className="mx-auto grid max-w-7xl gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_420px]">
+      {error && <div className="xl:col-span-2 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><b>Erro:</b> {error}</div>}
+
+      <section className="space-y-4">
+        <Panel className="overflow-hidden">
+          <div className="border-b border-slate-200 bg-white p-4">
+            <h2 className="text-lg font-bold">Dados principais do negócio</h2>
+            <p className="mt-1 text-sm text-slate-500">Todos os campos da ficha lateral agora ficam em uma URL própria e editável.</p>
+          </div>
+          <div className="grid gap-4 p-4 md:grid-cols-2">
+            <EditInput label="Título do negócio" value={form.title} onChange={(v) => update('title', v)} className="md:col-span-2" />
+            <EditSelect label="Etapa" value={form.stage_id} onChange={(v) => update('stage_id', v)} options={stages.map((s) => [s.id, s.name])} />
+            <EditSelect label="Status" value={form.status} onChange={(v) => update('status', v)} options={Object.entries(statusLabel)} />
+            <EditInput label="Valor do negócio" value={form.value} onChange={(v) => update('value', v)} type="number" />
+            <EditInput label="GMV mensal" value={form.monthly_purchase} onChange={(v) => update('monthly_purchase', v)} type="number" />
+            <EditInput label="Economia estimada" value={form.estimated_savings} onChange={(v) => update('estimated_savings', v)} type="number" />
+            <EditInput label="Probabilidade (%)" value={form.probability} onChange={(v) => update('probability', v)} type="number" />
+            <EditInput label="Rotting / idade em dias" value={form.score} onChange={(v) => update('score', v)} type="number" />
+            <EditInput label="Data esperada de fechamento" value={form.expected_close_date} onChange={(v) => update('expected_close_date', v)} type="date" />
+            <EditInput label="Fonte" value={form.source} onChange={(v) => update('source', v)} />
+            <EditInput label="Plano recomendado" value={form.plan} onChange={(v) => update('plan', v)} />
+            <EditSelect label="BPO / responsável" value={form.bpo_id} onChange={(v) => update('bpo_id', v)} options={[['', 'Sem BPO'], ...bpos.map((b) => [b.id, b.name] as [string, string])]} />
+          </div>
+        </Panel>
+
+        <Panel className="overflow-hidden">
+          <div className="border-b border-slate-200 bg-white p-4"><h2 className="text-lg font-bold">Empresa e contato</h2></div>
+          <div className="grid gap-4 p-4 md:grid-cols-2">
+            <EditInput label="Empresa" value={form.organization_name} onChange={(v) => update('organization_name', v)} />
+            <EditInput label="Segmento" value={form.organization_segment} onChange={(v) => update('organization_segment', v)} />
+            <EditInput label="Cidade" value={form.organization_city} onChange={(v) => update('organization_city', v)} />
+            <EditInput label="Estado" value={form.organization_state} onChange={(v) => update('organization_state', v)} />
+            <EditInput label="Quantidade de CNPJs" value={form.organization_cnpjs} onChange={(v) => update('organization_cnpjs', v)} type="number" />
+            <EditInput label="Quantidade de fornecedores" value={form.organization_supplier_count} onChange={(v) => update('organization_supplier_count', v)} type="number" />
+            <EditInput label="Pessoa" value={form.person_name} onChange={(v) => update('person_name', v)} />
+            <EditInput label="Cargo" value={form.person_role} onChange={(v) => update('person_role', v)} />
+            <EditInput label="Email" value={form.person_email} onChange={(v) => update('person_email', v)} type="email" />
+            <EditInput label="Telefone" value={form.person_phone} onChange={(v) => update('person_phone', v)} />
+          </div>
+        </Panel>
+
+        <Panel className="overflow-hidden">
+          <div className="border-b border-slate-200 bg-white p-4"><h2 className="text-lg font-bold">Focus e notas do negócio</h2></div>
+          <div className="p-4">
+            <label className="block text-sm font-semibold text-slate-700">Itens de foco, um por linha</label>
+            <textarea value={form.focus_items} onChange={(e) => update('focus_items', e.target.value)} rows={7} className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" placeholder="Diagnóstico gratuito&#10;Enviar proposta&#10;Follow-up" />
+          </div>
+        </Panel>
+      </section>
+
+      <aside className="space-y-4">
+        <Panel className="overflow-hidden">
+          <div className="border-b border-slate-200 bg-white p-4">
+            <span className="rounded-full bg-red-500 px-2 py-1 text-[11px] font-bold uppercase text-white">Rotting for {ageDays} days</span>
+            <div className="mt-4 flex overflow-hidden rounded-sm">
+              {stages.map((stage, i) => <button type="button" key={stage.id} onClick={() => { update('stage_id', stage.id); void moveDeal(stage.id, deal.id) }} className={cn('h-8 min-w-[68px] flex-1 border-r border-white text-[11px]', i <= selectedStageIndex ? 'bg-[#27864d] text-white' : 'bg-slate-200 text-slate-500')}>{i === selectedStageIndex ? `${ageDays} dias` : '0 dias'}</button>)}
+            </div>
+            <div className="mt-4 flex gap-2">
+              <button type="button" onClick={() => update('status', 'ganho')} className="rounded bg-[#238847] px-4 py-2 text-sm font-bold text-white">Won</button>
+              <button type="button" onClick={() => update('status', 'perdido')} className="rounded bg-red-500 px-4 py-2 text-sm font-bold text-white">Lost</button>
+            </div>
+          </div>
+          <div className="grid gap-3 p-4 text-sm">
+            <FieldLine label="Pessoa" value={form.person_name || 'Sem contato'} blue />
+            <FieldLine label="Empresa" value={form.organization_name || 'Sem empresa'} blue />
+            <FieldLine label="Valor" value={money(Number(form.value || 0))} />
+            <FieldLine label="Status" value={statusLabel[form.status] || form.status || 'Sem status'} />
+            <FieldLine label="Data esperada" value={form.expected_close_date || 'Sem data'} />
+          </div>
+        </Panel>
+
+        <Panel className="overflow-hidden">
+          <div className="flex items-center gap-2 border-b border-slate-200 bg-white p-4"><CalendarClock size={17}/><h2 className="font-bold">Atividades</h2></div>
+          <div className="space-y-3 p-4">
+            {activities.length ? activities.map((a) => <div key={a.id} className="rounded border border-slate-200 bg-white p-3 text-sm shadow-sm"><div className="flex items-start gap-3"><button type="button" onClick={() => void completeActivity(a.id)} className="mt-1 h-5 w-5 shrink-0 rounded-full border-2 border-slate-300 hover:border-emerald-500"/><div><b>{a.title}</b><p className="mt-1 text-xs text-slate-500">{a.due_at ? new Date(a.due_at).toLocaleDateString('pt-BR') : 'sem data'} · {a.status}</p>{a.note && <p className="mt-2 text-slate-600">{a.note}</p>}</div></div></div>) : <p className="text-sm text-slate-500">Nenhuma atividade planejada.</p>}
+          </div>
+        </Panel>
+
+        <Panel className="overflow-hidden">
+          <div className="border-b border-slate-200 bg-white p-4"><h2 className="font-bold">Histórico</h2></div>
+          <div className="max-h-[360px] space-y-2 overflow-y-auto p-4">
+            {history.length ? history.map((h) => <div key={h.id} className="rounded border border-slate-200 bg-slate-50 p-3 text-sm"><b>{h.event_type}: {h.title}</b><p className="text-xs text-slate-500">{h.description}</p></div>) : <p className="text-sm text-slate-500">Sem histórico.</p>}
+          </div>
+        </Panel>
+      </aside>
+    </form>
+  </main>
+}
+
+function dealToForm(deal?: Deal): DealForm {
+  return {
+    title: deal?.title || '',
+    stage_id: deal?.stage_id || '',
+    bpo_id: deal?.bpo_id || '',
+    status: deal?.status || 'morno',
+    value: String(deal?.value ?? ''),
+    monthly_purchase: String(deal?.monthly_purchase ?? ''),
+    estimated_savings: String(deal?.estimated_savings ?? ''),
+    probability: String(deal?.probability ?? ''),
+    score: String(deal?.score ?? ''),
+    source: deal?.source || '',
+    plan: deal?.plan || '',
+    expected_close_date: deal?.expected_close_date || '',
+    focus_items: (deal?.focus_items || []).join('\n'),
+    organization_name: deal?.organizations?.name || '',
+    organization_segment: deal?.organizations?.segment || '',
+    organization_city: deal?.organizations?.city || '',
+    organization_state: deal?.organizations?.state || '',
+    organization_cnpjs: String(deal?.organizations?.cnpjs ?? ''),
+    organization_supplier_count: String(deal?.organizations?.supplier_count ?? ''),
+    person_name: deal?.people?.full_name || '',
+    person_role: deal?.people?.role_title || '',
+    person_email: deal?.people?.email || '',
+    person_phone: deal?.people?.phone || '',
+  }
+}
+
+function EditInput({ label, value, onChange, type = 'text', className }: { label: string; value: string; onChange: (value: string) => void; type?: string; className?: string }) {
+  return <label className={cn('block', className)}><span className="mb-1.5 block text-sm font-semibold text-slate-700">{label}</span><input type={type} value={value} onChange={(e) => onChange(e.target.value)} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" /></label>
+}
+
+function EditSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: Array<[string, string]> }) {
+  return <label className="block"><span className="mb-1.5 block text-sm font-semibold text-slate-700">{label}</span><select value={value} onChange={(e) => onChange(e.target.value)} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-[#238847] focus:ring-4 focus:ring-emerald-100">{options.map(([id, label]) => <option key={id || 'empty'} value={id}>{label}</option>)}</select></label>
+}
+
 function profileName(deal: Deal) {
   return deal.bpo_partners?.contact_name || deal.people?.full_name || 'VMarket'
 }
 
-function MobileDealDetail({ selected, selectedStage, activePipeline, ageDays, stages, selectedStageIndex, moveDeal, selectedActivities, completeActivity }: {
+function MobileDealDetail({ selected, openDealPage, selectedStage, activePipeline, ageDays, stages, selectedStageIndex, moveDeal, selectedActivities, completeActivity }: {
   selected?: Deal
+  openDealPage: (id: string) => void
   selectedStage?: Stage
   activePipeline: string
   ageDays: number
@@ -538,6 +822,7 @@ function MobileDealDetail({ selected, selectedStage, activePipeline, ageDays, st
     <div className="border-b border-slate-100 p-4">
       <p className="mb-2 text-xs font-semibold text-blue-600">{activePipeline} → {selectedStage?.name || 'Sem etapa'}</p>
       <h2 className="text-xl font-semibold leading-tight text-slate-950">{selected.title}</h2>
+      <button onClick={() => openDealPage(selected.id)} className="mt-3 rounded-lg bg-[#238847] px-4 py-2 text-sm font-bold text-white">Abrir ficha completa</button>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <span className="rounded-full bg-red-500 px-2 py-1 text-[11px] font-bold uppercase text-white">Rotting for {ageDays} days</span>
         <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-600">{profileName(selected)}</span>
@@ -599,7 +884,7 @@ function SettingsView({ title, items }: { title: string; items: string[] }) {
   return <div className="h-full overflow-y-auto p-5"><Panel><div className="flex items-center gap-2 border-b border-slate-200 p-4"><Settings size={18} className="text-[#6f5cf6]"/><h2 className="text-lg font-bold">{title}</h2></div><div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">{items.map((item) => <div key={item} className="rounded border border-slate-200 bg-slate-50 p-4 text-sm"><b>{item}</b><p className="mt-2 text-xs text-slate-500">Configurado no CRM VMarket.</p></div>)}</div></Panel></div>
 }
 
-function ListViewDeals({ deals, stages, selectedId, setSelectedId }: { deals: Deal[]; stages: Stage[]; selectedId?: string; setSelectedId: (id: string) => void }) {
+function ListViewDeals({ deals, stages, selectedId, setSelectedId, openDealPage }: { deals: Deal[]; stages: Stage[]; selectedId?: string; setSelectedId: (id: string) => void; openDealPage: (id: string) => void }) {
   const stageName = (id: string) => stages.find((s) => s.id === id)?.name || ''
   return <div className="min-h-0 flex-1 overflow-auto">
     <table className="w-full text-sm">
@@ -615,7 +900,7 @@ function ListViewDeals({ deals, stages, selectedId, setSelectedId }: { deals: De
         </tr>
       </thead>
       <tbody className="divide-y divide-slate-100">
-        {deals.map((deal) => <tr key={deal.id} onClick={() => setSelectedId(deal.id)} className={cn('cursor-pointer transition hover:bg-blue-50', selectedId === deal.id ? 'bg-blue-50 ring-1 ring-inset ring-blue-200' : '')}>
+        {deals.map((deal) => <tr key={deal.id} onClick={() => { setSelectedId(deal.id); openDealPage(deal.id) }} className={cn('cursor-pointer transition hover:bg-blue-50', selectedId === deal.id ? 'bg-blue-50 ring-1 ring-inset ring-blue-200' : '')}>
           <td className="px-4 py-3 font-semibold text-slate-900">{deal.title}</td>
           <td className="px-4 py-3 text-slate-600">{deal.organizations?.name || '-'}</td>
           <td className="px-4 py-3 text-slate-600">{deal.people?.full_name || '-'}</td>
@@ -630,7 +915,7 @@ function ListViewDeals({ deals, stages, selectedId, setSelectedId }: { deals: De
   </div>
 }
 
-function ForecastView({ deals, stages, selectedId, setSelectedId }: { deals: Deal[]; stages: Stage[]; selectedId?: string; setSelectedId: (id: string) => void }) {
+function ForecastView({ deals, stages, selectedId, setSelectedId, openDealPage }: { deals: Deal[]; stages: Stage[]; selectedId?: string; setSelectedId: (id: string) => void; openDealPage: (id: string) => void }) {
   const stageName = (id: string) => stages.find((s) => s.id === id)?.name || ''
   const byMonth: Record<string, { deals: Deal[]; total: number; won: number }> = {}
   deals.forEach((deal) => {
@@ -670,7 +955,7 @@ function ForecastView({ deals, stages, selectedId, setSelectedId }: { deals: Dea
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">
-            {group.deals.map((deal) => <tr key={deal.id} onClick={() => setSelectedId(deal.id)} className={cn('cursor-pointer transition hover:bg-blue-50', selectedId === deal.id ? 'bg-blue-50' : '')}>
+            {group.deals.map((deal) => <tr key={deal.id} onClick={() => { setSelectedId(deal.id); openDealPage(deal.id) }} className={cn('cursor-pointer transition hover:bg-blue-50', selectedId === deal.id ? 'bg-blue-50' : '')}>
               <td className="px-5 py-2 font-semibold text-slate-900">{deal.title}</td>
               <td className="px-5 py-2 text-slate-600">{deal.organizations?.name || '-'}</td>
               <td className="px-5 py-2"><span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-700">{stageName(deal.stage_id || '') || '-'}</span></td>
