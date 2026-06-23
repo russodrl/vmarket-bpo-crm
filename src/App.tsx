@@ -848,15 +848,18 @@ function CustomFieldInput({ field, value, onChange }: { field: CustomField; valu
   const common = "mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-[#238847] focus:ring-4 focus:ring-emerald-100"
   return <label className="block">
     <span className="block text-sm font-semibold text-slate-700">{field.name}</span>
-    <span className="mt-0.5 block text-[11px] text-slate-400">field_id: {field.id} · api_slug: {apiSlug(field)}</span>
+    <span className="mt-0.5 block text-[11px] text-slate-400">{field.pipedrive_key ? `Pipedrive: ${field.pipedrive_key}` : `field_id: ${field.id}`} · CRM: {apiSlug(field)}</span>
     {field.field_type === 'large_text' ? <textarea value={value} onChange={(e) => onChange(e.target.value)} rows={4} className={common} /> : field.field_type === 'single_option' ? <select value={value} onChange={(e) => onChange(e.target.value)} className={common}><option value="">Selecione</option>{options.map((option) => <option key={option} value={option}>{option}</option>)}</select> : field.field_type === 'date' ? <input type="date" value={value} onChange={(e) => onChange(e.target.value)} className={common} /> : <input type={field.field_type === 'numeric' || field.field_type === 'monetary' || field.field_type === 'formula' ? 'number' : 'text'} value={value} onChange={(e) => onChange(e.target.value)} className={common} placeholder={field.field_type === 'multi_option' ? 'Valores separados por vírgula' : undefined} />}
   </label>
 }
 
 function FieldsConfigView({ fields, setError, reload }: { fields: CustomField[]; setError: (error: string) => void; reload: () => Promise<void> }) {
   const [creating, setCreating] = useState(false)
-  const [newField, setNewField] = useState({ entity: 'deal', name: '', field_type: 'text', options: '' })
-  const fieldTypes: CustomField['field_type'][] = ['text', 'large_text', 'single_option', 'multi_option', 'numeric', 'monetary', 'phone', 'date', 'address', 'formula']
+  const [newField, setNewField] = useState<{ entity: CustomField['entity']; name: string; field_type: CustomField['field_type']; options: string }>({ entity: 'deal', name: '', field_type: 'text', options: '' })
+  const fieldTypes: CustomField['field_type'][] = ['text', 'large_text', 'single_option', 'multi_option', 'numeric', 'monetary', 'phone', 'date', 'address', 'formula', 'user_ref', 'organization_ref', 'person_ref']
+  const entityLabels: Record<CustomField['entity'], string> = { deal: 'Negócios', person: 'Pessoas', organization: 'Organizações', activity: 'Atividades' }
+  const entities: CustomField['entity'][] = ['deal', 'person', 'organization', 'activity']
+  const pipedriveFields = fields.filter((field) => field.pipedrive_key)
 
   async function createField(e: FormEvent) {
     e.preventDefault()
@@ -883,26 +886,58 @@ function FieldsConfigView({ fields, setError, reload }: { fields: CustomField[];
   return <div className="h-full overflow-y-auto p-5">
     <Panel className="overflow-hidden">
       <div className="border-b border-slate-200 p-4">
-        <div className="flex items-center gap-2"><Tags size={18} className="text-[#6f5cf6]"/><h2 className="text-lg font-bold">Campos configuráveis e API</h2></div>
-        <p className="mt-2 text-sm text-slate-500">Cada campo tem um ID fixo para integração direta com Pipedrive. Valores de negócio são gravados em custom_field_values usando field_id + entity_id.</p>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2"><Tags size={18} className="text-[#6f5cf6]"/><h2 className="text-lg font-bold">Campos Pipedrive e API</h2></div>
+          <div className="flex flex-wrap gap-2 text-xs font-semibold">
+            <Badge tone="bg-emerald-100 text-emerald-700">{pipedriveFields.length} campos importados</Badge>
+            <Badge tone="bg-blue-100 text-blue-700">{fields.length} campos no CRM</Badge>
+          </div>
+        </div>
+        <p className="mt-2 text-sm text-slate-500">O catálogo abaixo foi lido diretamente da API do Pipedrive. O CRM guarda a key original, tipo original, opções e tipo interno para manter a ficha próxima do Pipedrive sem escrever nada no Pipedrive.</p>
       </div>
       <form onSubmit={createField} className="grid gap-3 border-b border-slate-200 bg-slate-50 p-4 md:grid-cols-[140px_1fr_180px_1fr_120px]">
-        <select value={newField.entity} onChange={(e) => setNewField({ ...newField, entity: e.target.value })} className="rounded border border-slate-300 px-3 py-2 text-sm"><option value="deal">Negócio</option><option value="organization">Empresa</option><option value="person">Pessoa</option><option value="activity">Atividade</option></select>
+        <select value={newField.entity} onChange={(e) => setNewField({ ...newField, entity: e.target.value as CustomField['entity'] })} className="rounded border border-slate-300 px-3 py-2 text-sm"><option value="deal">Negócio</option><option value="organization">Empresa</option><option value="person">Pessoa</option><option value="activity">Atividade</option></select>
         <input value={newField.name} onChange={(e) => setNewField({ ...newField, name: e.target.value })} className="rounded border border-slate-300 px-3 py-2 text-sm" placeholder="Nome do campo" required />
-        <select value={newField.field_type} onChange={(e) => setNewField({ ...newField, field_type: e.target.value })} className="rounded border border-slate-300 px-3 py-2 text-sm">{fieldTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select>
+        <select value={newField.field_type} onChange={(e) => setNewField({ ...newField, field_type: e.target.value as CustomField['field_type'] })} className="rounded border border-slate-300 px-3 py-2 text-sm">{fieldTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select>
         <input value={newField.options} onChange={(e) => setNewField({ ...newField, options: e.target.value })} className="rounded border border-slate-300 px-3 py-2 text-sm" placeholder="Opções separadas por vírgula" />
         <button disabled={creating} className="rounded bg-[#238847] px-3 py-2 text-sm font-bold text-white disabled:opacity-60">{creating ? 'Criando...' : 'Criar campo'}</button>
       </form>
+
+      <div className="grid gap-3 border-b border-slate-200 bg-white p-4 md:grid-cols-4">
+        {entities.map((entity) => {
+          const total = fields.filter((field) => field.entity === entity).length
+          const imported = fields.filter((field) => field.entity === entity && field.pipedrive_key).length
+          return <div key={entity} className="rounded border border-slate-200 bg-slate-50 p-3">
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-500">{entityLabels[entity]}</p>
+            <p className="mt-1 text-2xl font-black text-slate-900">{imported}</p>
+            <p className="text-xs text-slate-500">de {total} campos no CRM</p>
+          </div>
+        })}
+      </div>
+
       <div className="divide-y divide-slate-100">
-        {fields.map((field) => <div key={field.id} className="grid gap-3 p-4 text-sm md:grid-cols-[1fr_120px_120px_1.2fr]">
-          <div><b>{field.name}</b><p className="mt-1 text-xs text-slate-500">API slug: <code>{apiSlug(field)}</code></p></div>
-          <span className="text-slate-600">{field.entity}</span>
-          <span className="text-slate-600">{field.field_type}</span>
-          <div className="min-w-0 text-xs text-slate-500"><p>field_id:</p><code className="break-all">{field.id}</code></div>
-        </div>)}
+        {entities.map((entity) => {
+          const entityFields = fields.filter((field) => field.entity === entity).sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || a.name.localeCompare(b.name))
+          if (!entityFields.length) return null
+          return <section key={entity}>
+            <div className="sticky top-0 z-10 border-b border-slate-200 bg-slate-100 px-4 py-2 text-sm font-black text-slate-700">{entityLabels[entity]}</div>
+            {entityFields.map((field) => <div key={field.id} className="grid gap-3 p-4 text-sm hover:bg-slate-50 md:grid-cols-[1fr_110px_120px_1.4fr]">
+              <div>
+                <b>{field.name}</b>
+                <p className="mt-1 text-xs text-slate-500">CRM: <code>{apiSlug(field)}</code></p>
+                {field.options?.length ? <p className="mt-1 line-clamp-2 text-xs text-slate-400">Opções: {field.options.slice(0, 8).join(', ')}{field.options.length > 8 ? ` +${field.options.length - 8}` : ''}</p> : null}
+              </div>
+              <span className="text-slate-600">{field.entity}</span>
+              <span className="text-slate-600">{field.field_type}</span>
+              <div className="min-w-0 text-xs text-slate-500">
+                {field.pipedrive_key ? <><p>Pipedrive key:</p><code className="break-all text-blue-700">{field.pipedrive_key}</code><p className="mt-1">Tipo Pipedrive: <b>{field.pipedrive_field_type || 'n/a'}</b></p></> : <><p>Campo local:</p><code className="break-all">{field.id}</code></>}
+              </div>
+            </div>)}
+          </section>
+        })}
       </div>
       <div className="border-t border-slate-200 bg-emerald-50 p-4 text-sm text-slate-700">
-        <b>API direta Pipedrive:</b> a função <code>pipedrive-sync</code> recebe webhooks, cria/atualiza negócios e usa <code>external_field_mappings</code> para mapear campos. O Make fica apenas para automações auxiliares.
+        <b>API direta Pipedrive:</b> a função <code>pipedrive-sync</code> continua responsável por webhooks e mapeamentos. Esta versão adiciona o catálogo fiel de campos para orientar ficha, importação e sincronização.
       </div>
     </Panel>
   </div>
