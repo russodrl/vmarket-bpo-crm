@@ -34,7 +34,24 @@ O schema inicial está em:
 supabase/migrations/202606100001_vmarket_bpo_crm.sql
 ```
 
-Ele cria:
+A camada de integração direta com Pipedrive está em:
+
+```text
+supabase/migrations/202606220001_pipedrive_direct_integration.sql
+supabase/functions/pipedrive-sync/index.ts
+docs/pipedrive-direct-api.md
+```
+
+A decisão atual é usar API direta como caminho principal:
+
+```text
+Pipedrive Webhooks/API → Supabase Edge Function → Supabase Postgres → CRM VMarket
+CRM VMarket → Supabase Edge Function → Pipedrive API
+```
+
+Make fica apenas como automação auxiliar, documentado em `docs/make-pipedrive-api.md`.
+
+O schema cria:
 
 - perfis e roles
 - parceiros BPO
@@ -45,6 +62,7 @@ Ele cria:
 - campos customizados
 - histórico
 - RLS para Admin VMarket e BPO parceiro
+- integração Pipedrive direta: external_integrations, external_records, external_field_mappings, integration_events, integration_logs
 - dados mockados iniciais
 
 ## Roles

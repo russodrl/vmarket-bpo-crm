@@ -884,7 +884,7 @@ function FieldsConfigView({ fields, setError, reload }: { fields: CustomField[];
     <Panel className="overflow-hidden">
       <div className="border-b border-slate-200 p-4">
         <div className="flex items-center gap-2"><Tags size={18} className="text-[#6f5cf6]"/><h2 className="text-lg font-bold">Campos configuráveis e API</h2></div>
-        <p className="mt-2 text-sm text-slate-500">Cada campo tem um ID fixo para integração via Make/Pipedrive. Valores de negócio são gravados em custom_field_values usando field_id + entity_id.</p>
+        <p className="mt-2 text-sm text-slate-500">Cada campo tem um ID fixo para integração direta com Pipedrive. Valores de negócio são gravados em custom_field_values usando field_id + entity_id.</p>
       </div>
       <form onSubmit={createField} className="grid gap-3 border-b border-slate-200 bg-slate-50 p-4 md:grid-cols-[140px_1fr_180px_1fr_120px]">
         <select value={newField.entity} onChange={(e) => setNewField({ ...newField, entity: e.target.value })} className="rounded border border-slate-300 px-3 py-2 text-sm"><option value="deal">Negócio</option><option value="organization">Empresa</option><option value="person">Pessoa</option><option value="activity">Atividade</option></select>
@@ -902,7 +902,7 @@ function FieldsConfigView({ fields, setError, reload }: { fields: CustomField[];
         </div>)}
       </div>
       <div className="border-t border-slate-200 bg-emerald-50 p-4 text-sm text-slate-700">
-        <b>Make/Pipedrive:</b> use o REST do Supabase. Ler campos: <code>/rest/v1/custom_fields?entity=eq.deal</code>. Ler valores de um negócio: <code>/rest/v1/custom_field_values?entity_id=eq.ID_DO_NEGOCIO</code>. Enviar valor: upsert em <code>custom_field_values</code> com <code>field_id</code>, <code>entity_id</code> e <code>value</code>.
+        <b>API direta Pipedrive:</b> a função <code>pipedrive-sync</code> recebe webhooks, cria/atualiza negócios e usa <code>external_field_mappings</code> para mapear campos. O Make fica apenas para automações auxiliares.
       </div>
     </Panel>
   </div>

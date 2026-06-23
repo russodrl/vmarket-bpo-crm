@@ -1,143 +1,88 @@
-# Integração Make / Pipedrive / VMarket CRM
+# Make como camada auxiliar, não como integração principal
 
-## Conceito
+A decisão atual do CRM BPO VMarket é usar **API direta com Pipedrive** como caminho principal.
 
-Cada negócio tem um ID fixo em `deals.id` e abre no CRM pela URL:
+Documento principal:
 
 ```text
-https://russodrl.github.io/vmarket-bpo-crm/?deal=DEAL_ID
+docs/pipedrive-direct-api.md
 ```
 
-Campos configuráveis ficam em:
+## Arquitetura principal
 
-- `custom_fields`, cadastro do campo
-- `custom_field_values`, valor do campo por negócio, empresa, pessoa ou atividade
+```text
+Pipedrive Webhooks/API → Supabase Edge Function → Supabase Postgres → CRM VMarket
+CRM VMarket → Supabase Edge Function → Pipedrive API
+```
 
-Para negócios, use:
+## Onde o Make ainda pode ajudar
 
-- `custom_fields.entity = 'deal'`
-- `custom_field_values.entity_id = deals.id`
-- `custom_field_values.field_id = custom_fields.id`
+Use Make para automações laterais, por exemplo:
 
-## Endpoints REST Supabase
+- Enviar WhatsApp depois de mudança de etapa
+- Enviar email
+- Criar tarefa no Google Calendar
+- Gerar PDF
+- Notificar Telegram/Slack
+- Criar tarefas internas
 
-Base URL:
+Não usar Make como fonte principal de sincronização de negócio/campo entre Pipedrive e CRM.
+
+## Por quê
+
+- Campo customizado do Pipedrive usa chaves internas.
+- O CRM precisa manter IDs internos e externos com consistência.
+- Precisamos de logs e reprocessamento.
+- Um cenário Make grande fica difícil de versionar e auditar.
+
+## Se o Make precisar ler dados do CRM
+
+Base REST Supabase:
 
 ```text
 https://ujmjqbqhipjbkokncjja.supabase.co/rest/v1
 ```
 
-Headers no Make:
-
-```text
-apikey: SUPABASE_ANON_OR_SERVICE_KEY
-authorization: Bearer SUPABASE_ANON_OR_SERVICE_KEY
-content-type: application/json
-prefer: return=representation
-```
-
-Use service role key apenas em cenários server-to-server no Make. Não coloque service role key no frontend.
-
-## Ler negócios
-
-```http
-GET /deals?select=*,organizations(*),people(*),bpo_partners(*),pipeline_stages(*)&id=eq.DEAL_ID
-```
-
-## Ler campos configuráveis de negócio
+Ler campos de negócio:
 
 ```http
 GET /custom_fields?entity=eq.deal&order=sort_order.asc
 ```
 
-Cada campo retorna:
-
-- `id`, usar como `field_id`
-- `name`, nome visível no CRM
-- `field_type`, tipo do campo
-- `options`, opções quando for select
-
-## Ler valores customizados de um negócio
+Ler valores de um negócio:
 
 ```http
 GET /custom_field_values?entity_id=eq.DEAL_ID
 ```
 
-## Enviar ou atualizar valor de campo customizado
+Ler ligação CRM ↔ Pipedrive:
 
 ```http
-POST /custom_field_values
+GET /external_records?provider=eq.pipedrive&entity=eq.deal&internal_id=eq.DEAL_ID
 ```
 
-Headers adicionais:
+## Se o Make precisar disparar sync CRM → Pipedrive
+
+Use a Edge Function:
+
+```http
+POST https://ujmjqbqhipjbkokncjja.functions.supabase.co/pipedrive-sync?action=sync-deal-to-pipedrive
+```
+
+Body:
+
+```json
+{
+  "action": "sync-deal-to-pipedrive",
+  "deal_id": "UUID_DO_NEGOCIO_NO_CRM"
+}
+```
+
+Header:
 
 ```text
-prefer: resolution=merge-duplicates,return=representation
+authorization: Bearer <INTEGRATION_INTERNAL_TOKEN>
+content-type: application/json
 ```
 
-Body:
-
-```json
-{
-  "field_id": "FIELD_ID",
-  "entity_id": "DEAL_ID",
-  "value": "valor vindo do Pipedrive"
-}
-```
-
-Para número ou dinheiro:
-
-```json
-{
-  "field_id": "FIELD_ID",
-  "entity_id": "DEAL_ID",
-  "value": 12345.67
-}
-```
-
-Para múltipla escolha:
-
-```json
-{
-  "field_id": "FIELD_ID",
-  "entity_id": "DEAL_ID",
-  "value": ["opcao 1", "opcao 2"]
-}
-```
-
-A tabela tem `unique(field_id, entity_id)`, então o upsert atualiza o mesmo campo do mesmo negócio.
-
-## Criar campo novo via Make
-
-```http
-POST /custom_fields
-```
-
-Body:
-
-```json
-{
-  "entity": "deal",
-  "name": "ID Pipedrive",
-  "field_type": "text",
-  "options": [],
-  "sort_order": 10
-}
-```
-
-## Campos sugeridos para Pipedrive
-
-- `ID Pipedrive`, tipo `text`
-- `Pipeline Pipedrive`, tipo `text`
-- `Stage Pipedrive`, tipo `text`
-- `Origem Make`, tipo `text`
-- `Última sincronização Pipedrive`, tipo `date`
-- `Status integração`, tipo `single_option`, opções: `Sincronizado`, `Pendente`, `Erro`
-
-## Fluxo Make recomendado
-
-1. Watch Deal Updated no Pipedrive.
-2. Procurar negócio no Supabase por campo customizado `ID Pipedrive`.
-3. Se existir, atualizar `deals` e `custom_field_values`.
-4. Se não existir, criar `organizations`, `people`, `deals` e depois gravar o `ID Pipedrive` em `custom_field_values`.
-5. Para enviar CRM -> Pipedrive, buscar negócio por `deal_id`, montar payload com `custom_fields` + `custom_field_values`, atualizar o deal no Pipedrive.
+O token interno deve ficar somente no Make/backend, nunca no frontend.
