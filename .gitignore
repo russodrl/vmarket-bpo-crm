@@ -5,3 +5,6 @@ dist/
 .env.*.local
 .DS_Store
 *.log
+.local-secrets/
+scripts/store_supabase_pipedrive_secrets.py
+scripts/prepare_function_secrets.py

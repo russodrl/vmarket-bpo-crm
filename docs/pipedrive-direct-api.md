@@ -208,6 +208,16 @@ where i.provider = 'pipedrive' and i.name = 'Pipedrive principal';
 
 ## Deploy
 
+Status atual:
+
+```text
+Migration 202606220001 aplicada no Supabase em ujmjqbqhipjbkokncjja.
+Edge Function pipedrive-sync deployada com --no-verify-jwt.
+Secrets PIPEDRIVE_API_TOKEN, PIPEDRIVE_WEBHOOK_SECRET, INTEGRATION_INTERNAL_TOKEN e PIPEDRIVE_BASE_URL configurados.
+Teste OPTIONS retornou 204.
+Teste webhook vazio com segredo válido retornou {"ok":true,"ignored":true,"reason":"No deal id"}.
+```
+
 Aplicar migration:
 
 ```bash
