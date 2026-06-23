@@ -25,7 +25,7 @@ import {
   UsersRound,
   Workflow,
 } from 'lucide-react'
-import { supabase, supabaseConfigured, type ActivityRow, type BpoPartner, type Deal, type HistoryRow, type Organization, type Person, type Profile, type Stage } from './supabase'
+import { supabase, supabaseConfigured, type ActivityRow, type BpoPartner, type CustomField, type CustomFieldValue, type Deal, type HistoryRow, type Organization, type Person, type Profile, type Stage } from './supabase'
 import './App.css'
 
 type View = 'pipeline' | 'contacts' | 'companies' | 'activities' | 'fields' | 'owners'
@@ -188,6 +188,8 @@ function App() {
   const [deals, setDeals] = useState<Deal[]>([])
   const [activities, setActivities] = useState<ActivityRow[]>([])
   const [history, setHistory] = useState<HistoryRow[]>([])
+  const [customFields, setCustomFields] = useState<CustomField[]>([])
+  const [customFieldValues, setCustomFieldValues] = useState<CustomFieldValue[]>([])
   const [organizations, setOrganizations] = useState<Organization[]>([])
   const [people, setPeople] = useState<Person[]>([])
   const [bpos, setBpos] = useState<BpoPartner[]>([])
@@ -239,7 +241,7 @@ function App() {
     setLoading(true)
     setError('')
     try {
-      const [profileRes, stagesRes, bpoRes, orgRes, peopleRes, dealsRes, actsRes, histRes] = await Promise.all([
+      const [profileRes, stagesRes, bpoRes, orgRes, peopleRes, dealsRes, actsRes, histRes, fieldsRes, valuesRes] = await Promise.all([
         supabase.from('profiles').select('*').eq('id', session!.user.id).maybeSingle(),
         supabase.from('pipeline_stages').select('*').order('sort_order'),
         supabase.from('bpo_partners').select('*').order('name'),
@@ -248,8 +250,10 @@ function App() {
         supabase.from('deals').select('*, organizations(*), people(*), bpo_partners(*), pipeline_stages(*)').order('created_at', { ascending: false }),
         supabase.from('activities').select('*').order('due_at', { ascending: true }),
         supabase.from('deal_history').select('*').order('created_at', { ascending: false }),
+        supabase.from('custom_fields').select('*').order('sort_order'),
+        supabase.from('custom_field_values').select('*'),
       ])
-      const firstError = [profileRes, stagesRes, bpoRes, orgRes, peopleRes, dealsRes, actsRes, histRes].find((r) => r.error)?.error
+      const firstError = [profileRes, stagesRes, bpoRes, orgRes, peopleRes, dealsRes, actsRes, histRes, fieldsRes, valuesRes].find((r) => r.error)?.error
       if (firstError) throw firstError
       setProfile(profileRes.data as Profile | null)
       setStages((stagesRes.data || []) as Stage[])
@@ -259,6 +263,8 @@ function App() {
       setDeals((dealsRes.data || []) as Deal[])
       setActivities((actsRes.data || []) as ActivityRow[])
       setHistory((histRes.data || []) as HistoryRow[])
+      setCustomFields((fieldsRes.data || []) as CustomField[])
+      setCustomFieldValues((valuesRes.data || []) as CustomFieldValue[])
       if (!selectedId && dealsRes.data?.[0]) setSelectedId(dealsRes.data[0].id)
       if (!newDeal.stage_id && stagesRes.data?.[0]) setNewDeal((d) => ({ ...d, stage_id: stagesRes.data[0].id, bpo_id: bpoRes.data?.[0]?.id || '' }))
     } catch (e) {
@@ -332,10 +338,16 @@ function App() {
     window.history.pushState({}, '', window.location.pathname)
   }
 
-  async function saveDeal(form: DealForm) {
+  async function saveDeal(form: DealForm, customValues: Record<string, string>) {
     if (!detailDeal) return
     setError('')
     const numberOrNull = (value: string) => value.trim() === '' ? null : Number(value)
+    const dealFields = customFields.filter((field) => field.entity === 'deal')
+    const parseCustomValue = (field: CustomField, raw: string) => {
+      if (field.field_type === 'numeric' || field.field_type === 'monetary' || field.field_type === 'formula') return raw.trim() === '' ? null : Number(raw)
+      if (field.field_type === 'multi_option') return raw.split(',').map((item) => item.trim()).filter(Boolean)
+      return raw
+    }
     try {
       const { error: dealErr } = await supabase.from('deals').update({
         title: form.title,
@@ -379,6 +391,16 @@ function App() {
         if (personErr) throw personErr
       }
 
+      if (dealFields.length) {
+        const rows = dealFields.map((field) => ({
+          field_id: field.id,
+          entity_id: detailDeal.id,
+          value: parseCustomValue(field, customValues[field.id] || ''),
+        }))
+        const { error: customErr } = await supabase.from('custom_field_values').upsert(rows, { onConflict: 'field_id,entity_id' })
+        if (customErr) throw customErr
+      }
+
       await supabase.from('deal_history').insert({ deal_id: detailDeal.id, event_type: 'Edição', title: 'Ficha do negócio atualizada', description: 'Campos editados na URL da ficha completa.' })
       await loadAll()
     } catch (e) {
@@ -390,7 +412,7 @@ function App() {
   if (!session) return <Login />
 
   if (detailDealId) {
-    return <DealPage key={detailDealId} deal={detailDeal} loading={loading} error={error} stages={stages} bpos={bpos} activities={activities.filter((a) => a.deal_id === detailDealId)} history={history.filter((h) => h.deal_id === detailDealId)} activePipeline={activePipeline} closeDealPage={closeDealPage} saveDeal={saveDeal} completeActivity={completeActivity} moveDeal={moveDeal} />
+    return <DealPage key={detailDealId} deal={detailDeal} loading={loading} error={error} stages={stages} bpos={bpos} activities={activities.filter((a) => a.deal_id === detailDealId)} history={history.filter((h) => h.deal_id === detailDealId)} activePipeline={activePipeline} closeDealPage={closeDealPage} saveDeal={saveDeal} customFields={customFields.filter((field) => field.entity === 'deal')} customFieldValues={customFieldValues.filter((value) => value.entity_id === detailDealId)} completeActivity={completeActivity} moveDeal={moveDeal} />
   }
 
   const navItems: Array<[View, ReactNode, string]> = [
@@ -429,7 +451,7 @@ function App() {
                 {activeView === 'contacts' && <ListView title="Contatos" icon={<Contact size={18}/>} rows={people.map((p) => ({ id: p.id, title: p.full_name, sub: `${p.role_title || 'Contato'} · ${p.email || 'sem email'}`, meta: p.phone || 'sem telefone' }))} />}
                 {activeView === 'companies' && <ListView title="Empresas" icon={<Building2 size={18}/>} rows={organizations.map((o) => ({ id: o.id, title: o.name, sub: `${o.segment || 'Segmento não informado'} · ${o.city || ''} ${o.state || ''}`, meta: money(o.monthly_purchase) }))} />}
                 {activeView === 'activities' && <ActivitiesView activities={activities} deals={deals} completeActivity={completeActivity} />}
-                {activeView === 'fields' && <SettingsView title="Campos" items={['Volume mensal de compras', 'Plano recomendado', 'Economia estimada', 'Tipo de operação', 'Perfil do decisor', 'Cotação coletiva']} />}
+                {activeView === 'fields' && <FieldsConfigView fields={customFields} setError={setError} reload={loadAll} />}
                 {activeView === 'owners' && <SettingsView title="Proprietários e parceiros" items={[`Usuário atual: ${session.user.email}`, `Perfil: ${profile?.role === 'admin_vmarket' ? 'Admin VMarket' : 'BPO parceiro'}`, ...bpos.map((b) => `${b.name} · ${b.contact_name || 'sem contato'}`)]} />}
               </>
             )}
@@ -626,7 +648,7 @@ function PipelineView({ stages, deals, selectedId, setSelectedId, openDealPage, 
 }
 
 
-function DealPage({ deal, loading, error, stages, bpos, activities, history, activePipeline, closeDealPage, saveDeal, completeActivity, moveDeal }: {
+function DealPage({ deal, loading, error, stages, bpos, activities, history, customFields, customFieldValues, activePipeline, closeDealPage, saveDeal, completeActivity, moveDeal }: {
   deal?: Deal
   loading: boolean
   error: string
@@ -634,15 +656,18 @@ function DealPage({ deal, loading, error, stages, bpos, activities, history, act
   bpos: BpoPartner[]
   activities: ActivityRow[]
   history: HistoryRow[]
+  customFields: CustomField[]
+  customFieldValues: CustomFieldValue[]
   activePipeline: string
   closeDealPage: () => void
-  saveDeal: (form: DealForm) => Promise<void>
+  saveDeal: (form: DealForm, customValues: Record<string, string>) => Promise<void>
   completeActivity: (id: string) => Promise<void>
   moveDeal: (stageId: string, dealId?: string) => Promise<void>
 }) {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [form, setForm] = useState<DealForm>(() => dealToForm(deal))
+  const [customDrafts, setCustomDrafts] = useState<Record<string, string>>(() => customValuesToDrafts(customFields, customFieldValues))
   const selectedStageIndex = deal ? stages.findIndex((s) => s.id === deal.stage_id) : -1
   const ageDays = Math.max(1, Math.min(96, deal?.score || deal?.probability || 36))
 
@@ -651,7 +676,7 @@ function DealPage({ deal, loading, error, stages, bpos, activities, history, act
     setSaving(true)
     setSaved(false)
     try {
-      await saveDeal(form)
+      await saveDeal(form, customDrafts)
       setSaved(true)
     } finally {
       setSaving(false)
@@ -724,6 +749,16 @@ function DealPage({ deal, loading, error, stages, bpos, activities, history, act
             <textarea value={form.focus_items} onChange={(e) => update('focus_items', e.target.value)} rows={7} className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" placeholder="Diagnóstico gratuito&#10;Enviar proposta&#10;Follow-up" />
           </div>
         </Panel>
+
+        <Panel className="overflow-hidden">
+          <div className="border-b border-slate-200 bg-white p-4">
+            <h2 className="text-lg font-bold">Campos configuráveis do negócio</h2>
+            <p className="mt-1 text-sm text-slate-500">Esses campos vêm da tabela custom_fields e os valores são gravados em custom_field_values por ID do negócio.</p>
+          </div>
+          <div className="grid gap-4 p-4 md:grid-cols-2">
+            {customFields.length ? customFields.map((field) => <CustomFieldInput key={field.id} field={field} value={customDrafts[field.id] || ''} onChange={(value) => setCustomDrafts((current) => ({ ...current, [field.id]: value }))} />) : <p className="text-sm text-slate-500 md:col-span-2">Nenhum campo customizado de negócio configurado ainda. Use a aba Campos para criar.</p>}
+          </div>
+        </Panel>
       </section>
 
       <aside className="space-y-4">
@@ -791,6 +826,86 @@ function dealToForm(deal?: Deal): DealForm {
     person_email: deal?.people?.email || '',
     person_phone: deal?.people?.phone || '',
   }
+}
+
+
+function customValuesToDrafts(fields: CustomField[], values: CustomFieldValue[]) {
+  const drafts: Record<string, string> = {}
+  for (const field of fields) {
+    const row = values.find((value) => value.field_id === field.id)
+    const value = row?.value
+    drafts[field.id] = Array.isArray(value) ? value.join(', ') : value === null || value === undefined ? '' : String(value)
+  }
+  return drafts
+}
+
+function apiSlug(field: CustomField) {
+  return field.name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || field.id
+}
+
+function CustomFieldInput({ field, value, onChange }: { field: CustomField; value: string; onChange: (value: string) => void }) {
+  const options = field.options || []
+  const common = "mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-[#238847] focus:ring-4 focus:ring-emerald-100"
+  return <label className="block">
+    <span className="block text-sm font-semibold text-slate-700">{field.name}</span>
+    <span className="mt-0.5 block text-[11px] text-slate-400">field_id: {field.id} · api_slug: {apiSlug(field)}</span>
+    {field.field_type === 'large_text' ? <textarea value={value} onChange={(e) => onChange(e.target.value)} rows={4} className={common} /> : field.field_type === 'single_option' ? <select value={value} onChange={(e) => onChange(e.target.value)} className={common}><option value="">Selecione</option>{options.map((option) => <option key={option} value={option}>{option}</option>)}</select> : field.field_type === 'date' ? <input type="date" value={value} onChange={(e) => onChange(e.target.value)} className={common} /> : <input type={field.field_type === 'numeric' || field.field_type === 'monetary' || field.field_type === 'formula' ? 'number' : 'text'} value={value} onChange={(e) => onChange(e.target.value)} className={common} placeholder={field.field_type === 'multi_option' ? 'Valores separados por vírgula' : undefined} />}
+  </label>
+}
+
+function FieldsConfigView({ fields, setError, reload }: { fields: CustomField[]; setError: (error: string) => void; reload: () => Promise<void> }) {
+  const [creating, setCreating] = useState(false)
+  const [newField, setNewField] = useState({ entity: 'deal', name: '', field_type: 'text', options: '' })
+  const fieldTypes: CustomField['field_type'][] = ['text', 'large_text', 'single_option', 'multi_option', 'numeric', 'monetary', 'phone', 'date', 'address', 'formula']
+
+  async function createField(e: FormEvent) {
+    e.preventDefault()
+    setCreating(true)
+    setError('')
+    try {
+      const { error } = await supabase.from('custom_fields').insert({
+        entity: newField.entity,
+        name: newField.name,
+        field_type: newField.field_type,
+        options: newField.options.split(',').map((item) => item.trim()).filter(Boolean),
+        sort_order: fields.length + 1,
+      })
+      if (error) throw error
+      setNewField({ entity: 'deal', name: '', field_type: 'text', options: '' })
+      await reload()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  return <div className="h-full overflow-y-auto p-5">
+    <Panel className="overflow-hidden">
+      <div className="border-b border-slate-200 p-4">
+        <div className="flex items-center gap-2"><Tags size={18} className="text-[#6f5cf6]"/><h2 className="text-lg font-bold">Campos configuráveis e API</h2></div>
+        <p className="mt-2 text-sm text-slate-500">Cada campo tem um ID fixo para integração via Make/Pipedrive. Valores de negócio são gravados em custom_field_values usando field_id + entity_id.</p>
+      </div>
+      <form onSubmit={createField} className="grid gap-3 border-b border-slate-200 bg-slate-50 p-4 md:grid-cols-[140px_1fr_180px_1fr_120px]">
+        <select value={newField.entity} onChange={(e) => setNewField({ ...newField, entity: e.target.value })} className="rounded border border-slate-300 px-3 py-2 text-sm"><option value="deal">Negócio</option><option value="organization">Empresa</option><option value="person">Pessoa</option><option value="activity">Atividade</option></select>
+        <input value={newField.name} onChange={(e) => setNewField({ ...newField, name: e.target.value })} className="rounded border border-slate-300 px-3 py-2 text-sm" placeholder="Nome do campo" required />
+        <select value={newField.field_type} onChange={(e) => setNewField({ ...newField, field_type: e.target.value })} className="rounded border border-slate-300 px-3 py-2 text-sm">{fieldTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select>
+        <input value={newField.options} onChange={(e) => setNewField({ ...newField, options: e.target.value })} className="rounded border border-slate-300 px-3 py-2 text-sm" placeholder="Opções separadas por vírgula" />
+        <button disabled={creating} className="rounded bg-[#238847] px-3 py-2 text-sm font-bold text-white disabled:opacity-60">{creating ? 'Criando...' : 'Criar campo'}</button>
+      </form>
+      <div className="divide-y divide-slate-100">
+        {fields.map((field) => <div key={field.id} className="grid gap-3 p-4 text-sm md:grid-cols-[1fr_120px_120px_1.2fr]">
+          <div><b>{field.name}</b><p className="mt-1 text-xs text-slate-500">API slug: <code>{apiSlug(field)}</code></p></div>
+          <span className="text-slate-600">{field.entity}</span>
+          <span className="text-slate-600">{field.field_type}</span>
+          <div className="min-w-0 text-xs text-slate-500"><p>field_id:</p><code className="break-all">{field.id}</code></div>
+        </div>)}
+      </div>
+      <div className="border-t border-slate-200 bg-emerald-50 p-4 text-sm text-slate-700">
+        <b>Make/Pipedrive:</b> use o REST do Supabase. Ler campos: <code>/rest/v1/custom_fields?entity=eq.deal</code>. Ler valores de um negócio: <code>/rest/v1/custom_field_values?entity_id=eq.ID_DO_NEGOCIO</code>. Enviar valor: upsert em <code>custom_field_values</code> com <code>field_id</code>, <code>entity_id</code> e <code>value</code>.
+      </div>
+    </Panel>
+  </div>
 }
 
 function EditInput({ label, value, onChange, type = 'text', className }: { label: string; value: string; onChange: (value: string) => void; type?: string; className?: string }) {

@@ -103,3 +103,22 @@ export type HistoryRow = {
   description: string | null
   created_at: string
 }
+
+export type CustomField = {
+  id: string
+  entity: 'deal' | 'organization' | 'person' | 'activity'
+  name: string
+  field_type: 'text' | 'large_text' | 'single_option' | 'multi_option' | 'autocomplete' | 'numeric' | 'monetary' | 'user_ref' | 'organization_ref' | 'person_ref' | 'phone' | 'time' | 'time_range' | 'date' | 'date_range' | 'address' | 'formula'
+  options: string[] | null
+  sort_order: number | null
+  created_at?: string
+}
+
+export type CustomFieldValue = {
+  id: string
+  field_id: string
+  entity_id: string
+  value: unknown
+  created_at: string
+  updated_at: string
+}
