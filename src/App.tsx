@@ -5,21 +5,16 @@ import {
   Activity,
   Building2,
   CalendarClock,
-  ChevronDown,
   CheckCircle2,
   Contact,
-  Filter,
   GripVertical,
   LayoutDashboard,
   List,
   LogOut,
-  MoreHorizontal,
-  Plus,
   RefreshCw,
   Search,
   Settings,
   Tags,
-  Workflow,
 } from 'lucide-react'
 import { supabase, supabaseConfigured, type ActivityRow, type CrmCompany, type CrmUser, type CustomField, type CustomFieldValue, type Deal, type HistoryRow, type Organization, type Person, type Profile, type Stage } from './supabase'
 import './App.css'
@@ -45,6 +40,8 @@ type NewActivity = {
   due_time: string
   note: string
 }
+
+type DeleteTarget = 'deal' | 'activity' | 'person' | 'organization' | 'user'
 
 const blankNewDeal = (): NewDeal => ({
   title: '',
@@ -242,11 +239,6 @@ function App() {
   }, [deals, visibleStages])
 
   const detailDeal = useMemo(() => deals.find((d) => d.id === detailDealId), [deals, detailDealId])
-  const totals = useMemo(() => ({
-    value: deals.reduce((acc, d) => acc + Number(d.value || 0), 0),
-    gmv: deals.reduce((acc, d) => acc + Number(d.monthly_purchase || 0), 0),
-    openActivities: activities.filter((a) => a.status === 'open').length,
-  }), [deals, activities])
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -454,6 +446,22 @@ function App() {
     }
   }
 
+  async function deleteOneRecord(target: DeleteTarget, id: string, label: string) {
+    if (profile?.role !== 'admin_vmarket') return
+    const confirmed = window.confirm(`Apagar ${label}? Essa ação não pode ser desfeita.`)
+    if (!confirmed) return
+    setError('')
+    try {
+      const { data, error } = await supabase.functions.invoke('admin-users', { body: { action: 'delete-one', target, id } })
+      if (error) throw error
+      if (data?.error) throw new Error(String(data.error))
+      if (target === 'deal' && detailDealId === id) closeDealPage()
+      await loadAll()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
   function handleDrop(e: DragEvent, stageId: string) {
     e.preventDefault()
     if (draggingId) void moveDeal(stageId, draggingId)
@@ -551,7 +559,7 @@ function App() {
 
   if (detailDealId) {
     const isAdmin = profile?.role === 'admin_vmarket'
-    return <DealPage key={detailDealId} deal={detailDeal} loading={loading} error={error} stages={salesStages} crmUsers={crmUsers} canEditOwner={isAdmin} canViewCustomFields={isAdmin} activities={activities.filter((a) => a.deal_id === detailDealId)} history={history.filter((h) => h.deal_id === detailDealId)} activePipeline="Pipeline de Vendas" closeDealPage={closeDealPage} saveDeal={saveDeal} createActivity={createActivityForDeal} customFields={isAdmin ? customFields.filter((field) => field.entity === 'deal') : []} customFieldValues={isAdmin ? customFieldValues.filter((value) => value.entity_id === detailDealId) : []} completeActivity={completeActivity} />
+    return <DealPage key={detailDealId} deal={detailDeal} loading={loading} error={error} stages={salesStages} crmUsers={crmUsers} canEditOwner={isAdmin} canViewCustomFields={isAdmin} activities={activities.filter((a) => a.deal_id === detailDealId)} history={history.filter((h) => h.deal_id === detailDealId)} activePipeline="Pipeline de Vendas" closeDealPage={closeDealPage} saveDeal={saveDeal} createActivity={createActivityForDeal} deleteDeal={(id, label) => deleteOneRecord('deal', id, label)} deleteActivity={(id, label) => deleteOneRecord('activity', id, label)} customFields={isAdmin ? customFields.filter((field) => field.entity === 'deal') : []} customFieldValues={isAdmin ? customFieldValues.filter((value) => value.entity_id === detailDealId) : []} completeActivity={completeActivity} />
   }
 
   const navItems: Array<[View, ReactNode, string]> = [
@@ -578,7 +586,6 @@ function App() {
           <header className="sticky top-0 z-30 flex min-h-14 flex-wrap items-center gap-3 border-b border-slate-200 bg-white px-4 py-2 md:h-14 md:flex-nowrap md:px-5 md:py-0">
             <h1 className="min-w-[155px] text-base font-semibold">{navItems.find(([key]) => key === activeView)?.[2]}</h1>
             <div className="mx-auto hidden w-full max-w-xl items-center gap-2 rounded-full border border-slate-300 bg-white px-4 py-2 text-sm text-slate-400 shadow-inner md:flex"><Search size={17}/>Search VMarket</div>
-            <button onClick={() => setActiveView('pipeline')} className="grid h-9 w-9 place-items-center rounded-full border border-slate-200 text-slate-600 hover:bg-slate-50"><Plus size={19}/></button>
             <button onClick={loadAll} className="grid h-9 w-9 place-items-center rounded-full border border-slate-200 text-slate-600 hover:bg-slate-50"><RefreshCw size={17}/></button>
             <div className="hidden items-center gap-2 sm:flex"><span className="grid h-8 w-8 place-items-center rounded-full bg-slate-100 text-xs font-bold text-slate-600">{profile?.full_name?.slice(0,1) || 'V'}</span><span className="text-xs font-semibold leading-tight text-slate-700">VMarket<br/><span className="font-normal text-slate-500">BPO CRM</span></span></div>
             <button onClick={() => supabase.auth.signOut()} className="hidden rounded border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 sm:block">Sair</button>
@@ -588,10 +595,10 @@ function App() {
             {error && <div className="m-4 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><b>Erro:</b> {error}</div>}
             {loading ? <div className="m-4 rounded bg-white p-4 text-sm shadow-sm">Carregando dados do Supabase...</div> : (
               <>
-                {activeView === 'pipeline' && <PipelineView stages={visibleStages} salesStages={salesStages} deals={visibleDeals} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} setDraggingId={setDraggingId} handleDrop={handleDrop} totals={totals} newDeal={newDeal} setNewDeal={setNewDeal} createDeal={createDeal} creating={creating} crmUsers={crmUsers} canAssignOwner={profile?.role === 'admin_vmarket'} activePipeline={activePipeline} setActivePipeline={setActivePipeline} pipelineNames={pipelineNames} pipelineView={pipelineView} setPipelineView={setPipelineView} />}
-                {activeView === 'contacts' && <ListView title="Contatos" icon={<Contact size={18}/>} rows={people.map((p) => ({ id: p.id, title: p.full_name, sub: `${p.role_title || 'Contato'} · ${p.email || 'sem email'}`, meta: p.phone || 'sem telefone' }))} />}
-                {activeView === 'companies' && <ListView title="Empresas" icon={<Building2 size={18}/>} rows={organizations.map((o) => ({ id: o.id, title: o.name, sub: `${o.segment || 'Segmento não informado'} · ${o.city || ''} ${o.state || ''}`, meta: money(o.monthly_purchase) }))} />}
-                {activeView === 'activities' && <ActivitiesView activities={activities} deals={deals} completeActivity={completeActivity} />}
+                {activeView === 'pipeline' && <PipelineView stages={visibleStages} salesStages={salesStages} deals={visibleDeals} activities={activities} crmUsers={crmUsers} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} setDraggingId={setDraggingId} handleDrop={handleDrop} newDeal={newDeal} setNewDeal={setNewDeal} createDeal={createDeal} creating={creating} canAssignOwner={profile?.role === 'admin_vmarket'} activePipeline={activePipeline} setActivePipeline={setActivePipeline} pipelineNames={pipelineNames} pipelineView={pipelineView} setPipelineView={setPipelineView} />}
+                {activeView === 'contacts' && <ListView title="Contatos" icon={<Contact size={18}/>} rows={people.map((p) => ({ id: p.id, title: p.full_name, sub: `${p.role_title || 'Contato'} · ${p.email || 'sem email'}`, meta: p.phone || 'sem telefone' }))} canDelete={profile?.role === 'admin_vmarket'} onDelete={(id, label) => deleteOneRecord('person', id, label)} />}
+                {activeView === 'companies' && <ListView title="Empresas" icon={<Building2 size={18}/>} rows={organizations.map((o) => ({ id: o.id, title: o.name, sub: `${o.segment || 'Segmento não informado'} · ${o.city || ''} ${o.state || ''}`, meta: money(o.monthly_purchase) }))} canDelete={profile?.role === 'admin_vmarket'} onDelete={(id, label) => deleteOneRecord('organization', id, label)} />}
+                {activeView === 'activities' && <ActivitiesView activities={activities} deals={deals} completeActivity={completeActivity} canDelete={profile?.role === 'admin_vmarket'} deleteActivity={(id, label) => deleteOneRecord('activity', id, label)} />}
                 {activeView === 'fields' && profile?.role === 'admin_vmarket' && <FieldsConfigView fields={customFields} setError={setError} reload={loadAll} />}
                 {activeView === 'admin' && profile?.role === 'admin_vmarket' && <AdminUsersView users={crmUsers} companies={crmCompanies} dealsCount={deals.length} activitiesCount={activities.length} peopleCount={people.length} organizationsCount={organizations.length} reload={loadAll} setError={setError} />}
               </>
@@ -603,21 +610,21 @@ function App() {
   )
 }
 
-function PipelineView({ stages, salesStages, deals, selectedId, setSelectedId, openDealPage, setDraggingId, handleDrop, totals, newDeal, setNewDeal, createDeal, creating, crmUsers, canAssignOwner, activePipeline, setActivePipeline, pipelineNames, pipelineView, setPipelineView }: {
+function PipelineView({ stages, salesStages, deals, activities, crmUsers, selectedId, setSelectedId, openDealPage, setDraggingId, handleDrop, newDeal, setNewDeal, createDeal, creating, canAssignOwner, activePipeline, setActivePipeline, pipelineNames, pipelineView, setPipelineView }: {
   stages: Stage[]
   salesStages: Stage[]
   deals: Deal[]
+  activities: ActivityRow[]
+  crmUsers: CrmUser[]
   selectedId?: string
   setSelectedId: (id: string) => void
   openDealPage: (id: string) => void
   setDraggingId: (id: string | null) => void
   handleDrop: (e: DragEvent, stageId: string) => void
-  totals: { value: number; gmv: number; openActivities: number }
   newDeal: NewDeal
   setNewDeal: (deal: NewDeal) => void
   createDeal: (e: FormEvent) => Promise<void>
   creating: boolean
-  crmUsers: CrmUser[]
   canAssignOwner: boolean
   activePipeline: string
   setActivePipeline: (pipeline: string) => void
@@ -631,6 +638,27 @@ function PipelineView({ stages, salesStages, deals, selectedId, setSelectedId, o
     setShowCreateDeal(false)
   }
 
+  const dealOwnerInitial = (deal: Deal) => {
+    const owner = crmUsers.find((user) => user.auth_user_id && user.auth_user_id === deal.owner_id)
+    return (owner?.full_name || deal.people?.full_name || '•').trim().slice(0, 1).toUpperCase()
+  }
+
+  const activityIndicator = (deal: Deal) => {
+    const openActivities = activities
+      .filter((activity) => activity.deal_id === deal.id && activity.status === 'open')
+      .sort((a, b) => new Date(a.due_at || '9999-12-31').getTime() - new Date(b.due_at || '9999-12-31').getTime())
+    if (!openActivities.length) return { label: '⚠', className: 'bg-amber-100 text-amber-700 ring-1 ring-amber-300', title: 'Sem atividade planejada' }
+    const next = openActivities[0]
+    if (!next.due_at) return { label: '', className: 'bg-white ring-1 ring-slate-300', title: 'Atividade planejada sem data' }
+    const due = new Date(next.due_at)
+    const today = new Date()
+    const dueDay = due.toISOString().slice(0, 10)
+    const todayDay = today.toISOString().slice(0, 10)
+    if (dueDay === todayDay) return { label: '', className: 'bg-emerald-500 ring-1 ring-emerald-600', title: 'Atividade para hoje' }
+    if (due.getTime() < new Date(`${todayDay}T00:00:00`).getTime()) return { label: '', className: 'bg-rose-500 ring-1 ring-rose-600', title: 'Atividade atrasada' }
+    return { label: '', className: 'bg-white ring-1 ring-slate-300', title: 'Atividade planejada' }
+  }
+
   return <div className="flex min-h-[calc(100vh-7.5rem)] flex-col md:h-full md:min-h-0">
     <div className="border-b border-slate-200 bg-white">
       <div className="flex flex-wrap items-center gap-2 px-3 py-2 md:h-12 md:flex-nowrap md:px-4 md:py-0">
@@ -639,27 +667,14 @@ function PipelineView({ stages, salesStages, deals, selectedId, setSelectedId, o
           <button onClick={() => setPipelineView('list')} className={cn('grid h-11 w-12 place-items-center border-l border-slate-300 md:h-8 md:w-9', pipelineView === 'list' ? 'bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-300' : 'text-slate-600 hover:bg-slate-50')} title="Lista" aria-label="Lista"><List size={15}/></button>
           <button onClick={() => setPipelineView('forecast')} className={cn('grid h-11 w-12 place-items-center border-l border-slate-300 md:h-8 md:w-9', pipelineView === 'forecast' ? 'bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-300' : 'text-slate-600 hover:bg-slate-50')} title="Previsão" aria-label="Previsão"><CalendarClock size={15}/></button>
         </div>
-        <button onClick={() => setShowCreateDeal(true)} className="h-11 rounded-l border border-[#087d3e] bg-[#238847] px-3 text-sm font-semibold text-white shadow-sm hover:bg-[#1f7a40] md:h-auto md:py-1.5">+ Deal</button>
-        <button onClick={() => setShowCreateDeal(true)} className="-ml-2 grid h-11 place-items-center rounded-r border border-[#087d3e] bg-[#1f7a40] px-3 text-sm font-semibold text-white md:h-auto md:py-1.5"><ChevronDown size={14}/></button>
-        <button className="h-11 rounded border border-slate-200 px-3 text-sm text-slate-600 hover:bg-slate-50 md:ml-1 md:h-auto md:py-1.5">Adicionar condição</button>
+        <button onClick={() => setShowCreateDeal(true)} className="h-11 rounded border border-[#087d3e] bg-[#238847] px-4 text-sm font-bold text-white shadow-sm hover:bg-[#1f7a40] md:h-auto md:py-1.5">+ Negócio</button>
         <div className="flex w-full flex-wrap items-center gap-2 text-sm text-slate-600 md:ml-auto md:w-auto md:flex-nowrap">
-          <span><b>{deals.length}</b> negócios · {money(totals.value)}</span>
+          <span><b>{deals.length}</b> negócios</span>
           <span className="hidden text-slate-300 md:inline">|</span>
-          <label className="flex items-center gap-1 rounded border border-slate-300 bg-white px-2 py-1.5 font-semibold text-slate-700">
-            <Workflow size={15}/>
-            <select value={activePipeline} onChange={(e) => setActivePipeline(e.target.value)} className="max-w-[190px] bg-transparent text-sm outline-none">
-              {(pipelineNames.length ? pipelineNames : ['Pipeline de Vendas']).map((name) => <option key={name}>{name}</option>)}
-            </select>
-          </label>
-          <button className="hidden h-8 w-8 place-items-center rounded border border-slate-200 text-slate-500 hover:bg-slate-50 md:grid">✎</button>
-          <button className="hidden h-8 w-8 place-items-center rounded border border-slate-200 text-slate-500 hover:bg-slate-50 md:grid">ⓘ</button>
-          <button className="h-9 rounded border border-slate-200 px-3 text-sm font-semibold text-slate-600 hover:bg-slate-50 md:h-auto md:py-1.5"><Filter size={14} className="inline"/> Filtro</button>
-          <button className="hidden h-8 w-8 place-items-center rounded border border-slate-200 text-slate-500 hover:bg-slate-50 md:grid"><MoreHorizontal size={17}/></button>
+          <select value={activePipeline} onChange={(e) => setActivePipeline(e.target.value)} className="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 outline-none">
+            {(pipelineNames.length ? pipelineNames : ['Pipeline de Vendas']).map((name) => <option key={name}>{name}</option>)}
+          </select>
         </div>
-      </div>
-      <div className="flex min-h-8 flex-wrap items-center justify-between gap-2 border-t border-slate-100 px-3 py-2 text-xs text-slate-500 md:h-8 md:flex-nowrap md:px-4 md:py-0">
-        <span><Filter size={12} className="inline"/> Add condition</span>
-        <span className="font-semibold text-blue-600">Sort by: Next activity ▾</span>
       </div>
     </div>
 
@@ -672,27 +687,29 @@ function PipelineView({ stages, salesStages, deals, selectedId, setSelectedId, o
             <div className="border-b border-slate-200 bg-white/60 p-2">
               <div className="flex items-center justify-between gap-1">
                 <p className="truncate text-sm font-bold text-slate-800">{stage.name}</p>
-                <button onClick={() => { setNewDeal({ ...blankNewDeal(), stage_id: stage.id }); setShowCreateDeal(true) }} className="grid h-6 w-6 shrink-0 place-items-center rounded border border-slate-300 bg-white text-slate-500 hover:bg-slate-50">+</button>
               </div>
               <p className="mt-1 truncate text-[11px] text-slate-500">{money(stageValue)} · {stageDeals.length} negócios</p>
             </div>
             <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-1.5">
-              {stageDeals.map((deal) => <button key={deal.id} draggable onDragStart={() => setDraggingId(deal.id)} onDragEnd={() => setDraggingId(null)} onClick={() => openDealPage(deal.id)} className={cn('group w-full rounded border p-2 text-left shadow-sm transition hover:shadow-md cursor-pointer', selectedId === deal.id ? 'border-blue-300 bg-[#fff3f0] ring-2 ring-blue-200/70' : 'border-[#eadfda] bg-[#fff2ef] hover:border-blue-200')}>
-                <div className="mb-1.5 flex items-center gap-1">
-                  <span className="h-1 w-8 rounded-full bg-[#5c7cfa]" />
-                  <span className="h-1 w-8 rounded-full bg-[#e6509c]" />
+              {stageDeals.map((deal) => {
+                const indicator = activityIndicator(deal)
+                return <div key={deal.id} draggable onDragStart={() => setDraggingId(deal.id)} onDragEnd={() => setDraggingId(null)} onClick={() => openDealPage(deal.id)} role="button" tabIndex={0} className={cn('group w-full rounded border p-2 text-left shadow-sm transition hover:shadow-md cursor-pointer', selectedId === deal.id ? 'border-blue-300 bg-[#fff3f0] ring-2 ring-blue-200/70' : 'border-[#eadfda] bg-[#fff2ef] hover:border-blue-200')}>
+                  <div className="mb-1.5 flex items-center gap-1">
+                    <span className="h-1 w-8 rounded-full bg-[#5c7cfa]" />
+                    <span className="h-1 w-8 rounded-full bg-[#e6509c]" />
+                  </div>
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="line-clamp-2 text-sm font-bold leading-snug text-slate-900">{deal.title}</p>
+                    <span className="shrink-0 text-[11px] font-semibold text-slate-700">{money(deal.value)}</span>
+                  </div>
+                  <p className="mt-1 truncate text-xs text-slate-600">{deal.organizations?.name || 'Sem empresa'}</p>
+                  <p className="truncate text-xs text-slate-500">{deal.people?.full_name || 'Sem contato'}</p>
+                  <div className="mt-2 flex items-center justify-between">
+                    <span title="Proprietário" className="grid h-5 w-5 place-items-center rounded-full bg-slate-200 text-[10px] font-bold text-slate-600">{dealOwnerInitial(deal)}</span>
+                    <span title={indicator.title} className={cn('grid h-5 w-5 place-items-center rounded-full text-[11px] font-black', indicator.className)}>{indicator.label}</span>
+                  </div>
                 </div>
-                <p className="line-clamp-2 text-sm font-bold leading-snug text-slate-900">{deal.title}</p>
-                <p className="mt-1 truncate text-xs text-slate-600">{deal.organizations?.name || 'Sem empresa'}</p>
-                <p className="truncate text-xs text-slate-500">{deal.people?.full_name || 'Sem contato'}</p>
-                <div className="mt-2 flex items-center justify-end">
-                  <span className="text-[11px] font-semibold text-slate-700">{money(deal.value)}</span>
-                </div>
-                <div className="mt-2 flex items-center justify-between">
-                  <span className="grid h-5 w-5 place-items-center rounded-full bg-slate-200 text-[10px] text-slate-500">{deal.people?.full_name?.slice(0,1) || '•'}</span>
-                  <span className="grid h-5 w-5 place-items-center rounded-full bg-[#ff695f] text-xs font-bold text-white">‹</span>
-                </div>
-              </button>)}
+              })}
               {stageDeals.length === 0 && <div className="rounded border border-dashed border-slate-300 p-3 text-center text-xs text-slate-400">Solte cards aqui</div>}
             </div>
           </div>
@@ -755,7 +772,7 @@ function CreateDealModal({ salesStages, crmUsers, canAssignOwner, newDeal, setNe
   </div>
 }
 
-function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canViewCustomFields, activities, history, customFields, customFieldValues, activePipeline, closeDealPage, saveDeal, createActivity, completeActivity }: {
+function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canViewCustomFields, activities, history, customFields, customFieldValues, activePipeline, closeDealPage, saveDeal, createActivity, deleteDeal, deleteActivity, completeActivity }: {
   deal?: Deal
   loading: boolean
   error: string
@@ -771,6 +788,8 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
   closeDealPage: () => void
   saveDeal: (form: DealForm, customValues: Record<string, string>) => Promise<void>
   createActivity: (activity: NewActivity) => Promise<void>
+  deleteDeal: (id: string, label: string) => void
+  deleteActivity: (id: string, label: string) => void
   completeActivity: (id: string) => Promise<void>
 }) {
   const [saving, setSaving] = useState(false)
@@ -818,6 +837,7 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
           <h1 className="truncate text-2xl font-semibold tracking-[-0.03em] text-slate-950">{deal.title}</h1>
         </div>
         {saved && <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700">Salvo</span>}
+        {canEditOwner && <button type="button" onClick={() => deleteDeal(deal.id, deal.title)} className="rounded border border-rose-200 px-4 py-2 text-sm font-bold text-rose-600 hover:bg-rose-50">Apagar negócio</button>}
         <button form="deal-edit-form" disabled={saving} className="rounded bg-[#238847] px-5 py-2 text-sm font-bold text-white shadow-sm hover:bg-[#1f7a40] disabled:opacity-60">{saving ? 'Salvando...' : 'Salvar alterações'}</button>
       </div>
     </header>
@@ -914,7 +934,7 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
                 <button type="button" disabled={creatingActivity || !activityDraft.title.trim()} onClick={() => void submitActivity()} className="rounded bg-[#238847] px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-[#1f7a40] disabled:opacity-60">{creatingActivity ? 'Criando...' : 'Criar atividade'}</button>
               </div>
             </div>
-            {activities.length ? activities.map((a) => <div key={a.id} className="rounded border border-slate-200 bg-white p-3 text-sm shadow-sm"><div className="flex items-start gap-3"><button type="button" onClick={() => void completeActivity(a.id)} className="mt-1 h-5 w-5 shrink-0 rounded-full border-2 border-slate-300 hover:border-emerald-500"/><div><b>{a.title}</b><p className="mt-1 text-xs text-slate-500">{a.due_at ? new Date(a.due_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : 'sem data'} · {a.status}</p>{a.note && <p className="mt-2 text-slate-600">{a.note}</p>}</div></div></div>) : <p className="text-sm text-slate-500">Nenhuma atividade planejada.</p>}
+            {activities.length ? activities.map((a) => <div key={a.id} className="rounded border border-slate-200 bg-white p-3 text-sm shadow-sm"><div className="flex items-start gap-3"><button type="button" onClick={() => void completeActivity(a.id)} className="mt-1 h-5 w-5 shrink-0 rounded-full border-2 border-slate-300 hover:border-emerald-500"/><div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-2"><b>{a.title}</b>{canEditOwner && <button type="button" onClick={() => deleteActivity(a.id, a.title)} className="rounded border border-rose-200 px-2 py-1 text-[10px] font-bold text-rose-600 hover:bg-rose-50">Apagar</button>}</div><p className="mt-1 text-xs text-slate-500">{a.due_at ? new Date(a.due_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : 'sem data'} · {a.status}</p>{a.note && <p className="mt-2 text-slate-600">{a.note}</p>}</div></div></div>) : <p className="text-sm text-slate-500">Nenhuma atividade planejada.</p>}
           </div>
         </Panel>
 
@@ -1085,12 +1105,12 @@ function FieldLine({ label, value, blue }: { label: string; value: string; blue?
 }
 
 
-function ListView({ title, icon, rows }: { title: string; icon: ReactNode; rows: Array<{ id: string; title: string; sub: string; meta: string }> }) {
-  return <div className="h-full overflow-y-auto p-5"><Panel><div className="flex items-center gap-2 border-b border-slate-200 p-4"><span className="text-[#6f5cf6]">{icon}</span><h2 className="text-lg font-bold">{title}</h2></div><div className="divide-y divide-slate-100">{rows.map((row) => <div key={row.id} className="grid gap-2 p-4 text-sm hover:bg-slate-50 md:grid-cols-[1fr_1fr_160px]"><b>{row.title}</b><span className="text-slate-500">{row.sub}</span><span className="font-semibold text-slate-700">{row.meta}</span></div>)}</div></Panel></div>
+function ListView({ title, icon, rows, canDelete = false, onDelete }: { title: string; icon: ReactNode; rows: Array<{ id: string; title: string; sub: string; meta: string }>; canDelete?: boolean; onDelete?: (id: string, label: string) => void }) {
+  return <div className="h-full overflow-y-auto p-5"><Panel><div className="flex items-center gap-2 border-b border-slate-200 p-4"><span className="text-[#6f5cf6]">{icon}</span><h2 className="text-lg font-bold">{title}</h2></div><div className="divide-y divide-slate-100">{rows.map((row) => <div key={row.id} className="grid gap-2 p-4 text-sm hover:bg-slate-50 md:grid-cols-[1fr_1fr_160px_100px]"><b>{row.title}</b><span className="text-slate-500">{row.sub}</span><span className="font-semibold text-slate-700">{row.meta}</span>{canDelete && <button type="button" onClick={() => onDelete?.(row.id, row.title)} className="rounded border border-rose-200 px-3 py-2 text-xs font-bold text-rose-600 hover:bg-rose-50">Apagar</button>}</div>)}</div></Panel></div>
 }
 
-function ActivitiesView({ activities, deals, completeActivity }: { activities: ActivityRow[]; deals: Deal[]; completeActivity: (id: string) => Promise<void> }) {
-  return <div className="h-full overflow-y-auto p-5"><Panel><div className="flex items-center gap-2 border-b border-slate-200 p-4"><CalendarClock size={18} className="text-[#6f5cf6]"/><h2 className="text-lg font-bold">Atividades</h2></div><div className="divide-y divide-slate-100">{activities.map((a) => { const deal = deals.find((d) => d.id === a.deal_id); return <div key={a.id} className="grid gap-2 p-4 text-sm hover:bg-slate-50 md:grid-cols-[1fr_220px_140px_100px]"><b>{a.title}</b><span className="text-slate-500">{deal?.title || 'Sem negócio'}</span><span>{a.due_at ? new Date(a.due_at).toLocaleDateString('pt-BR') : 'sem data'}</span>{a.status === 'open' ? <button onClick={() => void completeActivity(a.id)} className="text-left font-bold text-emerald-700">Concluir</button> : <Badge>OK</Badge>}</div> })}</div></Panel></div>
+function ActivitiesView({ activities, deals, completeActivity, canDelete = false, deleteActivity }: { activities: ActivityRow[]; deals: Deal[]; completeActivity: (id: string) => Promise<void>; canDelete?: boolean; deleteActivity?: (id: string, label: string) => void }) {
+  return <div className="h-full overflow-y-auto p-5"><Panel><div className="flex items-center gap-2 border-b border-slate-200 p-4"><CalendarClock size={18} className="text-[#6f5cf6]"/><h2 className="text-lg font-bold">Atividades</h2></div><div className="divide-y divide-slate-100">{activities.map((a) => { const deal = deals.find((d) => d.id === a.deal_id); return <div key={a.id} className="grid gap-2 p-4 text-sm hover:bg-slate-50 md:grid-cols-[1fr_220px_140px_100px_100px]"><b>{a.title}</b><span className="text-slate-500">{deal?.title || 'Sem negócio'}</span><span>{a.due_at ? new Date(a.due_at).toLocaleDateString('pt-BR') : 'sem data'}</span>{a.status === 'open' ? <button onClick={() => void completeActivity(a.id)} className="text-left font-bold text-emerald-700">Concluir</button> : <Badge>OK</Badge>}{canDelete && <button type="button" onClick={() => deleteActivity?.(a.id, a.title)} className="rounded border border-rose-200 px-3 py-2 text-xs font-bold text-rose-600 hover:bg-rose-50">Apagar</button>}</div> })}</div></Panel></div>
 }
 
 type CleanupTarget = 'deals' | 'activities' | 'people' | 'organizations' | 'users'
@@ -1188,6 +1208,23 @@ function AdminUsersView({ users, companies, dealsCount, activitiesCount, peopleC
     }
   }
 
+  async function deleteUser(user: CrmUser) {
+    const confirmed = window.confirm(`Apagar usuário ${user.full_name}? Essa ação remove o acesso dele e não pode ser desfeita.`)
+    if (!confirmed) return
+    setBusyId(`delete-${user.id}`)
+    setMessage('')
+    setError('')
+    try {
+      const data = await callAdminFunction({ action: 'delete-one', target: 'user', id: user.id })
+      setMessage(`Usuário ${user.full_name} apagado.${data.auth_deleted ? ' Acesso Auth removido também.' : ''}`)
+      await reload()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusyId('')
+    }
+  }
+
   async function cleanupData(target: CleanupTarget) {
     setBusyId(`cleanup-${target}`)
     setMessage('')
@@ -1227,7 +1264,7 @@ function AdminUsersView({ users, companies, dealsCount, activitiesCount, peopleC
         </form>
 
         <div className="divide-y divide-slate-100">
-          {users.map((user) => <div key={user.id} className="grid gap-3 p-4 text-sm hover:bg-slate-50 md:grid-cols-[1.1fr_1.1fr_1fr_100px_1fr_160px_160px]">
+          {users.map((user) => <div key={user.id} className="grid gap-3 p-4 text-sm hover:bg-slate-50 md:grid-cols-[1.1fr_1.1fr_1fr_100px_1fr_150px_150px_100px]">
             <div><b>{user.full_name}</b><p className="mt-1 text-xs text-slate-500">ID usuário: <code>{user.id}</code></p></div>
             <div className="text-slate-600">{user.email}</div>
             <div><b>{user.crm_companies?.name || 'Sem empresa'}</b><p className="mt-1 text-xs text-slate-500">ID empresa: <code>{user.company_id}</code></p></div>
@@ -1235,6 +1272,7 @@ function AdminUsersView({ users, companies, dealsCount, activitiesCount, peopleC
             <input value={passwordDrafts[user.id] || ''} onChange={(e) => setPasswordDrafts((current) => ({ ...current, [user.id]: e.target.value }))} className="rounded border border-slate-300 px-3 py-2 text-sm" placeholder="Senha inicial" type="text" autoComplete="new-password" />
             <button onClick={() => void setInitialPassword(user)} disabled={busyId === `password-${user.id}` || !(passwordDrafts[user.id] || '').trim()} className="rounded border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-60">{busyId === `password-${user.id}` ? 'Salvando...' : 'Definir senha'}</button>
             <button onClick={() => void sendAccessEmail(user)} disabled={busyId === user.id} className="rounded border border-[#238847] px-3 py-2 text-sm font-bold text-[#238847] hover:bg-emerald-50 disabled:opacity-60">{busyId === user.id ? 'Enviando...' : user.auth_user_id ? 'Redefinir senha' : 'Enviar acesso'}</button>
+            <button type="button" onClick={() => void deleteUser(user)} disabled={busyId === `delete-${user.id}`} className="rounded border border-rose-200 px-3 py-2 text-sm font-bold text-rose-600 hover:bg-rose-50 disabled:opacity-60">{busyId === `delete-${user.id}` ? 'Apagando...' : 'Apagar'}</button>
           </div>)}
           {!users.length && <div className="p-8 text-center text-slate-400">Nenhum usuário cadastrado.</div>}
         </div>
@@ -1261,7 +1299,7 @@ function AdminUsersView({ users, companies, dealsCount, activitiesCount, peopleC
   </div>
 }
 
-function ListViewDeals({ deals, stages, selectedId, setSelectedId, openDealPage }: { deals: Deal[]; stages: Stage[]; selectedId?: string; setSelectedId: (id: string) => void; openDealPage: (id: string) => void }) {
+function ListViewDeals({ deals, stages, selectedId, setSelectedId, openDealPage, canDelete = false, deleteDeal }: { deals: Deal[]; stages: Stage[]; selectedId?: string; setSelectedId: (id: string) => void; openDealPage: (id: string) => void; canDelete?: boolean; deleteDeal?: (id: string, label: string) => void }) {
   const stageName = (id: string) => stages.find((s) => s.id === id)?.name || ''
   return <div className="min-h-0 flex-1 overflow-auto">
     <table className="w-full text-sm">
@@ -1274,6 +1312,7 @@ function ListViewDeals({ deals, stages, selectedId, setSelectedId, openDealPage 
           <th className="px-4 py-3">Valor</th>
           <th className="px-4 py-3">Status</th>
           <th className="px-4 py-3">Data esperada</th>
+          {canDelete && <th className="px-4 py-3">Ação</th>}
         </tr>
       </thead>
       <tbody className="divide-y divide-slate-100">
@@ -1285,6 +1324,7 @@ function ListViewDeals({ deals, stages, selectedId, setSelectedId, openDealPage 
           <td className="px-4 py-3 font-semibold text-slate-800">{money(deal.value)}</td>
           <td className="px-4 py-3"><span className={cn('rounded-full px-2 py-0.5 text-[10px] font-bold uppercase', deal.status === 'ganho' ? 'bg-green-100 text-green-700' : deal.status === 'perdido' ? 'bg-red-100 text-red-700' : deal.status === 'quente' ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-600')}>{statusLabel[deal.status || 'morno']}</span></td>
           <td className="px-4 py-3 text-slate-500">{deal.expected_close_date ? new Date(deal.expected_close_date).toLocaleDateString('pt-BR') : '-'}</td>
+          {canDelete && <td className="px-4 py-3"><button type="button" onClick={(e) => { e.stopPropagation(); deleteDeal?.(deal.id, deal.title) }} className="rounded border border-rose-200 px-3 py-1.5 text-xs font-bold text-rose-600 hover:bg-rose-50">Apagar</button></td>}
         </tr>)}
       </tbody>
     </table>

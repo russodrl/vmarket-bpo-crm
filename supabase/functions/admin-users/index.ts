@@ -5,6 +5,7 @@
 // - send-access-email { crm_user_id }
 // - set-initial-password { crm_user_id, password }
 // - cleanup-data { target, confirm }
+// - delete-one { target, id }
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
@@ -268,6 +269,69 @@ async function deleteAllRows(table: string) {
   return count || 0
 }
 
+async function deleteOne(body: Record<string, unknown>, adminUserId: string) {
+  const target = String(body.target || '')
+  const id = String(body.id || '')
+  if (!id) throw new Error('id_required')
+
+  if (target === 'activity') {
+    const { count, error } = await admin.from('activities').delete({ count: 'exact' }).eq('id', id)
+    if (error) throw error
+    return { ok: true, target, id, deleted: count || 0 }
+  }
+
+  if (target === 'deal') {
+    const { count, error } = await admin.from('deals').delete({ count: 'exact' }).eq('id', id)
+    if (error) throw error
+    return { ok: true, target, id, deleted: count || 0 }
+  }
+
+  if (target === 'person') {
+    const { count, error } = await admin.from('people').delete({ count: 'exact' }).eq('id', id)
+    if (error) throw error
+    return { ok: true, target, id, deleted: count || 0 }
+  }
+
+  if (target === 'organization') {
+    const { count, error } = await admin.from('organizations').delete({ count: 'exact' }).eq('id', id)
+    if (error) throw error
+    return { ok: true, target, id, deleted: count || 0 }
+  }
+
+  if (target === 'user') {
+    const { data: crmUser, error: userError } = await admin
+      .from('crm_users')
+      .select('id, auth_user_id, full_name')
+      .eq('id', id)
+      .maybeSingle()
+    if (userError) throw userError
+    if (!crmUser) throw new Error('crm_user_not_found')
+
+    const authUserId = crmUser.auth_user_id as string | null
+    if (authUserId && authUserId !== adminUserId) {
+      const { error: profileError } = await admin
+        .from('profiles')
+        .update({ crm_user_id: null, crm_company_id: null })
+        .eq('id', authUserId)
+      if (profileError) throw profileError
+    }
+
+    const { count, error } = await admin.from('crm_users').delete({ count: 'exact' }).eq('id', id)
+    if (error) throw error
+
+    let auth_deleted = 0
+    if (authUserId && authUserId !== adminUserId) {
+      const { error: authError } = await admin.auth.admin.deleteUser(authUserId)
+      if (authError) throw authError
+      auth_deleted = 1
+    }
+
+    return { ok: true, target, id, deleted: count || 0, auth_deleted }
+  }
+
+  throw new Error('unknown_delete_target')
+}
+
 async function cleanupData(body: Record<string, unknown>, adminUserId: string) {
   const target = String(body.target || '')
   const confirm = String(body.confirm || '')
@@ -343,6 +407,7 @@ Deno.serve(async (req) => {
     if (action === 'send-access-email') return json(await sendAccessEmail(body))
     if (action === 'set-initial-password') return json(await setInitialPassword(body))
     if (action === 'cleanup-data') return json(await cleanupData(body, user.id))
+    if (action === 'delete-one') return json(await deleteOne(body, user.id))
     return json({ error: 'unknown_action' }, 400)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
