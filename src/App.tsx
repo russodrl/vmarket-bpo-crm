@@ -10,7 +10,9 @@ import {
   GripVertical,
   LayoutDashboard,
   List,
+  LockKeyhole,
   LogOut,
+  Mail,
   RefreshCw,
   Search,
   Settings,
@@ -126,43 +128,46 @@ function Login() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f5f6f8] text-slate-900">
-      <div className="mx-auto flex min-h-screen max-w-6xl items-center justify-center px-5 py-8">
-        <div className="grid w-full overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.12)] lg:grid-cols-[0.92fr_1.08fr]">
-          <section className="flex flex-col justify-center px-7 py-10 md:px-12 lg:px-14">
-            <div className="mb-10 flex items-center gap-3">
-              <div className="grid h-12 w-12 place-items-center rounded-xl bg-[#211746] text-[14px] font-black tracking-[-0.08em] text-white shadow-sm">VM</div>
-              <div>
-                <p className="text-xs font-bold uppercase tracking-[0.28em] text-[#2cbf6d]">VMarket</p>
-                <h1 className="text-lg font-black text-[#211746]">CRM programa de parceria BPO VMarket</h1>
+    <main className="min-h-screen bg-white text-slate-900">
+      <header className="fixed inset-x-0 top-0 z-10 flex items-center justify-between px-4 py-4 md:px-8">
+        <img src="./brand/vmarket-logo-colorida.png" alt="VMarket" className="h-10 w-auto object-contain" />
+        <div className="hidden items-center gap-4 text-sm font-semibold text-slate-700 md:flex">
+          <span>Ainda não é um usuário do parceiro BPO da VMarketing?</span>
+          <a href="https://bpo.vmarketing.com.br/" className="rounded bg-[#ece8ff] px-5 py-3 font-bold text-[#30246f] transition hover:bg-[#ded7ff]">Faça um teste grátis</a>
+        </div>
+      </header>
+
+      <div className="mx-auto flex min-h-screen max-w-7xl items-center justify-center px-5 pb-10 pt-24 md:px-8">
+        <div className="grid w-full items-stretch gap-8 lg:grid-cols-[0.95fr_1.05fr]">
+          <section className="flex items-center justify-center">
+            <div className="w-full max-w-md border border-slate-200 bg-white px-8 py-10 md:px-9 md:py-12">
+              <div className="text-center">
+                <h1 className="text-2xl font-bold tracking-[-0.03em] text-slate-900">Login</h1>
+                <p className="mt-3 text-sm text-slate-600">Faça login para continuar</p>
               </div>
+
+              {!supabaseConfigured && <p className="mt-8 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">Supabase não configurado no ambiente.</p>}
+
+              <form onSubmit={submit} className="mt-8 space-y-6">
+                <label className="relative block">
+                  <Mail size={18} className="pointer-events-none absolute left-5 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input className="h-12 w-full border border-slate-200 bg-white pl-12 pr-4 text-base outline-none transition placeholder:text-slate-400 focus:border-[#6b5cf6] focus:ring-1 focus:ring-[#6b5cf6]" placeholder="E-mail" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+                </label>
+                <label className="relative block">
+                  <LockKeyhole size={18} className="pointer-events-none absolute left-5 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input className="h-12 w-full border border-slate-200 bg-white pl-12 pr-4 text-base outline-none transition placeholder:text-slate-400 focus:border-[#6b5cf6] focus:ring-1 focus:ring-[#6b5cf6]" placeholder="Senha" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+                </label>
+                <button disabled={busy} className="h-12 w-full rounded bg-[#685cf6] px-4 text-lg font-bold text-white transition hover:bg-[#5b50e8] disabled:opacity-60">{busy ? 'Aguarde...' : 'Login'}</button>
+              </form>
+
+              <div className="mt-8 flex items-center gap-3 text-sm font-semibold text-slate-600">
+                <span className="grid h-5 w-5 place-items-center rounded border-2 border-slate-300 bg-white" aria-hidden="true" />
+                <span>Lembrar-se</span>
+              </div>
+              <a href="https://bpo.vmarketing.com.br/" className="mx-auto mt-6 block w-max text-sm font-semibold text-slate-500 hover:text-[#685cf6]">Esqueceu sua senha?</a>
+
+              {message && <p className="mt-6 rounded bg-slate-50 p-3 text-center text-sm text-slate-700 ring-1 ring-slate-100">{message}</p>}
             </div>
-
-            <div className="max-w-md">
-              <p className="mb-2 text-sm font-semibold text-slate-500">Bem-vindo de volta</p>
-              <h2 className="text-3xl font-bold tracking-[-0.04em] text-slate-950">Entrar no CRM</h2>
-              <p className="mt-3 text-sm leading-6 text-slate-500">Acesse o funil de parceiros BPO, acompanhe negócios, atividades e previsões de vendas da operação VMarket.</p>
-            </div>
-
-            {!supabaseConfigured && <p className="mt-6 rounded-lg bg-rose-50 p-3 text-sm text-rose-700 ring-1 ring-rose-100">Supabase não configurado no ambiente.</p>}
-
-            <form onSubmit={submit} className="mt-8 max-w-md space-y-4">
-              <label className="block">
-                <span className="mb-1.5 block text-sm font-semibold text-slate-700">Email</span>
-                <input className="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-[#2cbf6d] focus:ring-4 focus:ring-emerald-100" placeholder="email@empresa.com" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-              </label>
-              <label className="block">
-                <span className="mb-1.5 block text-sm font-semibold text-slate-700">Senha</span>
-                <input className="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-[#2cbf6d] focus:ring-4 focus:ring-emerald-100" placeholder="Digite sua senha" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-              </label>
-              <button disabled={busy} className="w-full rounded-lg bg-[#2cbf6d] px-4 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#26a961] disabled:opacity-60">{busy ? 'Aguarde...' : 'Entrar'}</button>
-            </form>
-
-            <div className="mt-5 max-w-md text-sm text-slate-500">
-              Acesso apenas por convite enviado pelo administrador do CRM.
-            </div>
-
-            {message && <p className="mt-5 max-w-md rounded-lg bg-slate-50 p-3 text-sm text-slate-700 ring-1 ring-slate-100">{message}</p>}
           </section>
 
           <section className="relative hidden min-h-[680px] overflow-hidden bg-[#211746] p-10 text-white lg:block">
