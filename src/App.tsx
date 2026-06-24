@@ -1012,6 +1012,7 @@ function AdminUsersView({ users, companies, reload, setError }: { users: CrmUser
   const [busyId, setBusyId] = useState<string>('')
   const [message, setMessage] = useState('')
   const [newUser, setNewUser] = useState({ full_name: '', email: '', company_name: '' })
+  const [passwordDrafts, setPasswordDrafts] = useState<Record<string, string>>({})
 
   async function callAdminFunction(body: Record<string, unknown>) {
     const { data, error } = await supabase.functions.invoke('admin-users', { body })
@@ -1052,6 +1053,28 @@ function AdminUsersView({ users, companies, reload, setError }: { users: CrmUser
     }
   }
 
+
+  async function setInitialPassword(user: CrmUser) {
+    const password = passwordDrafts[user.id] || ''
+    if (password.length < 8) {
+      setError('A senha precisa ter pelo menos 8 caracteres.')
+      return
+    }
+    setBusyId(`password-${user.id}`)
+    setMessage('')
+    setError('')
+    try {
+      await callAdminFunction({ action: 'set-initial-password', crm_user_id: user.id, password })
+      setPasswordDrafts((current) => ({ ...current, [user.id]: '' }))
+      setMessage(`Senha inicial definida para ${user.full_name}.`)
+      await reload()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusyId('')
+    }
+  }
+
   return <div className="h-full overflow-y-auto p-5">
     <Panel className="overflow-hidden">
       <div className="border-b border-slate-200 bg-white p-4">
@@ -1072,11 +1095,13 @@ function AdminUsersView({ users, companies, reload, setError }: { users: CrmUser
       </form>
 
       <div className="divide-y divide-slate-100">
-        {users.map((user) => <div key={user.id} className="grid gap-3 p-4 text-sm hover:bg-slate-50 md:grid-cols-[1.2fr_1.2fr_1fr_120px_180px]">
+        {users.map((user) => <div key={user.id} className="grid gap-3 p-4 text-sm hover:bg-slate-50 md:grid-cols-[1.1fr_1.1fr_1fr_100px_1fr_160px_160px]">
           <div><b>{user.full_name}</b><p className="mt-1 text-xs text-slate-500">ID usuário: <code>{user.id}</code></p></div>
           <div className="text-slate-600">{user.email}</div>
           <div><b>{user.crm_companies?.name || 'Sem empresa'}</b><p className="mt-1 text-xs text-slate-500">ID empresa: <code>{user.company_id}</code></p></div>
           <div><Badge tone={user.status === 'active' ? 'bg-emerald-100 text-emerald-700' : user.status === 'invited' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}>{user.status}</Badge></div>
+          <input value={passwordDrafts[user.id] || ''} onChange={(e) => setPasswordDrafts((current) => ({ ...current, [user.id]: e.target.value }))} className="rounded border border-slate-300 px-3 py-2 text-sm" placeholder="Senha inicial" type="text" autoComplete="new-password" />
+          <button onClick={() => void setInitialPassword(user)} disabled={busyId === `password-${user.id}` || !(passwordDrafts[user.id] || '').trim()} className="rounded border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-60">{busyId === `password-${user.id}` ? 'Salvando...' : 'Definir senha'}</button>
           <button onClick={() => void sendAccessEmail(user)} disabled={busyId === user.id} className="rounded border border-[#238847] px-3 py-2 text-sm font-bold text-[#238847] hover:bg-emerald-50 disabled:opacity-60">{busyId === user.id ? 'Enviando...' : user.auth_user_id ? 'Redefinir senha' : 'Enviar acesso'}</button>
         </div>)}
         {!users.length && <div className="p-8 text-center text-slate-400">Nenhum usuário cadastrado.</div>}

@@ -3,6 +3,7 @@
 // - list
 // - create-crm-user { full_name, email, company_name }
 // - send-access-email { crm_user_id }
+// - set-initial-password { crm_user_id, password }
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
@@ -177,6 +178,70 @@ async function sendAccessEmail(body: Record<string, unknown>) {
   return { ok: true, mode, email, full_name: crmUser.full_name, company_name: companyName }
 }
 
+async function setInitialPassword(body: Record<string, unknown>) {
+  const crmUserId = String(body.crm_user_id || '')
+  const password = String(body.password || '')
+  if (!crmUserId) throw new Error('crm_user_id_required')
+  if (password.length < 8) throw new Error('password_min_8_chars')
+
+  const { data: crmUser, error: crmError } = await admin
+    .from('crm_users')
+    .select('*, crm_companies(*)')
+    .eq('id', crmUserId)
+    .maybeSingle()
+  if (crmError) throw crmError
+  if (!crmUser) throw new Error('crm_user_not_found')
+
+  const email = cleanEmail(crmUser.email)
+  const companyName = crmUser.crm_companies?.name || ''
+  const metadata = { full_name: crmUser.full_name, company_name: companyName, crm_user_id: crmUser.id }
+
+  let authUserId = crmUser.auth_user_id as string | null
+  if (!authUserId) {
+    const existingAuthUser = await findExistingAuthUser(email)
+    authUserId = existingAuthUser?.id || null
+  }
+
+  if (!authUserId) {
+    const { data, error } = await admin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: metadata,
+    })
+    if (error) throw error
+    authUserId = data.user?.id || null
+  } else {
+    const { error } = await admin.auth.admin.updateUserById(authUserId, {
+      password,
+      email_confirm: true,
+      user_metadata: metadata,
+    })
+    if (error) throw error
+  }
+
+  const { error: crmUpdateError } = await admin
+    .from('crm_users')
+    .update({ auth_user_id: authUserId, status: 'active' })
+    .eq('id', crmUser.id)
+  if (crmUpdateError) throw crmUpdateError
+
+  if (authUserId) {
+    const { error: profileError } = await admin
+      .from('profiles')
+      .upsert({
+        id: authUserId,
+        full_name: crmUser.full_name,
+        role: 'bpo_partner',
+        crm_user_id: crmUser.id,
+        crm_company_id: crmUser.company_id,
+      }, { onConflict: 'id' })
+    if (profileError) throw profileError
+  }
+
+  return { ok: true, mode: 'password_set', email, full_name: crmUser.full_name, company_name: companyName }
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return json({ error: 'service_credentials_missing' }, 500)
@@ -187,6 +252,7 @@ Deno.serve(async (req) => {
     if (action === 'list') return json(await listUsers())
     if (action === 'create-crm-user') return json(await upsertCrmUser(body))
     if (action === 'send-access-email') return json(await sendAccessEmail(body))
+    if (action === 'set-initial-password') return json(await setInitialPassword(body))
     return json({ error: 'unknown_action' }, 400)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
