@@ -17,6 +17,28 @@ export type Profile = {
   full_name: string | null
   role: 'admin_vmarket' | 'bpo_partner'
   bpo_id: string | null
+  crm_user_id?: string | null
+  crm_company_id?: string | null
+}
+
+export type CrmCompany = {
+  id: string
+  name: string
+  created_at?: string
+  updated_at?: string
+}
+
+export type CrmUser = {
+  id: string
+  full_name: string
+  email: string
+  company_id: string
+  auth_user_id: string | null
+  status: 'pending' | 'invited' | 'active' | 'disabled'
+  last_invited_at: string | null
+  crm_companies?: CrmCompany | null
+  created_at?: string
+  updated_at?: string
 }
 
 export type Stage = {

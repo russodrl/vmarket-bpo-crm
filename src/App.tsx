@@ -22,10 +22,10 @@ import {
   UsersRound,
   Workflow,
 } from 'lucide-react'
-import { supabase, supabaseConfigured, type ActivityRow, type BpoPartner, type CustomField, type CustomFieldValue, type Deal, type HistoryRow, type Organization, type Person, type Profile, type Stage } from './supabase'
+import { supabase, supabaseConfigured, type ActivityRow, type BpoPartner, type CrmCompany, type CrmUser, type CustomField, type CustomFieldValue, type Deal, type HistoryRow, type Organization, type Person, type Profile, type Stage } from './supabase'
 import './App.css'
 
-type View = 'pipeline' | 'contacts' | 'companies' | 'activities' | 'fields' | 'owners'
+type View = 'pipeline' | 'contacts' | 'companies' | 'activities' | 'fields' | 'owners' | 'admin'
 type NewDeal = {
   title: string
   organization_name: string
@@ -37,6 +37,7 @@ type NewDeal = {
   plan: string
   stage_id: string
   bpo_id: string
+  owner_id: string
 }
 
 const blankNewDeal = (): NewDeal => ({
@@ -50,12 +51,14 @@ const blankNewDeal = (): NewDeal => ({
   plan: '',
   stage_id: '',
   bpo_id: '',
+  owner_id: '',
 })
 
 type DealForm = {
   title: string
   stage_id: string
   bpo_id: string
+  owner_id: string
   status: string
   value: string
   monthly_purchase: string
@@ -94,7 +97,6 @@ function Panel({ children, className }: { children: ReactNode; className?: strin
 function Login() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [mode, setMode] = useState<'login' | 'signup'>('login')
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
 
@@ -102,12 +104,10 @@ function Login() {
     e.preventDefault()
     setBusy(true)
     setMessage('')
-    const res = mode === 'login'
-      ? await supabase.auth.signInWithPassword({ email, password })
-      : await supabase.auth.signUp({ email, password, options: { data: { full_name: email.split('@')[0] } } })
+    const res = await supabase.auth.signInWithPassword({ email, password })
     setBusy(false)
     if (res.error) setMessage(res.error.message)
-    else setMessage(mode === 'signup' ? 'Usuário criado. Se confirmação por email estiver ativa, confirme antes de entrar.' : 'Login efetuado.')
+    else setMessage('Login efetuado.')
   }
 
   return (
@@ -140,12 +140,11 @@ function Login() {
                 <span className="mb-1.5 block text-sm font-semibold text-slate-700">Senha</span>
                 <input className="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-[#2cbf6d] focus:ring-4 focus:ring-emerald-100" placeholder="Digite sua senha" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
               </label>
-              <button disabled={busy} className="w-full rounded-lg bg-[#2cbf6d] px-4 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#26a961] disabled:opacity-60">{busy ? 'Aguarde...' : mode === 'login' ? 'Entrar' : 'Criar usuário'}</button>
+              <button disabled={busy} className="w-full rounded-lg bg-[#2cbf6d] px-4 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#26a961] disabled:opacity-60">{busy ? 'Aguarde...' : 'Entrar'}</button>
             </form>
 
-            <div className="mt-5 flex max-w-md items-center justify-between text-sm">
-              <button onClick={() => setMode(mode === 'login' ? 'signup' : 'login')} className="font-semibold text-[#238847] hover:text-[#1f7a40]">{mode === 'login' ? 'Criar conta de teste' : 'Já tenho conta'}</button>
-              <span className="text-slate-400">Ambiente seguro VMarket</span>
+            <div className="mt-5 max-w-md text-sm text-slate-500">
+              Acesso apenas por convite enviado pelo administrador do CRM.
             </div>
 
             {message && <p className="mt-5 max-w-md rounded-lg bg-slate-50 p-3 text-sm text-slate-700 ring-1 ring-slate-100">{message}</p>}
@@ -205,6 +204,8 @@ function App() {
   const [organizations, setOrganizations] = useState<Organization[]>([])
   const [people, setPeople] = useState<Person[]>([])
   const [bpos, setBpos] = useState<BpoPartner[]>([])
+  const [crmUsers, setCrmUsers] = useState<CrmUser[]>([])
+  const [crmCompanies, setCrmCompanies] = useState<CrmCompany[]>([])
   const [selectedId, setSelectedId] = useState<string>('')
   const [activeView, setActiveView] = useState<View>('pipeline')
   const [activePipeline, setActivePipeline] = useState('Pipeline de Vendas BPO')
@@ -261,10 +262,12 @@ function App() {
     setLoading(true)
     setError('')
     try {
-      const [profileRes, stagesRes, bpoRes, orgRes, peopleRes, dealsRes, actsRes, histRes, fieldsRes, valuesRes] = await Promise.all([
+      const [profileRes, stagesRes, bpoRes, crmUsersRes, crmCompaniesRes, orgRes, peopleRes, dealsRes, actsRes, histRes, fieldsRes, valuesRes] = await Promise.all([
         supabase.from('profiles').select('*').eq('id', session!.user.id).maybeSingle(),
         supabase.from('pipeline_stages').select('*').order('sort_order'),
         supabase.from('bpo_partners').select('*').order('name'),
+        supabase.from('crm_users').select('*, crm_companies(*)').order('full_name'),
+        supabase.from('crm_companies').select('*').order('name'),
         supabase.from('organizations').select('*').order('created_at', { ascending: false }),
         supabase.from('people').select('*').order('created_at', { ascending: false }),
         supabase.from('deals').select('*, organizations(*), people(*), bpo_partners(*), pipeline_stages(*)').order('created_at', { ascending: false }),
@@ -273,7 +276,7 @@ function App() {
         supabase.from('custom_fields').select('*').order('sort_order'),
         supabase.from('custom_field_values').select('*'),
       ])
-      const firstError = [profileRes, stagesRes, bpoRes, orgRes, peopleRes, dealsRes, actsRes, histRes, fieldsRes, valuesRes].find((r) => r.error)?.error
+      const firstError = [profileRes, stagesRes, bpoRes, crmUsersRes, crmCompaniesRes, orgRes, peopleRes, dealsRes, actsRes, histRes, fieldsRes, valuesRes].find((r) => r.error)?.error
       if (firstError) throw firstError
       setProfile(profileRes.data as Profile | null)
       setStages((stagesRes.data || []) as Stage[])
@@ -281,6 +284,8 @@ function App() {
       const loadedPipelineNames = [...new Set(loadedStages.map((stage) => stage.pipeline_name).filter((name): name is string => Boolean(name)))]
       if (loadedPipelineNames.length && !loadedPipelineNames.includes(activePipeline)) setActivePipeline(loadedPipelineNames[0])
       setBpos((bpoRes.data || []) as BpoPartner[])
+      setCrmUsers((crmUsersRes.data || []) as CrmUser[])
+      setCrmCompanies((crmCompaniesRes.data || []) as CrmCompany[])
       setOrganizations((orgRes.data || []) as Organization[])
       setPeople((peopleRes.data || []) as Person[])
       setDeals((dealsRes.data || []) as Deal[])
@@ -303,6 +308,7 @@ function App() {
     const numberOrNull = (value: string) => value.trim() === '' ? null : Number(value)
     try {
       const bpoId = newDeal.bpo_id || null
+      const ownerId = newDeal.owner_id || session?.user.id || null
       let orgId: string | null = null
       let personId: string | null = null
 
@@ -311,7 +317,7 @@ function App() {
           name: newDeal.organization_name.trim(),
           monthly_purchase: numberOrNull(newDeal.monthly_purchase),
           bpo_id: bpoId,
-          owner_id: session?.user.id || null,
+          owner_id: ownerId,
         }).select('*').single()
         if (orgErr) throw orgErr
         orgId = org.id
@@ -325,7 +331,7 @@ function App() {
           organization_id: orgId,
           labels: [],
           bpo_id: bpoId,
-          owner_id: session?.user.id || null,
+          owner_id: ownerId,
         }).select('*').single()
         if (personErr) throw personErr
         personId = person.id
@@ -337,7 +343,7 @@ function App() {
         person_id: personId,
         stage_id: newDeal.stage_id || null,
         bpo_id: bpoId,
-        owner_id: session?.user.id || null,
+        owner_id: ownerId,
         value: numberOrNull(newDeal.value),
         monthly_purchase: numberOrNull(newDeal.monthly_purchase),
         estimated_savings: null,
@@ -440,6 +446,7 @@ function App() {
         title: form.title,
         stage_id: form.stage_id || null,
         bpo_id: form.bpo_id || null,
+        owner_id: form.owner_id || session?.user.id || null,
         status: form.status as Deal['status'],
         value: numberOrNull(form.value),
         monthly_purchase: numberOrNull(form.monthly_purchase),
@@ -463,6 +470,7 @@ function App() {
           supplier_count: numberOrNull(form.organization_supplier_count),
           monthly_purchase: numberOrNull(form.monthly_purchase),
           bpo_id: form.bpo_id || null,
+          owner_id: form.owner_id || session?.user.id || null,
         }).eq('id', detailDeal.organization_id)
         if (orgErr) throw orgErr
       }
@@ -474,6 +482,7 @@ function App() {
           email: form.person_email || null,
           phone: form.person_phone || null,
           bpo_id: form.bpo_id || null,
+          owner_id: form.owner_id || session?.user.id || null,
         }).eq('id', detailDeal.person_id)
         if (personErr) throw personErr
       }
@@ -501,7 +510,7 @@ function App() {
   if (!session) return <Login />
 
   if (detailDealId) {
-    return <DealPage key={detailDealId} deal={detailDeal} loading={loading} error={error} stages={stages} bpos={bpos} activities={activities.filter((a) => a.deal_id === detailDealId)} history={history.filter((h) => h.deal_id === detailDealId)} activePipeline={activePipeline} closeDealPage={closeDealPage} saveDeal={saveDeal} customFields={customFields.filter((field) => field.entity === 'deal')} customFieldValues={customFieldValues.filter((value) => value.entity_id === detailDealId)} completeActivity={completeActivity} />
+    return <DealPage key={detailDealId} deal={detailDeal} loading={loading} error={error} stages={stages} bpos={bpos} crmUsers={crmUsers} canEditOwner={profile?.role === 'admin_vmarket'} activities={activities.filter((a) => a.deal_id === detailDealId)} history={history.filter((h) => h.deal_id === detailDealId)} activePipeline={activePipeline} closeDealPage={closeDealPage} saveDeal={saveDeal} customFields={customFields.filter((field) => field.entity === 'deal')} customFieldValues={customFieldValues.filter((value) => value.entity_id === detailDealId)} completeActivity={completeActivity} />
   }
 
   const navItems: Array<[View, ReactNode, string]> = [
@@ -512,6 +521,7 @@ function App() {
     ['fields', <Tags size={19}/>, 'Campos'],
     ['owners', <UsersRound size={19}/>, 'Proprietários'],
   ]
+  if (profile?.role === 'admin_vmarket') navItems.push(['admin', <Settings size={19}/>, 'Admin'])
 
   return (
     <main className="min-h-screen bg-[#f4f5f7] text-slate-900">
@@ -536,12 +546,13 @@ function App() {
             {error && <div className="m-4 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><b>Erro:</b> {error}</div>}
             {loading ? <div className="m-4 rounded bg-white p-4 text-sm shadow-sm">Carregando dados do Supabase...</div> : (
               <>
-                {activeView === 'pipeline' && <PipelineView stages={visibleStages} allStages={stages} deals={visibleDeals} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} setDraggingId={setDraggingId} handleDrop={handleDrop} totals={totals} newDeal={newDeal} setNewDeal={setNewDeal} createDeal={createDeal} creating={creating} bpos={bpos} activePipeline={activePipeline} setActivePipeline={setActivePipeline} pipelineNames={pipelineNames} pipelineView={pipelineView} setPipelineView={setPipelineView} />}
+                {activeView === 'pipeline' && <PipelineView stages={visibleStages} allStages={stages} deals={visibleDeals} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} setDraggingId={setDraggingId} handleDrop={handleDrop} totals={totals} newDeal={newDeal} setNewDeal={setNewDeal} createDeal={createDeal} creating={creating} bpos={bpos} crmUsers={crmUsers} canAssignOwner={profile?.role === 'admin_vmarket'} activePipeline={activePipeline} setActivePipeline={setActivePipeline} pipelineNames={pipelineNames} pipelineView={pipelineView} setPipelineView={setPipelineView} />}
                 {activeView === 'contacts' && <ListView title="Contatos" icon={<Contact size={18}/>} rows={people.map((p) => ({ id: p.id, title: p.full_name, sub: `${p.role_title || 'Contato'} · ${p.email || 'sem email'}`, meta: p.phone || 'sem telefone' }))} />}
                 {activeView === 'companies' && <ListView title="Empresas" icon={<Building2 size={18}/>} rows={organizations.map((o) => ({ id: o.id, title: o.name, sub: `${o.segment || 'Segmento não informado'} · ${o.city || ''} ${o.state || ''}`, meta: money(o.monthly_purchase) }))} />}
                 {activeView === 'activities' && <ActivitiesView activities={activities} deals={deals} completeActivity={completeActivity} />}
                 {activeView === 'fields' && <FieldsConfigView fields={customFields} setError={setError} reload={loadAll} />}
-                {activeView === 'owners' && <SettingsView title="Proprietários e parceiros" items={[`Usuário atual: ${session.user.email}`, `Perfil: ${profile?.role === 'admin_vmarket' ? 'Admin VMarket' : 'BPO parceiro'}`, ...bpos.map((b) => `${b.name} · ${b.contact_name || 'sem contato'}`)]} />}
+                {activeView === 'owners' && <SettingsView title="Proprietários e parceiros" items={[`Usuário atual: ${session.user.email}`, `Perfil: ${profile?.role === 'admin_vmarket' ? 'Admin VMarket' : 'BPO parceiro'}`, ...crmUsers.map((u) => `${u.full_name} · ${u.crm_companies?.name || 'sem empresa'} · ${u.email}`)]} />}
+                {activeView === 'admin' && profile?.role === 'admin_vmarket' && <AdminUsersView users={crmUsers} companies={crmCompanies} reload={loadAll} setError={setError} />}
               </>
             )}
           </section>
@@ -551,7 +562,7 @@ function App() {
   )
 }
 
-function PipelineView({ stages, allStages, deals, selectedId, setSelectedId, openDealPage, setDraggingId, handleDrop, totals, newDeal, setNewDeal, createDeal, creating, bpos, activePipeline, setActivePipeline, pipelineNames, pipelineView, setPipelineView }: {
+function PipelineView({ stages, allStages, deals, selectedId, setSelectedId, openDealPage, setDraggingId, handleDrop, totals, newDeal, setNewDeal, createDeal, creating, bpos, crmUsers, canAssignOwner, activePipeline, setActivePipeline, pipelineNames, pipelineView, setPipelineView }: {
   stages: Stage[]
   allStages: Stage[]
   deals: Deal[]
@@ -566,6 +577,8 @@ function PipelineView({ stages, allStages, deals, selectedId, setSelectedId, ope
   createDeal: (e: FormEvent) => Promise<void>
   creating: boolean
   bpos: BpoPartner[]
+  crmUsers: CrmUser[]
+  canAssignOwner: boolean
   activePipeline: string
   setActivePipeline: (pipeline: string) => void
   pipelineNames: string[]
@@ -647,13 +660,15 @@ function PipelineView({ stages, allStages, deals, selectedId, setSelectedId, ope
       </div>
     </div> : pipelineView === 'list' ? <ListViewDeals deals={deals} stages={stages} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} /> : <ForecastView deals={deals} stages={stages} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} />}
 
-    {showCreateDeal && <CreateDealModal allStages={allStages} bpos={bpos} newDeal={newDeal} setNewDeal={setNewDeal} createDeal={submitCreateDeal} creating={creating} close={() => { setShowCreateDeal(false); setNewDeal(blankNewDeal()) }} />}
+    {showCreateDeal && <CreateDealModal allStages={allStages} bpos={bpos} crmUsers={crmUsers} canAssignOwner={canAssignOwner} newDeal={newDeal} setNewDeal={setNewDeal} createDeal={submitCreateDeal} creating={creating} close={() => { setShowCreateDeal(false); setNewDeal(blankNewDeal()) }} />}
   </div>
 }
 
-function CreateDealModal({ allStages, bpos, newDeal, setNewDeal, createDeal, creating, close }: {
+function CreateDealModal({ allStages, bpos, crmUsers, canAssignOwner, newDeal, setNewDeal, createDeal, creating, close }: {
   allStages: Stage[]
   bpos: BpoPartner[]
+  crmUsers: CrmUser[]
+  canAssignOwner: boolean
   newDeal: NewDeal
   setNewDeal: (deal: NewDeal) => void
   createDeal: (e: FormEvent) => Promise<void>
@@ -685,6 +700,13 @@ function CreateDealModal({ allStages, bpos, newDeal, setNewDeal, createDeal, cre
             {allStages.map((s) => <option key={s.id} value={s.id}>{s.pipeline_name ? `${s.pipeline_name} / ` : ''}{s.name}</option>)}
           </select>
         </label>
+        {canAssignOwner && <label className="block text-sm">
+          <span className="mb-1.5 block font-semibold text-slate-700">Proprietário do negócio</span>
+          <select className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" value={newDeal.owner_id} onChange={(e) => setNewDeal({ ...newDeal, owner_id: e.target.value })}>
+            <option value="">Eu/Admin</option>
+            {crmUsers.map((user) => <option key={user.id} value={user.auth_user_id || ''} disabled={!user.auth_user_id}>{user.full_name} · {user.crm_companies?.name || 'sem empresa'}{!user.auth_user_id ? ' · envie acesso primeiro' : ''}</option>)}
+          </select>
+        </label>}
         <label className="block text-sm">
           <span className="mb-1.5 block font-semibold text-slate-700">BPO / responsável</span>
           <select className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" value={newDeal.bpo_id} onChange={(e) => setNewDeal({ ...newDeal, bpo_id: e.target.value })}>
@@ -701,12 +723,14 @@ function CreateDealModal({ allStages, bpos, newDeal, setNewDeal, createDeal, cre
   </div>
 }
 
-function DealPage({ deal, loading, error, stages, bpos, activities, history, customFields, customFieldValues, activePipeline, closeDealPage, saveDeal, completeActivity }: {
+function DealPage({ deal, loading, error, stages, bpos, crmUsers, canEditOwner, activities, history, customFields, customFieldValues, activePipeline, closeDealPage, saveDeal, completeActivity }: {
   deal?: Deal
   loading: boolean
   error: string
   stages: Stage[]
   bpos: BpoPartner[]
+  crmUsers: CrmUser[]
+  canEditOwner: boolean
   activities: ActivityRow[]
   history: HistoryRow[]
   customFields: CustomField[]
@@ -769,6 +793,7 @@ function DealPage({ deal, loading, error, stages, bpos, activities, history, cus
             <EditInput label="Data esperada de fechamento" value={form.expected_close_date} onChange={(v) => update('expected_close_date', v)} type="date" />
             <EditInput label="Fonte" value={form.source} onChange={(v) => update('source', v)} />
             <EditInput label="Plano recomendado" value={form.plan} onChange={(v) => update('plan', v)} />
+            {canEditOwner && <EditSelect label="Proprietário do negócio" value={form.owner_id} onChange={(v) => update('owner_id', v)} options={[[deal.owner_id || '', deal.owner_id ? 'Proprietário atual' : 'Sem proprietário'], ...crmUsers.filter((u) => u.auth_user_id).map((u) => [u.auth_user_id || '', `${u.full_name} · ${u.crm_companies?.name || 'sem empresa'}`] as [string, string])]} />}
             <EditSelect label="BPO / responsável" value={form.bpo_id} onChange={(v) => update('bpo_id', v)} options={[['', 'Sem BPO'], ...bpos.map((b) => [b.id, b.name] as [string, string])]} />
           </div>
         </Panel>
@@ -842,6 +867,7 @@ function dealToForm(deal?: Deal): DealForm {
     title: deal?.title || '',
     stage_id: deal?.stage_id || '',
     bpo_id: deal?.bpo_id || '',
+    owner_id: deal?.owner_id || '',
     status: deal?.status || 'morno',
     value: String(deal?.value ?? ''),
     monthly_purchase: String(deal?.monthly_purchase ?? ''),
@@ -999,6 +1025,83 @@ function ListView({ title, icon, rows }: { title: string; icon: ReactNode; rows:
 
 function ActivitiesView({ activities, deals, completeActivity }: { activities: ActivityRow[]; deals: Deal[]; completeActivity: (id: string) => Promise<void> }) {
   return <div className="h-full overflow-y-auto p-5"><Panel><div className="flex items-center gap-2 border-b border-slate-200 p-4"><CalendarClock size={18} className="text-[#6f5cf6]"/><h2 className="text-lg font-bold">Atividades</h2></div><div className="divide-y divide-slate-100">{activities.map((a) => { const deal = deals.find((d) => d.id === a.deal_id); return <div key={a.id} className="grid gap-2 p-4 text-sm hover:bg-slate-50 md:grid-cols-[1fr_220px_140px_100px]"><b>{a.title}</b><span className="text-slate-500">{deal?.title || 'Sem negócio'}</span><span>{a.due_at ? new Date(a.due_at).toLocaleDateString('pt-BR') : 'sem data'}</span>{a.status === 'open' ? <button onClick={() => void completeActivity(a.id)} className="text-left font-bold text-emerald-700">Concluir</button> : <Badge>OK</Badge>}</div> })}</div></Panel></div>
+}
+
+function AdminUsersView({ users, companies, reload, setError }: { users: CrmUser[]; companies: CrmCompany[]; reload: () => Promise<void>; setError: (error: string) => void }) {
+  const [busyId, setBusyId] = useState<string>('')
+  const [message, setMessage] = useState('')
+  const [newUser, setNewUser] = useState({ full_name: '', email: '', company_name: '' })
+
+  async function callAdminFunction(body: Record<string, unknown>) {
+    const { data, error } = await supabase.functions.invoke('admin-users', { body })
+    if (error) throw error
+    if (data?.error) throw new Error(String(data.error))
+    return data
+  }
+
+  async function createUser(e: FormEvent) {
+    e.preventDefault()
+    setBusyId('create')
+    setMessage('')
+    setError('')
+    try {
+      await callAdminFunction({ action: 'create-crm-user', ...newUser })
+      setNewUser({ full_name: '', email: '', company_name: '' })
+      setMessage('Usuário cadastrado. Agora você pode enviar o email de acesso.')
+      await reload()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusyId('')
+    }
+  }
+
+  async function sendAccessEmail(user: CrmUser) {
+    setBusyId(user.id)
+    setMessage('')
+    setError('')
+    try {
+      const data = await callAdminFunction({ action: 'send-access-email', crm_user_id: user.id })
+      setMessage(`${data.mode === 'invite' ? 'Convite enviado' : 'Email de redefinição enviado'} para ${user.full_name} (${user.crm_companies?.name || 'sem empresa'}).`)
+      await reload()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusyId('')
+    }
+  }
+
+  return <div className="h-full overflow-y-auto p-5">
+    <Panel className="overflow-hidden">
+      <div className="border-b border-slate-200 bg-white p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2"><Settings size={18} className="text-[#6f5cf6]"/><h2 className="text-lg font-bold">Admin de usuários</h2></div>
+          <div className="flex gap-2 text-xs font-semibold"><Badge tone="bg-blue-100 text-blue-700">{users.length} usuários</Badge><Badge tone="bg-emerald-100 text-emerald-700">{companies.length} empresas</Badge></div>
+        </div>
+        <p className="mt-2 text-sm text-slate-500">Crie usuários do BPO CRM, associe cada um a uma empresa e envie o email para definição de senha. Cada negócio deve ter um proprietário e usuários comuns enxergam apenas os negócios deles.</p>
+        {message && <p className="mt-3 rounded border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">{message}</p>}
+      </div>
+
+      <form onSubmit={createUser} className="grid gap-3 border-b border-slate-200 bg-slate-50 p-4 md:grid-cols-[1fr_1fr_1fr_150px]">
+        <input value={newUser.full_name} onChange={(e) => setNewUser({ ...newUser, full_name: e.target.value })} className="rounded border border-slate-300 px-3 py-2 text-sm" placeholder="Nome do usuário" required />
+        <input value={newUser.email} onChange={(e) => setNewUser({ ...newUser, email: e.target.value })} className="rounded border border-slate-300 px-3 py-2 text-sm" placeholder="email@empresa.com" type="email" required />
+        <input value={newUser.company_name} onChange={(e) => setNewUser({ ...newUser, company_name: e.target.value })} className="rounded border border-slate-300 px-3 py-2 text-sm" placeholder="Empresa" list="crm-companies-list" required />
+        <datalist id="crm-companies-list">{companies.map((company) => <option key={company.id} value={company.name} />)}</datalist>
+        <button disabled={busyId === 'create'} className="rounded bg-[#238847] px-3 py-2 text-sm font-bold text-white disabled:opacity-60">{busyId === 'create' ? 'Criando...' : 'Criar usuário'}</button>
+      </form>
+
+      <div className="divide-y divide-slate-100">
+        {users.map((user) => <div key={user.id} className="grid gap-3 p-4 text-sm hover:bg-slate-50 md:grid-cols-[1.2fr_1.2fr_1fr_120px_180px]">
+          <div><b>{user.full_name}</b><p className="mt-1 text-xs text-slate-500">ID usuário: <code>{user.id}</code></p></div>
+          <div className="text-slate-600">{user.email}</div>
+          <div><b>{user.crm_companies?.name || 'Sem empresa'}</b><p className="mt-1 text-xs text-slate-500">ID empresa: <code>{user.company_id}</code></p></div>
+          <div><Badge tone={user.status === 'active' ? 'bg-emerald-100 text-emerald-700' : user.status === 'invited' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}>{user.status}</Badge></div>
+          <button onClick={() => void sendAccessEmail(user)} disabled={busyId === user.id} className="rounded border border-[#238847] px-3 py-2 text-sm font-bold text-[#238847] hover:bg-emerald-50 disabled:opacity-60">{busyId === user.id ? 'Enviando...' : user.auth_user_id ? 'Redefinir senha' : 'Enviar acesso'}</button>
+        </div>)}
+        {!users.length && <div className="p-8 text-center text-slate-400">Nenhum usuário cadastrado.</div>}
+      </div>
+    </Panel>
+  </div>
 }
 
 function SettingsView({ title, items }: { title: string; items: string[] }) {
