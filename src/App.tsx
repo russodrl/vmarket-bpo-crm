@@ -593,7 +593,7 @@ function App() {
                 {activeView === 'companies' && <ListView title="Empresas" icon={<Building2 size={18}/>} rows={organizations.map((o) => ({ id: o.id, title: o.name, sub: `${o.segment || 'Segmento não informado'} · ${o.city || ''} ${o.state || ''}`, meta: money(o.monthly_purchase) }))} />}
                 {activeView === 'activities' && <ActivitiesView activities={activities} deals={deals} completeActivity={completeActivity} />}
                 {activeView === 'fields' && profile?.role === 'admin_vmarket' && <FieldsConfigView fields={customFields} setError={setError} reload={loadAll} />}
-                {activeView === 'admin' && profile?.role === 'admin_vmarket' && <AdminUsersView users={crmUsers} companies={crmCompanies} reload={loadAll} setError={setError} />}
+                {activeView === 'admin' && profile?.role === 'admin_vmarket' && <AdminUsersView users={crmUsers} companies={crmCompanies} dealsCount={deals.length} activitiesCount={activities.length} peopleCount={people.length} organizationsCount={organizations.length} reload={loadAll} setError={setError} />}
               </>
             )}
           </section>
@@ -1093,11 +1093,40 @@ function ActivitiesView({ activities, deals, completeActivity }: { activities: A
   return <div className="h-full overflow-y-auto p-5"><Panel><div className="flex items-center gap-2 border-b border-slate-200 p-4"><CalendarClock size={18} className="text-[#6f5cf6]"/><h2 className="text-lg font-bold">Atividades</h2></div><div className="divide-y divide-slate-100">{activities.map((a) => { const deal = deals.find((d) => d.id === a.deal_id); return <div key={a.id} className="grid gap-2 p-4 text-sm hover:bg-slate-50 md:grid-cols-[1fr_220px_140px_100px]"><b>{a.title}</b><span className="text-slate-500">{deal?.title || 'Sem negócio'}</span><span>{a.due_at ? new Date(a.due_at).toLocaleDateString('pt-BR') : 'sem data'}</span>{a.status === 'open' ? <button onClick={() => void completeActivity(a.id)} className="text-left font-bold text-emerald-700">Concluir</button> : <Badge>OK</Badge>}</div> })}</div></Panel></div>
 }
 
-function AdminUsersView({ users, companies, reload, setError }: { users: CrmUser[]; companies: CrmCompany[]; reload: () => Promise<void>; setError: (error: string) => void }) {
+type CleanupTarget = 'deals' | 'activities' | 'people' | 'organizations' | 'users'
+
+type CleanupResult = {
+  target: CleanupTarget
+  before?: number
+  deleted?: number
+  auth_deleted?: number
+  custom_values_deleted?: number
+  after?: number
+}
+
+function AdminUsersView({ users, companies, dealsCount, activitiesCount, peopleCount, organizationsCount, reload, setError }: {
+  users: CrmUser[]
+  companies: CrmCompany[]
+  dealsCount: number
+  activitiesCount: number
+  peopleCount: number
+  organizationsCount: number
+  reload: () => Promise<void>
+  setError: (error: string) => void
+}) {
   const [busyId, setBusyId] = useState<string>('')
   const [message, setMessage] = useState('')
   const [newUser, setNewUser] = useState({ full_name: '', email: '', company_name: '' })
   const [passwordDrafts, setPasswordDrafts] = useState<Record<string, string>>({})
+  const [cleanupConfirm, setCleanupConfirm] = useState<Record<CleanupTarget, string>>({ deals: '', activities: '', people: '', organizations: '', users: '' })
+
+  const cleanupItems: Array<{ target: CleanupTarget; label: string; count: number; description: string }> = [
+    { target: 'deals', label: 'Apagar negócios', count: dealsCount, description: 'Remove negócios, histórico e atividades vinculadas aos negócios.' },
+    { target: 'activities', label: 'Apagar atividades', count: activitiesCount, description: 'Remove apenas as atividades registradas.' },
+    { target: 'people', label: 'Apagar contatos', count: peopleCount, description: 'Remove contatos e desvincula contato dos negócios.' },
+    { target: 'organizations', label: 'Apagar empresas', count: organizationsCount, description: 'Remove empresas dos negócios e desvincula empresas de contatos e negócios.' },
+    { target: 'users', label: 'Apagar usuários', count: users.length, description: 'Remove usuários do CRM e Auth vinculados, preservando o admin logado.' },
+  ]
 
   async function callAdminFunction(body: Record<string, unknown>) {
     const { data, error } = await supabase.functions.invoke('admin-users', { body })
@@ -1138,7 +1167,6 @@ function AdminUsersView({ users, companies, reload, setError }: { users: CrmUser
     }
   }
 
-
   async function setInitialPassword(user: CrmUser) {
     const password = passwordDrafts[user.id] || ''
     if (password.length < 8) {
@@ -1160,38 +1188,76 @@ function AdminUsersView({ users, companies, reload, setError }: { users: CrmUser
     }
   }
 
+  async function cleanupData(target: CleanupTarget) {
+    setBusyId(`cleanup-${target}`)
+    setMessage('')
+    setError('')
+    try {
+      const data = await callAdminFunction({ action: 'cleanup-data', target, confirm: cleanupConfirm[target] }) as CleanupResult
+      setCleanupConfirm((current) => ({ ...current, [target]: '' }))
+      const extra = data.auth_deleted ? ` Também apagou ${data.auth_deleted} usuários de acesso.` : ''
+      const custom = data.custom_values_deleted ? ` Limpou ${data.custom_values_deleted} valores customizados.` : ''
+      setMessage(`${data.deleted ?? 0} registros apagados de ${cleanupItems.find((item) => item.target === target)?.label.toLowerCase()}.${extra}${custom}`)
+      await reload()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusyId('')
+    }
+  }
+
   return <div className="h-full overflow-y-auto p-5">
-    <Panel className="overflow-hidden">
-      <div className="border-b border-slate-200 bg-white p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2"><Settings size={18} className="text-[#6f5cf6]"/><h2 className="text-lg font-bold">Admin de usuários</h2></div>
-          <div className="flex gap-2 text-xs font-semibold"><Badge tone="bg-blue-100 text-blue-700">{users.length} usuários</Badge><Badge tone="bg-emerald-100 text-emerald-700">{companies.length} empresas</Badge></div>
+    <div className="space-y-5">
+      <Panel className="overflow-hidden">
+        <div className="border-b border-slate-200 bg-white p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2"><Settings size={18} className="text-[#6f5cf6]"/><h2 className="text-lg font-bold">Admin de usuários</h2></div>
+            <div className="flex gap-2 text-xs font-semibold"><Badge tone="bg-blue-100 text-blue-700">{users.length} usuários</Badge><Badge tone="bg-emerald-100 text-emerald-700">{companies.length} empresas de acesso</Badge></div>
+          </div>
+          <p className="mt-2 text-sm text-slate-500">Crie usuários do BPO CRM, associe cada um a uma empresa e envie o email para definição de senha. Cada negócio deve ter um proprietário e usuários comuns enxergam apenas os negócios deles.</p>
+          {message && <p className="mt-3 rounded border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">{message}</p>}
         </div>
-        <p className="mt-2 text-sm text-slate-500">Crie usuários do BPO CRM, associe cada um a uma empresa e envie o email para definição de senha. Cada negócio deve ter um proprietário e usuários comuns enxergam apenas os negócios deles.</p>
-        {message && <p className="mt-3 rounded border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">{message}</p>}
-      </div>
 
-      <form onSubmit={createUser} className="grid gap-3 border-b border-slate-200 bg-slate-50 p-4 md:grid-cols-[1fr_1fr_1fr_150px]">
-        <input value={newUser.full_name} onChange={(e) => setNewUser({ ...newUser, full_name: e.target.value })} className="rounded border border-slate-300 px-3 py-2 text-sm" placeholder="Nome do usuário" required />
-        <input value={newUser.email} onChange={(e) => setNewUser({ ...newUser, email: e.target.value })} className="rounded border border-slate-300 px-3 py-2 text-sm" placeholder="email@empresa.com" type="email" required />
-        <input value={newUser.company_name} onChange={(e) => setNewUser({ ...newUser, company_name: e.target.value })} className="rounded border border-slate-300 px-3 py-2 text-sm" placeholder="Empresa" list="crm-companies-list" required />
-        <datalist id="crm-companies-list">{companies.map((company) => <option key={company.id} value={company.name} />)}</datalist>
-        <button disabled={busyId === 'create'} className="rounded bg-[#238847] px-3 py-2 text-sm font-bold text-white disabled:opacity-60">{busyId === 'create' ? 'Criando...' : 'Criar usuário'}</button>
-      </form>
+        <form onSubmit={createUser} className="grid gap-3 border-b border-slate-200 bg-slate-50 p-4 md:grid-cols-[1fr_1fr_1fr_150px]">
+          <input value={newUser.full_name} onChange={(e) => setNewUser({ ...newUser, full_name: e.target.value })} className="rounded border border-slate-300 px-3 py-2 text-sm" placeholder="Nome do usuário" required />
+          <input value={newUser.email} onChange={(e) => setNewUser({ ...newUser, email: e.target.value })} className="rounded border border-slate-300 px-3 py-2 text-sm" placeholder="email@empresa.com" type="email" required />
+          <input value={newUser.company_name} onChange={(e) => setNewUser({ ...newUser, company_name: e.target.value })} className="rounded border border-slate-300 px-3 py-2 text-sm" placeholder="Empresa" list="crm-companies-list" required />
+          <datalist id="crm-companies-list">{companies.map((company) => <option key={company.id} value={company.name} />)}</datalist>
+          <button disabled={busyId === 'create'} className="rounded bg-[#238847] px-3 py-2 text-sm font-bold text-white disabled:opacity-60">{busyId === 'create' ? 'Criando...' : 'Criar usuário'}</button>
+        </form>
 
-      <div className="divide-y divide-slate-100">
-        {users.map((user) => <div key={user.id} className="grid gap-3 p-4 text-sm hover:bg-slate-50 md:grid-cols-[1.1fr_1.1fr_1fr_100px_1fr_160px_160px]">
-          <div><b>{user.full_name}</b><p className="mt-1 text-xs text-slate-500">ID usuário: <code>{user.id}</code></p></div>
-          <div className="text-slate-600">{user.email}</div>
-          <div><b>{user.crm_companies?.name || 'Sem empresa'}</b><p className="mt-1 text-xs text-slate-500">ID empresa: <code>{user.company_id}</code></p></div>
-          <div><Badge tone={user.status === 'active' ? 'bg-emerald-100 text-emerald-700' : user.status === 'invited' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}>{user.status}</Badge></div>
-          <input value={passwordDrafts[user.id] || ''} onChange={(e) => setPasswordDrafts((current) => ({ ...current, [user.id]: e.target.value }))} className="rounded border border-slate-300 px-3 py-2 text-sm" placeholder="Senha inicial" type="text" autoComplete="new-password" />
-          <button onClick={() => void setInitialPassword(user)} disabled={busyId === `password-${user.id}` || !(passwordDrafts[user.id] || '').trim()} className="rounded border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-60">{busyId === `password-${user.id}` ? 'Salvando...' : 'Definir senha'}</button>
-          <button onClick={() => void sendAccessEmail(user)} disabled={busyId === user.id} className="rounded border border-[#238847] px-3 py-2 text-sm font-bold text-[#238847] hover:bg-emerald-50 disabled:opacity-60">{busyId === user.id ? 'Enviando...' : user.auth_user_id ? 'Redefinir senha' : 'Enviar acesso'}</button>
-        </div>)}
-        {!users.length && <div className="p-8 text-center text-slate-400">Nenhum usuário cadastrado.</div>}
-      </div>
-    </Panel>
+        <div className="divide-y divide-slate-100">
+          {users.map((user) => <div key={user.id} className="grid gap-3 p-4 text-sm hover:bg-slate-50 md:grid-cols-[1.1fr_1.1fr_1fr_100px_1fr_160px_160px]">
+            <div><b>{user.full_name}</b><p className="mt-1 text-xs text-slate-500">ID usuário: <code>{user.id}</code></p></div>
+            <div className="text-slate-600">{user.email}</div>
+            <div><b>{user.crm_companies?.name || 'Sem empresa'}</b><p className="mt-1 text-xs text-slate-500">ID empresa: <code>{user.company_id}</code></p></div>
+            <div><Badge tone={user.status === 'active' ? 'bg-emerald-100 text-emerald-700' : user.status === 'invited' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}>{user.status}</Badge></div>
+            <input value={passwordDrafts[user.id] || ''} onChange={(e) => setPasswordDrafts((current) => ({ ...current, [user.id]: e.target.value }))} className="rounded border border-slate-300 px-3 py-2 text-sm" placeholder="Senha inicial" type="text" autoComplete="new-password" />
+            <button onClick={() => void setInitialPassword(user)} disabled={busyId === `password-${user.id}` || !(passwordDrafts[user.id] || '').trim()} className="rounded border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-60">{busyId === `password-${user.id}` ? 'Salvando...' : 'Definir senha'}</button>
+            <button onClick={() => void sendAccessEmail(user)} disabled={busyId === user.id} className="rounded border border-[#238847] px-3 py-2 text-sm font-bold text-[#238847] hover:bg-emerald-50 disabled:opacity-60">{busyId === user.id ? 'Enviando...' : user.auth_user_id ? 'Redefinir senha' : 'Enviar acesso'}</button>
+          </div>)}
+          {!users.length && <div className="p-8 text-center text-slate-400">Nenhum usuário cadastrado.</div>}
+        </div>
+      </Panel>
+
+      <Panel className="overflow-hidden border-rose-200">
+        <div className="border-b border-rose-200 bg-rose-50 p-4">
+          <h2 className="text-lg font-bold text-rose-900">Limpeza de dados</h2>
+          <p className="mt-2 text-sm text-rose-800">Ação irreversível. Para habilitar um botão, digite <b>APAGAR</b> no campo daquela linha. Cada botão apaga apenas o tipo de dado indicado.</p>
+        </div>
+        <div className="divide-y divide-rose-100">
+          {cleanupItems.map((item) => <div key={item.target} className="grid gap-3 p-4 text-sm md:grid-cols-[1fr_110px_160px_160px]">
+            <div>
+              <b className="text-slate-900">{item.label}</b>
+              <p className="mt-1 text-xs text-slate-500">{item.description}</p>
+            </div>
+            <Badge tone="bg-slate-100 text-slate-700">{item.count} registros</Badge>
+            <input value={cleanupConfirm[item.target]} onChange={(e) => setCleanupConfirm((current) => ({ ...current, [item.target]: e.target.value }))} className="rounded border border-rose-200 px-3 py-2 text-sm outline-none focus:border-rose-500 focus:ring-4 focus:ring-rose-100" placeholder="APAGAR" />
+            <button type="button" onClick={() => void cleanupData(item.target)} disabled={busyId === `cleanup-${item.target}` || cleanupConfirm[item.target] !== 'APAGAR'} className="rounded bg-rose-600 px-3 py-2 text-sm font-bold text-white hover:bg-rose-700 disabled:opacity-50">{busyId === `cleanup-${item.target}` ? 'Apagando...' : item.label}</button>
+          </div>)}
+        </div>
+      </Panel>
+    </div>
   </div>
 }
 

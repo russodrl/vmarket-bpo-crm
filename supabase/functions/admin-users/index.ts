@@ -4,6 +4,7 @@
 // - create-crm-user { full_name, email, company_name }
 // - send-access-email { crm_user_id }
 // - set-initial-password { crm_user_id, password }
+// - cleanup-data { target, confirm }
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
@@ -242,17 +243,106 @@ async function setInitialPassword(body: Record<string, unknown>) {
   return { ok: true, mode: 'password_set', email, full_name: crmUser.full_name, company_name: companyName }
 }
 
+async function countRows(table: string) {
+  const { count, error } = await admin.from(table).select('id', { count: 'exact', head: true })
+  if (error) throw error
+  return count || 0
+}
+
+async function deleteCustomValuesForEntity(entity: 'deal' | 'organization' | 'person' | 'activity') {
+  const { data: fields, error: fieldsError } = await admin.from('custom_fields').select('id').eq('entity', entity)
+  if (fieldsError) throw fieldsError
+  const fieldIds = (fields || []).map((field: { id: string }) => field.id)
+  if (!fieldIds.length) return 0
+  const { count, error } = await admin
+    .from('custom_field_values')
+    .delete({ count: 'exact' })
+    .in('field_id', fieldIds)
+  if (error) throw error
+  return count || 0
+}
+
+async function deleteAllRows(table: string) {
+  const { count, error } = await admin.from(table).delete({ count: 'exact' }).not('id', 'is', null)
+  if (error) throw error
+  return count || 0
+}
+
+async function cleanupData(body: Record<string, unknown>, adminUserId: string) {
+  const target = String(body.target || '')
+  const confirm = String(body.confirm || '')
+  if (confirm !== 'APAGAR') throw new Error('cleanup_confirmation_required')
+
+  if (target === 'activities') {
+    const before = await countRows('activities')
+    const custom_values_deleted = await deleteCustomValuesForEntity('activity')
+    const deleted = await deleteAllRows('activities')
+    return { ok: true, target, before, deleted, custom_values_deleted, after: await countRows('activities') }
+  }
+
+  if (target === 'deals') {
+    const before = await countRows('deals')
+    const custom_values_deleted = await deleteCustomValuesForEntity('deal')
+    const deleted = await deleteAllRows('deals')
+    return { ok: true, target, before, deleted, custom_values_deleted, after: await countRows('deals') }
+  }
+
+  if (target === 'people') {
+    const before = await countRows('people')
+    const custom_values_deleted = await deleteCustomValuesForEntity('person')
+    const deleted = await deleteAllRows('people')
+    return { ok: true, target, before, deleted, custom_values_deleted, after: await countRows('people') }
+  }
+
+  if (target === 'organizations') {
+    const before = await countRows('organizations')
+    const custom_values_deleted = await deleteCustomValuesForEntity('organization')
+    const deleted = await deleteAllRows('organizations')
+    return { ok: true, target, before, deleted, custom_values_deleted, after: await countRows('organizations') }
+  }
+
+  if (target === 'users') {
+    const before = await countRows('crm_users')
+    const { data: users, error: usersError } = await admin
+      .from('crm_users')
+      .select('id, auth_user_id')
+    if (usersError) throw usersError
+
+    const authUserIds = [...new Set((users || [])
+      .map((user: { auth_user_id: string | null }) => user.auth_user_id)
+      .filter((id: string | null): id is string => Boolean(id) && id !== adminUserId))]
+
+    const { error: profileError } = await admin
+      .from('profiles')
+      .update({ crm_user_id: null, crm_company_id: null })
+      .neq('id', adminUserId)
+    if (profileError) throw profileError
+
+    const deleted = await deleteAllRows('crm_users')
+    let auth_deleted = 0
+    for (const authUserId of authUserIds) {
+      const { error } = await admin.auth.admin.deleteUser(authUserId)
+      if (error) throw error
+      auth_deleted += 1
+    }
+    return { ok: true, target, before, deleted, auth_deleted, after: await countRows('crm_users') }
+  }
+
+  throw new Error('unknown_cleanup_target')
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return json({ error: 'service_credentials_missing' }, 500)
   try {
-    await requireAdmin(req)
+    const user = await requireAdmin(req)
     const body = await req.json().catch(() => ({})) as Record<string, unknown>
     const action = String(body.action || 'list')
     if (action === 'list') return json(await listUsers())
     if (action === 'create-crm-user') return json(await upsertCrmUser(body))
     if (action === 'send-access-email') return json(await sendAccessEmail(body))
     if (action === 'set-initial-password') return json(await setInitialPassword(body))
+    if (action === 'cleanup-data') return json(await cleanupData(body, user.id))
     return json({ error: 'unknown_action' }, 400)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
