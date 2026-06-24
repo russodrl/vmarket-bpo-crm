@@ -33,6 +33,8 @@ type NewDeal = {
   title: string
   organization_name: string
   contact_name: string
+  contact_email: string
+  contact_phone: string
   value: string
   monthly_purchase: string
   plan: string
@@ -202,7 +204,19 @@ function App() {
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [pipelineView, setPipelineView] = useState<'kanban' | 'list' | 'forecast'>('kanban')
   const [detailDealId, setDetailDealId] = useState(() => new URLSearchParams(window.location.search).get('deal') || '')
-  const [newDeal, setNewDeal] = useState<NewDeal>({ title: '', organization_name: '', contact_name: '', value: '399', monthly_purchase: '50000', plan: 'BPO completo + Essencial', stage_id: '', bpo_id: '' })
+  const [newDeal, setNewDeal] = useState<NewDeal>({ title: '', organization_name: '', contact_name: '', contact_email: '', contact_phone: '', value: '399', monthly_purchase: '50000', plan: 'BPO completo + Essencial', stage_id: '', bpo_id: '' })
+  const pipelineNames = useMemo(() => {
+    const names = stages.map((stage) => stage.pipeline_name).filter((name): name is string => Boolean(name))
+    return [...new Set(names)]
+  }, [stages])
+  const visibleStages = useMemo(() => {
+    const source = pipelineNames.length ? stages.filter((stage) => stage.pipeline_name === activePipeline) : stages
+    return source.length ? source : stages
+  }, [stages, pipelineNames, activePipeline])
+  const visibleDeals = useMemo(() => {
+    const visibleStageIds = new Set(visibleStages.map((stage) => stage.id))
+    return visibleStageIds.size ? deals.filter((deal) => deal.stage_id && visibleStageIds.has(deal.stage_id)) : deals
+  }, [deals, visibleStages])
 
   const detailDeal = useMemo(() => deals.find((d) => d.id === detailDealId), [deals, detailDealId])
   const selected = useMemo(() => deals.find((d) => d.id === selectedId) || detailDeal || deals[0], [deals, selectedId, detailDeal])
@@ -257,6 +271,9 @@ function App() {
       if (firstError) throw firstError
       setProfile(profileRes.data as Profile | null)
       setStages((stagesRes.data || []) as Stage[])
+      const loadedStages = (stagesRes.data || []) as Stage[]
+      const loadedPipelineNames = [...new Set(loadedStages.map((stage) => stage.pipeline_name).filter((name): name is string => Boolean(name)))]
+      if (loadedPipelineNames.length && !loadedPipelineNames.includes(activePipeline)) setActivePipeline(loadedPipelineNames[0])
       setBpos((bpoRes.data || []) as BpoPartner[])
       setOrganizations((orgRes.data || []) as Organization[])
       setPeople((peopleRes.data || []) as Person[])
@@ -282,14 +299,18 @@ function App() {
       const bpoId = newDeal.bpo_id || profile?.bpo_id || bpos[0]?.id || null
       const { data: org, error: orgErr } = await supabase.from('organizations').insert({ name: newDeal.organization_name, segment: 'Food service', cnpjs: 1, monthly_purchase: Number(newDeal.monthly_purchase || 0), bpo_id: bpoId }).select('*').single()
       if (orgErr) throw orgErr
-      const { data: person, error: personErr } = await supabase.from('people').insert({ full_name: newDeal.contact_name, organization_id: org.id, labels: ['Novo lead'], bpo_id: bpoId }).select('*').single()
+      const { data: person, error: personErr } = await supabase.from('people').insert({ full_name: newDeal.contact_name, email: newDeal.contact_email || null, phone: newDeal.contact_phone || null, organization_id: org.id, labels: ['Novo lead'], bpo_id: bpoId }).select('*').single()
       if (personErr) throw personErr
       const monthly = Number(newDeal.monthly_purchase || 0)
       const { data: deal, error: dealErr } = await supabase.from('deals').insert({ title: newDeal.title, organization_id: org.id, person_id: person.id, stage_id: newDeal.stage_id || stages[0]?.id, bpo_id: bpoId, owner_id: session?.user.id, value: Number(newDeal.value || 0), monthly_purchase: monthly, estimated_savings: Math.round(monthly * 0.12), probability: 50, status: 'morno', source: 'Cadastro manual', plan: newDeal.plan, expected_close_date: new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10), score: 60, focus_items: ['Qualificar lead', 'Marcar diagnóstico', 'Enviar simulação de economia'] }).select('*').single()
       if (dealErr) throw dealErr
       await supabase.from('activities').insert({ title: 'Agendar diagnóstico gratuito', activity_type: 'meeting', due_at: new Date(Date.now() + 86400000).toISOString(), status: 'open', deal_id: deal.id, organization_id: org.id, person_id: person.id, bpo_id: bpoId, owner_id: session?.user.id })
       await supabase.from('deal_history').insert({ deal_id: deal.id, event_type: 'Sistema', title: 'Negócio criado', description: 'Criado pelo CRM VMarket BPO' })
-      setNewDeal({ title: '', organization_name: '', contact_name: '', value: '399', monthly_purchase: '50000', plan: 'BPO completo + Essencial', stage_id: stages[0]?.id || '', bpo_id: bpoId || '' })
+      const syncRes = await supabase.functions.invoke('pipedrive-sync', { body: { action: 'sync-deal-to-pipedrive', deal_id: deal.id } })
+      if (syncRes.error) throw syncRes.error
+      if (syncRes.data?.error) throw new Error(String(syncRes.data.error))
+      await supabase.from('deal_history').insert({ deal_id: deal.id, event_type: 'Integração', title: 'Criação enviada ao Pipedrive', description: `Resultado: ${syncRes.data?.pipedrive_deal_id || 'pendente'}` })
+      setNewDeal({ title: '', organization_name: '', contact_name: '', contact_email: '', contact_phone: '', value: '399', monthly_purchase: '50000', plan: 'BPO completo + Essencial', stage_id: stages[0]?.id || '', bpo_id: bpoId || '' })
       await loadAll()
       setSelectedId(deal.id)
       setActiveView('pipeline')
@@ -447,7 +468,7 @@ function App() {
             {error && <div className="m-4 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><b>Erro:</b> {error}</div>}
             {loading ? <div className="m-4 rounded bg-white p-4 text-sm shadow-sm">Carregando dados do Supabase...</div> : (
               <>
-                {activeView === 'pipeline' && <PipelineView stages={stages} deals={deals} selectedId={selected?.id} setSelectedId={setSelectedId} openDealPage={openDealPage} setDraggingId={setDraggingId} handleDrop={handleDrop} totals={totals} selected={selected} selectedStageIndex={selectedStageIndex} selectedActivities={selectedActivities} selectedHistory={selectedHistory} moveDeal={moveDeal} completeActivity={completeActivity} newDeal={newDeal} setNewDeal={setNewDeal} createDeal={createDeal} creating={creating} bpos={bpos} activePipeline={activePipeline} setActivePipeline={setActivePipeline} pipelineView={pipelineView} setPipelineView={setPipelineView} />}
+                {activeView === 'pipeline' && <PipelineView stages={visibleStages} allStages={stages} deals={visibleDeals} selectedId={selected?.id} setSelectedId={setSelectedId} openDealPage={openDealPage} setDraggingId={setDraggingId} handleDrop={handleDrop} totals={totals} selected={selected} selectedStageIndex={selectedStageIndex} selectedActivities={selectedActivities} selectedHistory={selectedHistory} moveDeal={moveDeal} completeActivity={completeActivity} newDeal={newDeal} setNewDeal={setNewDeal} createDeal={createDeal} creating={creating} bpos={bpos} activePipeline={activePipeline} setActivePipeline={setActivePipeline} pipelineNames={pipelineNames} pipelineView={pipelineView} setPipelineView={setPipelineView} />}
                 {activeView === 'contacts' && <ListView title="Contatos" icon={<Contact size={18}/>} rows={people.map((p) => ({ id: p.id, title: p.full_name, sub: `${p.role_title || 'Contato'} · ${p.email || 'sem email'}`, meta: p.phone || 'sem telefone' }))} />}
                 {activeView === 'companies' && <ListView title="Empresas" icon={<Building2 size={18}/>} rows={organizations.map((o) => ({ id: o.id, title: o.name, sub: `${o.segment || 'Segmento não informado'} · ${o.city || ''} ${o.state || ''}`, meta: money(o.monthly_purchase) }))} />}
                 {activeView === 'activities' && <ActivitiesView activities={activities} deals={deals} completeActivity={completeActivity} />}
@@ -462,8 +483,9 @@ function App() {
   )
 }
 
-function PipelineView({ stages, deals, selectedId, setSelectedId, openDealPage, setDraggingId, handleDrop, totals, selected, selectedStageIndex, selectedActivities, selectedHistory, moveDeal, completeActivity, newDeal, setNewDeal, createDeal, creating, bpos, activePipeline, setActivePipeline, pipelineView, setPipelineView }: {
+function PipelineView({ stages, allStages, deals, selectedId, setSelectedId, openDealPage, setDraggingId, handleDrop, totals, selected, selectedStageIndex, selectedActivities, selectedHistory, moveDeal, completeActivity, newDeal, setNewDeal, createDeal, creating, bpos, activePipeline, setActivePipeline, pipelineNames, pipelineView, setPipelineView }: {
   stages: Stage[]
+  allStages: Stage[]
   deals: Deal[]
   selectedId?: string
   setSelectedId: (id: string) => void
@@ -484,6 +506,7 @@ function PipelineView({ stages, deals, selectedId, setSelectedId, openDealPage, 
   bpos: BpoPartner[]
   activePipeline: string
   setActivePipeline: (pipeline: string) => void
+  pipelineNames: string[]
   pipelineView: 'kanban' | 'list' | 'forecast'
   setPipelineView: (view: 'kanban' | 'list' | 'forecast') => void
 }) {
@@ -507,10 +530,8 @@ function PipelineView({ stages, deals, selectedId, setSelectedId, openDealPage, 
           <span className="hidden text-slate-300 md:inline">|</span>
           <label className="flex items-center gap-1 rounded border border-slate-300 bg-white px-2 py-1.5 font-semibold text-slate-700">
             <Workflow size={15}/>
-            <select value={activePipeline} onChange={(e) => setActivePipeline(e.target.value)} className="max-w-[170px] bg-transparent text-sm outline-none">
-              <option>Pipeline de Vendas BPO</option>
-              <option>Pipeline de Onboarding</option>
-              <option>Carteira ativa</option>
+            <select value={activePipeline} onChange={(e) => setActivePipeline(e.target.value)} className="max-w-[190px] bg-transparent text-sm outline-none">
+              {(pipelineNames.length ? pipelineNames : ['Pipeline de Vendas BPO']).map((name) => <option key={name}>{name}</option>)}
             </select>
           </label>
           <button className="hidden h-8 w-8 place-items-center rounded border border-slate-200 text-slate-500 hover:bg-slate-50 md:grid">✎</button>
@@ -635,11 +656,13 @@ function PipelineView({ stages, deals, selectedId, setSelectedId, openDealPage, 
     </div> : pipelineView === 'list' ? <ListViewDeals deals={deals} stages={stages} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} /> : <ForecastView deals={deals} stages={stages} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} />}
 
     <div className="border-t border-slate-200 bg-white p-4">
-      <form onSubmit={createDeal} className="grid gap-2 md:grid-cols-7">
+      <form onSubmit={createDeal} className="grid gap-2 md:grid-cols-8">
         <input className="rounded border border-slate-200 px-3 py-2 text-sm md:col-span-2" placeholder="Título do negócio" value={newDeal.title} onChange={e=>setNewDeal({...newDeal,title:e.target.value})} required/>
         <input className="rounded border border-slate-200 px-3 py-2 text-sm" placeholder="Empresa" value={newDeal.organization_name} onChange={e=>setNewDeal({...newDeal,organization_name:e.target.value})} required/>
         <input className="rounded border border-slate-200 px-3 py-2 text-sm" placeholder="Contato" value={newDeal.contact_name} onChange={e=>setNewDeal({...newDeal,contact_name:e.target.value})} required/>
-        <select className="rounded border border-slate-200 px-3 py-2 text-sm" value={newDeal.stage_id} onChange={e=>setNewDeal({...newDeal,stage_id:e.target.value})}>{stages.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select>
+        <input className="rounded border border-slate-200 px-3 py-2 text-sm" placeholder="Email" type="email" value={newDeal.contact_email} onChange={e=>setNewDeal({...newDeal,contact_email:e.target.value})}/>
+        <input className="rounded border border-slate-200 px-3 py-2 text-sm" placeholder="Telefone" value={newDeal.contact_phone} onChange={e=>setNewDeal({...newDeal,contact_phone:e.target.value})}/>
+        <select className="rounded border border-slate-200 px-3 py-2 text-sm" value={newDeal.stage_id} onChange={e=>setNewDeal({...newDeal,stage_id:e.target.value})}>{allStages.map(s=><option key={s.id} value={s.id}>{s.pipeline_name ? `${s.pipeline_name} / ` : ''}{s.name}</option>)}</select>
         <select className="rounded border border-slate-200 px-3 py-2 text-sm" value={newDeal.bpo_id} onChange={e=>setNewDeal({...newDeal,bpo_id:e.target.value})}>{bpos.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select>
         <button disabled={creating} className="rounded bg-[#2cbf6d] px-3 py-2 text-sm font-bold text-white disabled:opacity-60">{creating?'Criando...':'+ Negócio'}</button>
       </form>

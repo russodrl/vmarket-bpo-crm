@@ -24,6 +24,11 @@ export type Stage = {
   name: string
   sort_order: number
   color: string | null
+  pipedrive_stage_id?: number | null
+  pipedrive_pipeline_id?: number | null
+  pipeline_name?: string | null
+  deal_probability?: number | null
+  is_pipedrive_replica?: boolean | null
 }
 
 export type BpoPartner = {

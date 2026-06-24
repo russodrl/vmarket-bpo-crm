@@ -165,11 +165,27 @@ Body:
 Fluxo:
 
 1. Busca `deals` com empresa, pessoa, BPO e etapa.
-2. Verifica `external_records` para descobrir o ID do Pipedrive.
-3. Se já existe, faz `PUT /deals/{id}` no Pipedrive.
-4. Se não existe, faz `POST /deals`.
-5. Envia valores customizados conforme `external_field_mappings`.
-6. Atualiza `external_records` e `deal_history`.
+2. Exige que o negócio tenha `organization_id` e `person_id`.
+3. Procura organização no Pipedrive por nome semelhante. Se não encontrar, cria organização.
+4. Procura pessoa no Pipedrive por email e depois telefone. Se não encontrar, cria pessoa vinculada à organização.
+5. Verifica `external_records` para descobrir o ID do negócio no Pipedrive.
+6. Se o negócio já existe, faz `PUT /deals/{id}`.
+7. Se não existe, faz `POST /deals`, vinculado a `org_id`, `person_id`, `stage_id` e responsável Aleksander.
+8. Envia campos preenchidos conforme `custom_fields.pipedrive_key`, ignorando campos técnicos/readonly.
+9. Atualiza `external_records` para `organization`, `person` e `deal`, além de `deal_history`.
+
+Deduplicação outbound:
+
+- Pessoa: busca por email exato, depois telefone exato.
+- Organização: busca por nome e aceita match semelhante acima do limiar interno.
+- Negócio: usa `external_records`; se não houver vínculo prévio, cria novo negócio.
+
+Inbound Pipedrive → CRM BPO:
+
+- Webhooks continuam entrando por `pipedrive-sync`.
+- Negócios cujo owner Pipedrive é Aleksander, `user_id` 28696367, são criados/atualizados no CRM BPO.
+- A função replica organização, pessoa, etapa do funil e campos preenchidos para `custom_field_values`.
+- Negócios de outros owners são ignorados quando ainda não existe vínculo local, para não puxar o Pipedrive inteiro para o CRM BPO.
 
 ## Mapeamento de campos Pipedrive
 
