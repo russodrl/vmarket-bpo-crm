@@ -501,7 +501,7 @@ function App() {
   if (!session) return <Login />
 
   if (detailDealId) {
-    return <DealPage key={detailDealId} deal={detailDeal} loading={loading} error={error} stages={stages} bpos={bpos} activities={activities.filter((a) => a.deal_id === detailDealId)} history={history.filter((h) => h.deal_id === detailDealId)} activePipeline={activePipeline} closeDealPage={closeDealPage} saveDeal={saveDeal} customFields={customFields.filter((field) => field.entity === 'deal')} customFieldValues={customFieldValues.filter((value) => value.entity_id === detailDealId)} completeActivity={completeActivity} moveDeal={moveDeal} />
+    return <DealPage key={detailDealId} deal={detailDeal} loading={loading} error={error} stages={stages} bpos={bpos} activities={activities.filter((a) => a.deal_id === detailDealId)} history={history.filter((h) => h.deal_id === detailDealId)} activePipeline={activePipeline} closeDealPage={closeDealPage} saveDeal={saveDeal} customFields={customFields.filter((field) => field.entity === 'deal')} customFieldValues={customFieldValues.filter((value) => value.entity_id === detailDealId)} completeActivity={completeActivity} />
   }
 
   const navItems: Array<[View, ReactNode, string]> = [
@@ -632,8 +632,7 @@ function PipelineView({ stages, allStages, deals, selectedId, setSelectedId, ope
                 <p className="line-clamp-2 text-sm font-bold leading-snug text-slate-900">{deal.title}</p>
                 <p className="mt-1 truncate text-xs text-slate-600">{deal.organizations?.name || 'Sem empresa'}</p>
                 <p className="truncate text-xs text-slate-500">{deal.people?.full_name || 'Sem contato'}</p>
-                <div className="mt-2 flex items-center justify-between">
-                  <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-bold text-white">{Math.max(1, Math.min(96, deal.score || deal.probability || 14))}d</span>
+                <div className="mt-2 flex items-center justify-end">
                   <span className="text-[11px] font-semibold text-slate-700">{money(deal.value)}</span>
                 </div>
                 <div className="mt-2 flex items-center justify-between">
@@ -702,7 +701,7 @@ function CreateDealModal({ allStages, bpos, newDeal, setNewDeal, createDeal, cre
   </div>
 }
 
-function DealPage({ deal, loading, error, stages, bpos, activities, history, customFields, customFieldValues, activePipeline, closeDealPage, saveDeal, completeActivity, moveDeal }: {
+function DealPage({ deal, loading, error, stages, bpos, activities, history, customFields, customFieldValues, activePipeline, closeDealPage, saveDeal, completeActivity }: {
   deal?: Deal
   loading: boolean
   error: string
@@ -716,14 +715,11 @@ function DealPage({ deal, loading, error, stages, bpos, activities, history, cus
   closeDealPage: () => void
   saveDeal: (form: DealForm, customValues: Record<string, string>) => Promise<void>
   completeActivity: (id: string) => Promise<void>
-  moveDeal: (stageId: string, dealId?: string) => Promise<void>
 }) {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [form, setForm] = useState<DealForm>(() => dealToForm(deal))
   const [customDrafts, setCustomDrafts] = useState<Record<string, string>>(() => customValuesToDrafts(customFields, customFieldValues))
-  const selectedStageIndex = deal ? stages.findIndex((s) => s.id === deal.stage_id) : -1
-  const ageDays = Math.max(1, Math.min(96, deal?.score || deal?.probability || 36))
 
   async function submit(e: FormEvent) {
     e.preventDefault()
@@ -770,9 +766,6 @@ function DealPage({ deal, loading, error, stages, bpos, activities, history, cus
             <EditSelect label="Status" value={form.status} onChange={(v) => update('status', v)} options={Object.entries(statusLabel)} />
             <EditInput label="Valor do negócio" value={form.value} onChange={(v) => update('value', v)} type="number" />
             <EditInput label="GMV mensal" value={form.monthly_purchase} onChange={(v) => update('monthly_purchase', v)} type="number" />
-            <EditInput label="Economia estimada" value={form.estimated_savings} onChange={(v) => update('estimated_savings', v)} type="number" />
-            <EditInput label="Probabilidade (%)" value={form.probability} onChange={(v) => update('probability', v)} type="number" />
-            <EditInput label="Rotting / idade em dias" value={form.score} onChange={(v) => update('score', v)} type="number" />
             <EditInput label="Data esperada de fechamento" value={form.expected_close_date} onChange={(v) => update('expected_close_date', v)} type="date" />
             <EditInput label="Fonte" value={form.source} onChange={(v) => update('source', v)} />
             <EditInput label="Plano recomendado" value={form.plan} onChange={(v) => update('plan', v)} />
@@ -817,16 +810,6 @@ function DealPage({ deal, loading, error, stages, bpos, activities, history, cus
 
       <aside className="space-y-4">
         <Panel className="overflow-hidden">
-          <div className="border-b border-slate-200 bg-white p-4">
-            <span className="rounded-full bg-red-500 px-2 py-1 text-[11px] font-bold uppercase text-white">Rotting for {ageDays} days</span>
-            <div className="mt-4 flex overflow-hidden rounded-sm">
-              {stages.map((stage, i) => <button type="button" key={stage.id} onClick={() => { update('stage_id', stage.id); void moveDeal(stage.id, deal.id) }} className={cn('h-8 min-w-[68px] flex-1 border-r border-white text-[11px]', i <= selectedStageIndex ? 'bg-[#27864d] text-white' : 'bg-slate-200 text-slate-500')}>{i === selectedStageIndex ? `${ageDays} dias` : '0 dias'}</button>)}
-            </div>
-            <div className="mt-4 flex gap-2">
-              <button type="button" onClick={() => update('status', 'ganho')} className="rounded bg-[#238847] px-4 py-2 text-sm font-bold text-white">Won</button>
-              <button type="button" onClick={() => update('status', 'perdido')} className="rounded bg-red-500 px-4 py-2 text-sm font-bold text-white">Lost</button>
-            </div>
-          </div>
           <div className="grid gap-3 p-4 text-sm">
             <FieldLine label="Pessoa" value={form.person_name || 'Sem contato'} blue />
             <FieldLine label="Empresa" value={form.organization_name || 'Sem empresa'} blue />
