@@ -179,7 +179,7 @@ function Login() {
                   <CheckCircle2 size={16} className="text-emerald-300" /> Pipeline, lista e previsão de vendas
                 </div>
                 <h3 className="mt-8 max-w-lg text-5xl font-black leading-[0.95] tracking-[-0.05em]">CRM para acelerar o programa de parceria BPO.</h3>
-                <p className="mt-5 max-w-md text-base leading-7 text-white/70">Interface inspirada no Pipedrive, adaptada para gestão de parceiros, oportunidades e forecast da VMarket.</p>
+                <p className="mt-5 max-w-md text-base leading-7 text-white/70">Interface inspirada no parceiro BPO da VMarketing, adaptada para gestão de parceiros, oportunidades e forecast da VMarket.</p>
               </div>
 
               <div className="relative mt-10 rounded-2xl bg-white/95 p-4 text-slate-900 shadow-2xl ring-1 ring-white/20">
