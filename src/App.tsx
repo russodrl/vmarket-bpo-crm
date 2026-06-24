@@ -130,17 +130,17 @@ function Login() {
   return (
     <main className="min-h-screen bg-white text-slate-900">
       <header className="fixed inset-x-0 top-0 z-10 flex items-center justify-between px-4 py-4 md:px-8">
-        <img src="./brand/vmarket-logo-colorida.png" alt="VMarket" className="h-10 w-auto object-contain" />
+        <img src="./brand/vmarket-logo-colorida.png" alt="VMarket" className="h-20 w-auto object-contain md:h-24" />
         <div className="hidden items-center gap-4 text-sm font-semibold text-slate-700 md:flex">
-          <span>Ainda não é um usuário do parceiro BPO da VMarketing?</span>
+          <span>Ainda não é um parceiro BPO da VMarket?</span>
           <a href="https://bpo.vmarketing.com.br/" className="rounded bg-[#ece8ff] px-5 py-3 font-bold text-[#30246f] transition hover:bg-[#ded7ff]">Faça um teste grátis</a>
         </div>
       </header>
 
-      <div className="mx-auto flex min-h-screen max-w-7xl items-center justify-center px-5 pb-10 pt-24 md:px-8">
-        <div className="grid w-full items-stretch gap-8 lg:grid-cols-[0.95fr_1.05fr]">
-          <section className="flex items-center justify-center">
-            <div className="w-full max-w-md border border-slate-200 bg-white px-8 py-10 md:px-9 md:py-12">
+      <div className="mx-auto flex min-h-screen max-w-7xl items-center justify-center px-5 pb-10 pt-28 md:px-8">
+        <div className="grid w-full items-stretch gap-8 lg:grid-cols-2">
+          <section className="flex min-h-[680px] items-center justify-center border border-slate-200 bg-white px-8 py-10 md:px-12">
+            <div className="w-full max-w-md">
               <div className="text-center">
                 <h1 className="text-2xl font-bold tracking-[-0.03em] text-slate-900">Login</h1>
                 <p className="mt-3 text-sm text-slate-600">Faça login para continuar</p>
@@ -178,8 +178,8 @@ function Login() {
                 <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-2 text-sm font-semibold ring-1 ring-white/15">
                   <CheckCircle2 size={16} className="text-emerald-300" /> Pipeline, lista e previsão de vendas
                 </div>
-                <h3 className="mt-8 max-w-lg text-5xl font-black leading-[0.95] tracking-[-0.05em]">CRM para acelerar o programa de parceria BPO.</h3>
-                <p className="mt-5 max-w-md text-base leading-7 text-white/70">Interface inspirada no parceiro BPO da VMarketing, adaptada para gestão de parceiros, oportunidades e forecast da VMarket.</p>
+                <h3 className="mt-8 max-w-lg text-5xl font-black leading-[0.95] tracking-[-0.05em]">CRM gratuito pra você acelerar no programa de parceria BPO da VMarket</h3>
+                <p className="mt-5 max-w-md text-base leading-7 text-white/70">Plataforma personalizada pra voce fazer a gestão das suas vendas, receber leads gratuitos da VMarket e acompanhar o valor das suas comissões.</p>
               </div>
 
               <div className="relative mt-10 rounded-2xl bg-white/95 p-4 text-slate-900 shadow-2xl ring-1 ring-white/20">
@@ -188,7 +188,7 @@ function Login() {
                     <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Pipeline BPO</p>
                     <h4 className="text-lg font-black">Negócios ativos</h4>
                   </div>
-                  <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700">VMarket</span>
+                  <img src="./brand/vmarket-logo-colorida.png" alt="VMarket" className="h-8 w-auto object-contain" />
                 </div>
                 <div className="grid grid-cols-3 gap-3">
                   {['Kanban', 'Lista Excel', 'Previsão'].map((item, index) => <div key={item} className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-100">
