@@ -96,6 +96,12 @@ const money = (value?: number | null) =>
 const statusLabel: Record<string, string> = { quente: 'Quente', morno: 'Morno', risco: 'Risco', ganho: 'Ganho', perdido: 'Perdido' }
 
 function cn(...classes: Array<string | false | undefined | null>) { return classes.filter(Boolean).join(' ') }
+function errorMessage(error: unknown) {
+  if (error instanceof Error) return error.message
+  if (typeof error === 'string') return error
+  if (error && typeof error === 'object' && 'message' in error) return String((error as { message?: unknown }).message)
+  return 'Erro inesperado. Tente novamente.'
+}
 function Badge({ children, tone }: { children: ReactNode; tone?: string }) {
   return <span className={cn('inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] font-semibold', tone || 'bg-slate-100 text-slate-600')}>{children}</span>
 }
@@ -375,18 +381,26 @@ function App() {
     return stages.find((stage) => stage.id === stageId)?.pipeline_name === 'Pipeline de Vendas'
   }
 
-  async function syncExistingDealToPipedriveIfSalesPipeline(dealId: string, stageId: string) {
-    if (!isSalesPipelineStage(stageId)) return
-    const syncRes = await supabase.functions.invoke('pipedrive-sync', { body: { action: 'sync-existing-deal-to-pipedrive', deal_id: dealId } })
-    if (syncRes.error) throw syncRes.error
-    if (syncRes.data?.error) throw new Error(String(syncRes.data.error))
-    if (syncRes.data?.ignored) return
+  async function syncExistingDealToPipedriveIfSalesPipeline(dealId: string, stageId: string, mode: 'deal' | 'stage' = 'deal') {
+    if (!isSalesPipelineStage(stageId)) return { ok: true, ignored: true }
+    const action = mode === 'stage' ? 'sync-existing-deal-stage-to-pipedrive' : 'sync-existing-deal-to-pipedrive'
+    const syncRes = await supabase.functions.invoke('pipedrive-sync', { body: { action, deal_id: dealId } })
+    if (syncRes.error) {
+      console.warn('Pipedrive sync unavailable', syncRes.error)
+      return { ok: false, ignored: true, reason: errorMessage(syncRes.error) }
+    }
+    if (syncRes.data?.error) {
+      console.warn('Pipedrive sync returned error', syncRes.data.error)
+      return { ok: false, ignored: true, reason: String(syncRes.data.error) }
+    }
+    if (syncRes.data?.ignored) return syncRes.data
     await supabase.from('deal_history').insert({
       deal_id: dealId,
       event_type: 'Integração',
-      title: 'Campos sincronizados com Pipedrive',
+      title: mode === 'stage' ? 'Etapa sincronizada com Pipedrive' : 'Campos sincronizados com Pipedrive',
       description: `Pipeline de Vendas sincronizado. Pipedrive deal ID ${syncRes.data?.pipedrive_deal_id || 'existente'}`,
     })
+    return syncRes.data || { ok: true }
   }
 
   async function moveDeal(stageId: string, dealId = selectedId) {
@@ -398,11 +412,11 @@ function App() {
     else {
       try {
         await supabase.from('deal_history').insert({ deal_id: dealId, event_type: 'Campo', title: 'Etapa do pipeline alterada', description: `Nova etapa: ${stages.find((s) => s.id === stageId)?.name || ''}` })
-        await syncExistingDealToPipedriveIfSalesPipeline(dealId, stageId)
+        void syncExistingDealToPipedriveIfSalesPipeline(dealId, stageId, 'stage')
         await loadAll()
         setSelectedId(dealId)
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e))
+        setError(errorMessage(e))
       }
     }
   }
@@ -464,7 +478,8 @@ function App() {
 
   function handleDrop(e: DragEvent, stageId: string) {
     e.preventDefault()
-    if (draggingId) void moveDeal(stageId, draggingId)
+    const droppedDealId = e.dataTransfer.getData('text/plain') || draggingId
+    if (droppedDealId) void moveDeal(stageId, droppedDealId)
     setDraggingId(null)
   }
 
@@ -545,12 +560,12 @@ function App() {
         if (customErr) throw customErr
       }
 
-      if (form.stage_id) await syncExistingDealToPipedriveIfSalesPipeline(detailDeal.id, form.stage_id)
+      if (form.stage_id) void syncExistingDealToPipedriveIfSalesPipeline(detailDeal.id, form.stage_id)
 
-      await supabase.from('deal_history').insert({ deal_id: detailDeal.id, event_type: 'Edição', title: 'Ficha do negócio atualizada', description: 'Campos editados na URL da ficha completa e sincronizados com Pipedrive quando aplicável.' })
+      await supabase.from('deal_history').insert({ deal_id: detailDeal.id, event_type: 'Edição', title: 'Ficha do negócio atualizada', description: 'Campos editados na URL da ficha completa.' })
       await loadAll()
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(errorMessage(e))
       throw e
     }
   }
@@ -643,6 +658,11 @@ function PipelineView({ stages, salesStages, deals, activities, crmUsers, select
     return (owner?.full_name || deal.people?.full_name || '•').trim().slice(0, 1).toUpperCase()
   }
 
+  const dealOwnerName = (deal: Deal) => {
+    const owner = crmUsers.find((user) => user.auth_user_id && user.auth_user_id === deal.owner_id)
+    return owner?.full_name || deal.people?.full_name || 'Sem proprietário'
+  }
+
   const activityIndicator = (deal: Deal) => {
     const openActivities = activities
       .filter((activity) => activity.deal_id === deal.id && activity.status === 'open')
@@ -683,7 +703,7 @@ function PipelineView({ stages, salesStages, deals, activities, crmUsers, select
         {stages.map((stage) => {
           const stageDeals = deals.filter((d) => d.stage_id === stage.id)
           const stageValue = stageDeals.reduce((acc, d) => acc + Number(d.value || 0), 0)
-          return <div key={stage.id} onDragOver={(e) => e.preventDefault()} onDrop={(e) => handleDrop(e, stage.id)} className="flex max-h-[65vh] min-w-[78vw] flex-col bg-[#f0f2f4] ring-1 ring-slate-200 sm:min-w-[320px] md:h-full md:w-[160px] md:min-w-0 xl:w-[180px]">
+          return <div key={stage.id} onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }} onDrop={(e) => handleDrop(e, stage.id)} className="flex max-h-[65vh] min-w-[78vw] flex-col bg-[#f0f2f4] ring-1 ring-slate-200 sm:min-w-[320px] md:h-full md:w-[160px] md:min-w-0 xl:w-[180px]">
             <div className="border-b border-slate-200 bg-white/60 p-2">
               <div className="flex items-center justify-between gap-1">
                 <p className="truncate text-sm font-bold text-slate-800">{stage.name}</p>
@@ -693,19 +713,17 @@ function PipelineView({ stages, salesStages, deals, activities, crmUsers, select
             <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-1.5">
               {stageDeals.map((deal) => {
                 const indicator = activityIndicator(deal)
-                return <div key={deal.id} draggable onDragStart={() => setDraggingId(deal.id)} onDragEnd={() => setDraggingId(null)} onClick={() => openDealPage(deal.id)} role="button" tabIndex={0} className={cn('group w-full rounded border p-2 text-left shadow-sm transition hover:shadow-md cursor-pointer', selectedId === deal.id ? 'border-blue-300 bg-[#fff3f0] ring-2 ring-blue-200/70' : 'border-[#eadfda] bg-[#fff2ef] hover:border-blue-200')}>
+                return <div key={deal.id} draggable onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', deal.id); setDraggingId(deal.id) }} onDragEnd={() => setDraggingId(null)} onClick={() => openDealPage(deal.id)} role="button" tabIndex={0} className={cn('group w-full cursor-grab rounded border bg-white p-2 text-left shadow-sm transition hover:border-blue-200 hover:shadow-md active:cursor-grabbing', selectedId === deal.id ? 'border-blue-300 ring-2 ring-blue-200/70' : 'border-slate-200')}>
                   <div className="mb-1.5 flex items-center gap-1">
                     <span className="h-1 w-8 rounded-full bg-[#5c7cfa]" />
                     <span className="h-1 w-8 rounded-full bg-[#e6509c]" />
                   </div>
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="line-clamp-2 text-sm font-bold leading-snug text-slate-900">{deal.title}</p>
-                    <span className="shrink-0 text-[11px] font-semibold text-slate-700">{money(deal.value)}</span>
-                  </div>
+                  <p className="line-clamp-2 text-sm font-bold leading-snug text-slate-900">{deal.title}</p>
                   <p className="mt-1 truncate text-xs text-slate-600">{deal.organizations?.name || 'Sem empresa'}</p>
                   <p className="truncate text-xs text-slate-500">{deal.people?.full_name || 'Sem contato'}</p>
+                  <p className="mt-0.5 truncate text-[11px] font-semibold text-slate-700">{money(deal.value)}</p>
                   <div className="mt-2 flex items-center justify-between">
-                    <span title="Proprietário" className="grid h-5 w-5 place-items-center rounded-full bg-slate-200 text-[10px] font-bold text-slate-600">{dealOwnerInitial(deal)}</span>
+                    <span title={dealOwnerName(deal)} aria-label={`Proprietário: ${dealOwnerName(deal)}`} className="grid h-5 w-5 place-items-center rounded-full bg-slate-200 text-[10px] font-bold text-slate-600">{dealOwnerInitial(deal)}</span>
                     <span title={indicator.title} className={cn('grid h-5 w-5 place-items-center rounded-full text-[11px] font-black', indicator.className)}>{indicator.label}</span>
                   </div>
                 </div>
