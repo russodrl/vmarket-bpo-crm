@@ -19,13 +19,12 @@ import {
   Search,
   Settings,
   Tags,
-  UsersRound,
   Workflow,
 } from 'lucide-react'
 import { supabase, supabaseConfigured, type ActivityRow, type BpoPartner, type CrmCompany, type CrmUser, type CustomField, type CustomFieldValue, type Deal, type HistoryRow, type Organization, type Person, type Profile, type Stage } from './supabase'
 import './App.css'
 
-type View = 'pipeline' | 'contacts' | 'companies' | 'activities' | 'fields' | 'owners' | 'admin'
+type View = 'pipeline' | 'contacts' | 'companies' | 'activities' | 'fields' | 'admin'
 type NewDeal = {
   title: string
   organization_name: string
@@ -435,7 +434,8 @@ function App() {
     if (!detailDeal) return
     setError('')
     const numberOrNull = (value: string) => value.trim() === '' ? null : Number(value)
-    const dealFields = customFields.filter((field) => field.entity === 'deal')
+    const canManageCustomFields = profile?.role === 'admin_vmarket'
+    const dealFields = canManageCustomFields ? customFields.filter((field) => field.entity === 'deal') : []
     const parseCustomValue = (field: CustomField, raw: string) => {
       if (field.field_type === 'numeric' || field.field_type === 'monetary' || field.field_type === 'formula') return raw.trim() === '' ? null : Number(raw)
       if (field.field_type === 'multi_option') return raw.split(',').map((item) => item.trim()).filter(Boolean)
@@ -510,7 +510,8 @@ function App() {
   if (!session) return <Login />
 
   if (detailDealId) {
-    return <DealPage key={detailDealId} deal={detailDeal} loading={loading} error={error} stages={stages} bpos={bpos} crmUsers={crmUsers} canEditOwner={profile?.role === 'admin_vmarket'} activities={activities.filter((a) => a.deal_id === detailDealId)} history={history.filter((h) => h.deal_id === detailDealId)} activePipeline={activePipeline} closeDealPage={closeDealPage} saveDeal={saveDeal} customFields={customFields.filter((field) => field.entity === 'deal')} customFieldValues={customFieldValues.filter((value) => value.entity_id === detailDealId)} completeActivity={completeActivity} />
+    const isAdmin = profile?.role === 'admin_vmarket'
+    return <DealPage key={detailDealId} deal={detailDeal} loading={loading} error={error} stages={stages} bpos={bpos} crmUsers={crmUsers} canEditOwner={isAdmin} canViewCustomFields={isAdmin} activities={activities.filter((a) => a.deal_id === detailDealId)} history={history.filter((h) => h.deal_id === detailDealId)} activePipeline={activePipeline} closeDealPage={closeDealPage} saveDeal={saveDeal} customFields={isAdmin ? customFields.filter((field) => field.entity === 'deal') : []} customFieldValues={isAdmin ? customFieldValues.filter((value) => value.entity_id === detailDealId) : []} completeActivity={completeActivity} />
   }
 
   const navItems: Array<[View, ReactNode, string]> = [
@@ -518,10 +519,11 @@ function App() {
     ['contacts', <Contact size={19}/>, 'Contatos'],
     ['companies', <Building2 size={19}/>, 'Empresas'],
     ['activities', <Activity size={19}/>, 'Atividades'],
-    ['fields', <Tags size={19}/>, 'Campos'],
-    ['owners', <UsersRound size={19}/>, 'Proprietários'],
   ]
-  if (profile?.role === 'admin_vmarket') navItems.push(['admin', <Settings size={19}/>, 'Admin'])
+  if (profile?.role === 'admin_vmarket') {
+    navItems.push(['fields', <Tags size={19}/>, 'Campos'])
+    navItems.push(['admin', <Settings size={19}/>, 'Admin'])
+  }
 
   return (
     <main className="min-h-screen bg-[#f4f5f7] text-slate-900">
@@ -550,8 +552,7 @@ function App() {
                 {activeView === 'contacts' && <ListView title="Contatos" icon={<Contact size={18}/>} rows={people.map((p) => ({ id: p.id, title: p.full_name, sub: `${p.role_title || 'Contato'} · ${p.email || 'sem email'}`, meta: p.phone || 'sem telefone' }))} />}
                 {activeView === 'companies' && <ListView title="Empresas" icon={<Building2 size={18}/>} rows={organizations.map((o) => ({ id: o.id, title: o.name, sub: `${o.segment || 'Segmento não informado'} · ${o.city || ''} ${o.state || ''}`, meta: money(o.monthly_purchase) }))} />}
                 {activeView === 'activities' && <ActivitiesView activities={activities} deals={deals} completeActivity={completeActivity} />}
-                {activeView === 'fields' && <FieldsConfigView fields={customFields} setError={setError} reload={loadAll} />}
-                {activeView === 'owners' && <SettingsView title="Proprietários e parceiros" items={[`Usuário atual: ${session.user.email}`, `Perfil: ${profile?.role === 'admin_vmarket' ? 'Admin VMarket' : 'BPO parceiro'}`, ...crmUsers.map((u) => `${u.full_name} · ${u.crm_companies?.name || 'sem empresa'} · ${u.email}`)]} />}
+                {activeView === 'fields' && profile?.role === 'admin_vmarket' && <FieldsConfigView fields={customFields} setError={setError} reload={loadAll} />}
                 {activeView === 'admin' && profile?.role === 'admin_vmarket' && <AdminUsersView users={crmUsers} companies={crmCompanies} reload={loadAll} setError={setError} />}
               </>
             )}
@@ -723,7 +724,7 @@ function CreateDealModal({ allStages, bpos, crmUsers, canAssignOwner, newDeal, s
   </div>
 }
 
-function DealPage({ deal, loading, error, stages, bpos, crmUsers, canEditOwner, activities, history, customFields, customFieldValues, activePipeline, closeDealPage, saveDeal, completeActivity }: {
+function DealPage({ deal, loading, error, stages, bpos, crmUsers, canEditOwner, canViewCustomFields, activities, history, customFields, customFieldValues, activePipeline, closeDealPage, saveDeal, completeActivity }: {
   deal?: Deal
   loading: boolean
   error: string
@@ -731,6 +732,7 @@ function DealPage({ deal, loading, error, stages, bpos, crmUsers, canEditOwner, 
   bpos: BpoPartner[]
   crmUsers: CrmUser[]
   canEditOwner: boolean
+  canViewCustomFields: boolean
   activities: ActivityRow[]
   history: HistoryRow[]
   customFields: CustomField[]
@@ -822,7 +824,7 @@ function DealPage({ deal, loading, error, stages, bpos, crmUsers, canEditOwner, 
           </div>
         </Panel>
 
-        <Panel className="overflow-hidden">
+        {canViewCustomFields && <Panel className="overflow-hidden">
           <div className="border-b border-slate-200 bg-white p-4">
             <h2 className="text-lg font-bold">Campos configuráveis do negócio</h2>
             <p className="mt-1 text-sm text-slate-500">Esses campos vêm da tabela custom_fields e os valores são gravados em custom_field_values por ID do negócio.</p>
@@ -830,7 +832,7 @@ function DealPage({ deal, loading, error, stages, bpos, crmUsers, canEditOwner, 
           <div className="grid gap-4 p-4 md:grid-cols-2">
             {customFields.length ? customFields.map((field) => <CustomFieldInput key={field.id} field={field} value={customDrafts[field.id] || ''} onChange={(value) => setCustomDrafts((current) => ({ ...current, [field.id]: value }))} />) : <p className="text-sm text-slate-500 md:col-span-2">Nenhum campo customizado de negócio configurado ainda. Use a aba Campos para criar.</p>}
           </div>
-        </Panel>
+        </Panel>}
       </section>
 
       <aside className="space-y-4">
@@ -1102,10 +1104,6 @@ function AdminUsersView({ users, companies, reload, setError }: { users: CrmUser
       </div>
     </Panel>
   </div>
-}
-
-function SettingsView({ title, items }: { title: string; items: string[] }) {
-  return <div className="h-full overflow-y-auto p-5"><Panel><div className="flex items-center gap-2 border-b border-slate-200 p-4"><Settings size={18} className="text-[#6f5cf6]"/><h2 className="text-lg font-bold">{title}</h2></div><div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">{items.map((item) => <div key={item} className="rounded border border-slate-200 bg-slate-50 p-4 text-sm"><b>{item}</b><p className="mt-2 text-xs text-slate-500">Configurado no CRM VMarket.</p></div>)}</div></Panel></div>
 }
 
 function ListViewDeals({ deals, stages, selectedId, setSelectedId, openDealPage }: { deals: Deal[]; stages: Stage[]; selectedId?: string; setSelectedId: (id: string) => void; openDealPage: (id: string) => void }) {
