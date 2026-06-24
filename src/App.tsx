@@ -5,7 +5,6 @@ import {
   Activity,
   Building2,
   CalendarClock,
-  CheckCircle2,
   Contact,
   GripVertical,
   LayoutDashboard,
@@ -112,34 +111,93 @@ function Panel({ children, className }: { children: ReactNode; className?: strin
 }
 
 function Login() {
-  const [email, setEmail] = useState('')
+  const [email, setEmail] = useState(() => window.localStorage.getItem('vmarket-crm-email') || '')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
+  const [rememberEmail, setRememberEmail] = useState(true)
+  const [resetMode, setResetMode] = useState(false)
+  const registrationUrl = 'https://bpo.vmarket.com.br/'
 
   async function submit(e: FormEvent) {
     e.preventDefault()
     setBusy(true)
     setMessage('')
+    if (rememberEmail) window.localStorage.setItem('vmarket-crm-email', email)
+    else window.localStorage.removeItem('vmarket-crm-email')
     const res = await supabase.auth.signInWithPassword({ email, password })
     setBusy(false)
     if (res.error) setMessage(res.error.message)
     else setMessage('Login efetuado.')
   }
 
+  async function sendPasswordReset(e: FormEvent) {
+    e.preventDefault()
+    setBusy(true)
+    setMessage('')
+    const res = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin,
+    })
+    setBusy(false)
+    if (res.error) setMessage(res.error.message)
+    else setMessage('Enviamos um e-mail com as instruções para alterar sua senha.')
+  }
+
+  if (resetMode) {
+    return (
+      <main className="min-h-screen bg-white text-slate-900">
+        <header className="fixed inset-x-0 top-0 z-10 flex items-center justify-between px-4 py-3 md:px-8">
+          <button type="button" onClick={() => setResetMode(false)} className="cursor-pointer border-0 bg-transparent p-0" aria-label="Voltar ao login">
+            <img src="./brand/vmarket-logo-colorida.png" alt="VMarket" className="h-16 w-auto object-contain md:h-20" />
+          </button>
+        </header>
+
+        <div className="mx-auto flex min-h-screen max-w-3xl items-center justify-center px-5 pb-10 pt-28 md:px-8">
+          <section className="w-full border border-slate-200 bg-white px-8 py-12 shadow-sm md:px-16 md:py-14">
+            <div className="mx-auto max-w-xl text-center">
+              <h1 className="text-3xl font-black tracking-[-0.04em] text-slate-950 md:text-4xl">Precisa de uma nova senha?</h1>
+              <p className="mt-6 text-base leading-7 text-slate-500">Informe seu endereço de e-mail e enviaremos instruções sobre como alterar sua senha.</p>
+            </div>
+
+            {!supabaseConfigured && <p className="mx-auto mt-8 max-w-xl rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">Supabase não configurado no ambiente.</p>}
+
+            <form onSubmit={sendPasswordReset} className="mx-auto mt-10 max-w-xl space-y-8">
+              <label className="relative block">
+                <Mail size={20} className="pointer-events-none absolute left-6 top-1/2 -translate-y-1/2 text-slate-500" />
+                <input
+                  className="h-16 w-full border border-slate-200 bg-white pl-16 pr-12 text-xl outline-none transition placeholder:text-slate-400 focus:border-[#6b5cf6] focus:ring-1 focus:ring-[#6b5cf6]"
+                  placeholder="Seu e-mail"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  autoComplete="email"
+                  required
+                />
+                <span className="absolute right-5 top-1/2 h-5 w-1 -translate-y-1/2 rounded-full bg-[#159585] shadow-[6px_0_0_#159585,12px_0_0_#159585]" aria-hidden="true" />
+              </label>
+              <button disabled={busy} className="h-16 w-full rounded bg-[#685cf6] px-4 text-xl font-bold text-white transition hover:bg-[#5b50e8] disabled:opacity-60">{busy ? 'Enviando...' : 'Receber nova senha'}</button>
+            </form>
+
+            {message && <p className="mx-auto mt-8 max-w-xl rounded bg-slate-50 p-3 text-center text-sm text-slate-700 ring-1 ring-slate-100">{message}</p>}
+          </section>
+        </div>
+      </main>
+    )
+  }
+
   return (
     <main className="min-h-screen bg-white text-slate-900">
-      <header className="fixed inset-x-0 top-0 z-10 flex items-center justify-between px-4 py-4 md:px-8">
-        <img src="./brand/vmarket-logo-colorida.png" alt="VMarket" className="h-20 w-auto object-contain md:h-24" />
-        <div className="hidden items-center gap-4 text-sm font-semibold text-slate-700 md:flex">
+      <header className="fixed inset-x-0 top-0 z-10 flex items-center justify-between px-4 py-3 md:px-8">
+        <img src="./brand/vmarket-logo-colorida.png" alt="VMarket" className="h-16 w-auto object-contain md:h-20" />
+        <div className="flex items-center gap-3 text-xs font-semibold text-slate-700 sm:gap-4 sm:text-sm">
           <span>Ainda não é um parceiro BPO da VMarket?</span>
-          <a href="https://bpo.vmarketing.com.br/" className="rounded bg-[#ece8ff] px-5 py-3 font-bold text-[#30246f] transition hover:bg-[#ded7ff]">Faça um teste grátis</a>
+          <a href={registrationUrl} className="rounded bg-[#ece8ff] px-4 py-2.5 font-bold text-[#30246f] transition hover:bg-[#ded7ff] sm:px-5 sm:py-3">Faça o seu cadastro</a>
         </div>
       </header>
 
-      <div className="mx-auto flex min-h-screen max-w-7xl items-center justify-center px-5 pb-10 pt-28 md:px-8">
-        <div className="grid w-full items-stretch gap-8 lg:grid-cols-2">
-          <section className="flex min-h-[680px] items-center justify-center border border-slate-200 bg-white px-8 py-10 md:px-12">
+      <div className="mx-auto flex min-h-screen max-w-7xl items-center justify-center px-5 pb-8 pt-28 md:px-8">
+        <div className="grid w-full items-stretch gap-6 lg:grid-cols-2">
+          <section className="flex min-h-[560px] items-center justify-center border border-slate-200 bg-white px-8 py-8 md:px-12">
             <div className="w-full max-w-md">
               <div className="text-center">
                 <h1 className="text-2xl font-bold tracking-[-0.03em] text-slate-900">Login</h1>
@@ -151,38 +209,35 @@ function Login() {
               <form onSubmit={submit} className="mt-8 space-y-6">
                 <label className="relative block">
                   <Mail size={18} className="pointer-events-none absolute left-5 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input className="h-12 w-full border border-slate-200 bg-white pl-12 pr-4 text-base outline-none transition placeholder:text-slate-400 focus:border-[#6b5cf6] focus:ring-1 focus:ring-[#6b5cf6]" placeholder="E-mail" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+                  <input className="h-12 w-full border border-slate-200 bg-white pl-12 pr-4 text-base outline-none transition placeholder:text-slate-400 focus:border-[#6b5cf6] focus:ring-1 focus:ring-[#6b5cf6]" placeholder="E-mail" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" required />
                 </label>
                 <label className="relative block">
                   <LockKeyhole size={18} className="pointer-events-none absolute left-5 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input className="h-12 w-full border border-slate-200 bg-white pl-12 pr-4 text-base outline-none transition placeholder:text-slate-400 focus:border-[#6b5cf6] focus:ring-1 focus:ring-[#6b5cf6]" placeholder="Senha" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+                  <input className="h-12 w-full border border-slate-200 bg-white pl-12 pr-4 text-base outline-none transition placeholder:text-slate-400 focus:border-[#6b5cf6] focus:ring-1 focus:ring-[#6b5cf6]" placeholder="Senha" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
                 </label>
                 <button disabled={busy} className="h-12 w-full rounded bg-[#685cf6] px-4 text-lg font-bold text-white transition hover:bg-[#5b50e8] disabled:opacity-60">{busy ? 'Aguarde...' : 'Login'}</button>
               </form>
 
-              <div className="mt-8 flex items-center gap-3 text-sm font-semibold text-slate-600">
-                <span className="grid h-5 w-5 place-items-center rounded border-2 border-slate-300 bg-white" aria-hidden="true" />
-                <span>Lembrar-se</span>
-              </div>
-              <a href="https://bpo.vmarketing.com.br/" className="mx-auto mt-6 block w-max text-sm font-semibold text-slate-500 hover:text-[#685cf6]">Esqueceu sua senha?</a>
+              <label className="mt-8 flex cursor-pointer items-center gap-3 text-sm font-semibold text-slate-600">
+                <input type="checkbox" checked={rememberEmail} onChange={(e) => setRememberEmail(e.target.checked)} className="h-5 w-5 accent-[#685cf6]" />
+                <span>Lembrar-me neste navegador</span>
+              </label>
+              <button type="button" onClick={() => { setMessage(''); setResetMode(true) }} className="mx-auto mt-6 block w-max border-0 bg-transparent p-0 text-sm font-semibold text-slate-500 hover:text-[#685cf6]">Esqueceu sua senha?</button>
 
               {message && <p className="mt-6 rounded bg-slate-50 p-3 text-center text-sm text-slate-700 ring-1 ring-slate-100">{message}</p>}
             </div>
           </section>
 
-          <section className="relative hidden min-h-[680px] overflow-hidden bg-[#211746] p-10 text-white lg:block">
+          <section className="relative hidden min-h-[560px] overflow-hidden bg-[#211746] p-8 text-white lg:block">
             <div className="absolute -right-24 -top-24 h-72 w-72 rounded-full bg-[#6f5cf6]/50 blur-2xl" />
             <div className="absolute -bottom-28 left-16 h-80 w-80 rounded-full bg-[#2cbf6d]/35 blur-2xl" />
             <div className="relative z-10 flex h-full flex-col justify-between">
               <div>
-                <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-2 text-sm font-semibold ring-1 ring-white/15">
-                  <CheckCircle2 size={16} className="text-emerald-300" /> Pipeline, lista e previsão de vendas
-                </div>
-                <h3 className="mt-8 max-w-lg text-5xl font-black leading-[0.95] tracking-[-0.05em]">CRM gratuito pra você acelerar no programa de parceria BPO da VMarket</h3>
-                <p className="mt-5 max-w-md text-base leading-7 text-white/70">Plataforma personalizada pra voce fazer a gestão das suas vendas, receber leads gratuitos da VMarket e acompanhar o valor das suas comissões.</p>
+                <h3 className="max-w-lg text-5xl font-black leading-[0.95] tracking-[-0.05em]">CRM gratuito pra você acelerar no programa de parceria BPO da VMarket</h3>
+                <p className="mt-5 max-w-md text-base leading-7 text-white/70">Faça a gestão das suas vendas, receba leads gratuitos da VMarket e acompanhe o valor das suas comissões.</p>
               </div>
 
-              <div className="relative mt-10 rounded-2xl bg-white/95 p-4 text-slate-900 shadow-2xl ring-1 ring-white/20">
+              <div className="relative mt-8 rounded-2xl bg-white/95 p-4 text-slate-900 shadow-2xl ring-1 ring-white/20">
                 <div className="mb-4 flex items-center justify-between">
                   <div>
                     <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Pipeline BPO</p>
