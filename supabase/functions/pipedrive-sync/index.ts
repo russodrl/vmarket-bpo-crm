@@ -7,7 +7,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 type JsonRecord = Record<string, unknown>
 type SyncPayload = {
-  action?: 'webhook' | 'sync-deal-to-pipedrive'
+  action?: 'webhook' | 'sync-deal-to-pipedrive' | 'sync-existing-deal-stage-to-pipedrive'
   deal_id?: string
 }
 
@@ -40,6 +40,12 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
   headers: { 'content-type': 'application/json' },
 })
 
+function errorMessage(error: unknown) {
+  if (error instanceof Error) return error.message
+  if (typeof error === 'string') return error
+  try { return JSON.stringify(error) } catch { return String(error) }
+}
+
 Deno.serve(async (req: Request) => {
   try {
     if (req.method === 'OPTIONS') return new Response(null, { status: 204 })
@@ -57,11 +63,18 @@ Deno.serve(async (req: Request) => {
       return json(result)
     }
 
+    if (action === 'sync-existing-deal-stage-to-pipedrive') {
+      const user = await requireInternalOrUserAuth(req)
+      if (!payload.deal_id) return json({ error: 'deal_id is required' }, 400)
+      const result = await syncExistingDealStageToPipedrive(payload.deal_id, user?.id || null)
+      return json(result)
+    }
+
     await verifyWebhook(req)
     const result = await handlePipedriveWebhook(payload)
     return json(result)
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
+    const message = errorMessage(error)
     await logEvent({ level: 'error', message: 'Unhandled pipedrive-sync error', details: { message } }).catch(() => null)
     return json({ error: message }, 500)
   }
@@ -163,6 +176,26 @@ async function syncDealToPipedrive(dealId: string, userId: string | null) {
   await upsertExternalRecord(integration.id, 'deal', dealId, externalId, pdDeal)
   await supabase.from('deal_history').insert({ deal_id: dealId, event_type: 'Integração', title: 'Sincronizado com Pipedrive', description: `Pipedrive deal ID ${externalId}` })
   return { ok: true, deal_id: dealId, pipedrive_deal_id: externalId, pipedrive_person_id: personExternalId, pipedrive_organization_id: orgExternalId }
+}
+
+async function syncExistingDealStageToPipedrive(dealId: string, userId: string | null) {
+  const { data: deal, error } = await supabase
+    .from('deals')
+    .select('id, owner_id, stage_id, pipeline_stages(*)')
+    .eq('id', dealId)
+    .single()
+  if (error) throw error
+  if (userId && deal.owner_id && deal.owner_id !== userId) throw new Error('User cannot sync a deal owned by another CRM user')
+  if (deal.pipeline_stages?.pipeline_name !== 'Pipeline de Vendas') return { ok: true, ignored: true, reason: 'Stage is not in Pipeline de Vendas', deal_id: dealId }
+  const external = await findExternalRecord('deal', dealId)
+  if (!external?.external_id) return { ok: true, ignored: true, reason: 'Deal has no Pipedrive external record', deal_id: dealId }
+  const pipedriveStageId = deal.pipeline_stages?.pipedrive_stage_id
+  if (!pipedriveStageId) return { ok: true, ignored: true, reason: 'CRM stage has no Pipedrive stage id', deal_id: dealId }
+  const response = await pipedrive(`/deals/${external.external_id}`, { method: 'PUT', body: { stage_id: pipedriveStageId } }) as JsonRecord
+  const pdDeal = (response.data || response) as JsonRecord
+  await upsertExternalRecord(external.integration_id, 'deal', dealId, String(external.external_id), pdDeal)
+  await supabase.from('deal_history').insert({ deal_id: dealId, event_type: 'Integração', title: 'Etapa enviada ao Pipedrive', description: `Pipeline de Vendas sincronizado com Pipedrive deal ID ${external.external_id}` })
+  return { ok: true, deal_id: dealId, pipedrive_deal_id: external.external_id, pipedrive_stage_id: pipedriveStageId }
 }
 
 async function ensurePipedriveOrganization(integrationId: string, organizationId: string, organization: JsonRecord) {

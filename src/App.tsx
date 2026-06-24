@@ -321,6 +321,24 @@ function App() {
     }
   }
 
+  function isSalesPipelineStage(stageId: string) {
+    return stages.find((stage) => stage.id === stageId)?.pipeline_name === 'Pipeline de Vendas'
+  }
+
+  async function syncDealStageToPipedriveIfSalesPipeline(dealId: string, stageId: string) {
+    if (!isSalesPipelineStage(stageId)) return
+    const syncRes = await supabase.functions.invoke('pipedrive-sync', { body: { action: 'sync-existing-deal-stage-to-pipedrive', deal_id: dealId } })
+    if (syncRes.error) throw syncRes.error
+    if (syncRes.data?.error) throw new Error(String(syncRes.data.error))
+    if (syncRes.data?.ignored) return
+    await supabase.from('deal_history').insert({
+      deal_id: dealId,
+      event_type: 'Integração',
+      title: 'Etapa sincronizada com Pipedrive',
+      description: `Pipeline de Vendas sincronizado. Pipedrive deal ID ${syncRes.data?.pipedrive_deal_id || 'existente'}`,
+    })
+  }
+
   async function moveDeal(stageId: string, dealId = selected?.id) {
     if (!dealId) return
     const deal = deals.find((d) => d.id === dealId)
@@ -328,9 +346,14 @@ function App() {
     const { error } = await supabase.from('deals').update({ stage_id: stageId }).eq('id', dealId)
     if (error) setError(error.message)
     else {
-      await supabase.from('deal_history').insert({ deal_id: dealId, event_type: 'Campo', title: 'Etapa do pipeline alterada', description: `Nova etapa: ${stages.find((s) => s.id === stageId)?.name || ''}` })
-      await loadAll()
-      setSelectedId(dealId)
+      try {
+        await supabase.from('deal_history').insert({ deal_id: dealId, event_type: 'Campo', title: 'Etapa do pipeline alterada', description: `Nova etapa: ${stages.find((s) => s.id === stageId)?.name || ''}` })
+        await syncDealStageToPipedriveIfSalesPipeline(dealId, stageId)
+        await loadAll()
+        setSelectedId(dealId)
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e))
+      }
     }
   }
 
@@ -421,6 +444,9 @@ function App() {
         const { error: customErr } = await supabase.from('custom_field_values').upsert(rows, { onConflict: 'field_id,entity_id' })
         if (customErr) throw customErr
       }
+
+      const stageChanged = Boolean(form.stage_id && form.stage_id !== detailDeal.stage_id)
+      if (stageChanged) await syncDealStageToPipedriveIfSalesPipeline(detailDeal.id, form.stage_id)
 
       await supabase.from('deal_history').insert({ deal_id: detailDeal.id, event_type: 'Edição', title: 'Ficha do negócio atualizada', description: 'Campos editados na URL da ficha completa.' })
       await loadAll()
