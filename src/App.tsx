@@ -38,6 +38,14 @@ type NewDeal = {
   owner_id: string
 }
 
+type NewActivity = {
+  title: string
+  activity_type: string
+  due_date: string
+  due_time: string
+  note: string
+}
+
 const blankNewDeal = (): NewDeal => ({
   title: '',
   organization_name: '',
@@ -49,6 +57,14 @@ const blankNewDeal = (): NewDeal => ({
   plan: '',
   stage_id: '',
   owner_id: '',
+})
+
+const blankNewActivity = (): NewActivity => ({
+  title: '',
+  activity_type: 'task',
+  due_date: '',
+  due_time: '',
+  note: '',
 })
 
 type DealForm = {
@@ -405,6 +421,39 @@ function App() {
     else await loadAll()
   }
 
+  async function createActivityForDeal(activity: NewActivity) {
+    if (!detailDeal) return
+    setError('')
+    const dueAt = activity.due_date ? new Date(`${activity.due_date}T${activity.due_time || '09:00'}`).toISOString() : null
+    const title = activity.title.trim()
+    if (!title) throw new Error('Informe o título da atividade.')
+    try {
+      const { error: activityErr } = await supabase.from('activities').insert({
+        title,
+        activity_type: activity.activity_type,
+        due_at: dueAt,
+        status: 'open',
+        note: activity.note.trim() || null,
+        deal_id: detailDeal.id,
+        organization_id: detailDeal.organization_id,
+        person_id: detailDeal.person_id,
+        owner_id: detailDeal.owner_id || session?.user.id || null,
+        bpo_id: detailDeal.bpo_id,
+      })
+      if (activityErr) throw activityErr
+      await supabase.from('deal_history').insert({
+        deal_id: detailDeal.id,
+        event_type: 'Atividade',
+        title: 'Atividade criada',
+        description: title,
+      })
+      await loadAll()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+      throw e
+    }
+  }
+
   function handleDrop(e: DragEvent, stageId: string) {
     e.preventDefault()
     if (draggingId) void moveDeal(stageId, draggingId)
@@ -502,7 +551,7 @@ function App() {
 
   if (detailDealId) {
     const isAdmin = profile?.role === 'admin_vmarket'
-    return <DealPage key={detailDealId} deal={detailDeal} loading={loading} error={error} stages={salesStages} crmUsers={crmUsers} canEditOwner={isAdmin} canViewCustomFields={isAdmin} activities={activities.filter((a) => a.deal_id === detailDealId)} history={history.filter((h) => h.deal_id === detailDealId)} activePipeline="Pipeline de Vendas" closeDealPage={closeDealPage} saveDeal={saveDeal} customFields={isAdmin ? customFields.filter((field) => field.entity === 'deal') : []} customFieldValues={isAdmin ? customFieldValues.filter((value) => value.entity_id === detailDealId) : []} completeActivity={completeActivity} />
+    return <DealPage key={detailDealId} deal={detailDeal} loading={loading} error={error} stages={salesStages} crmUsers={crmUsers} canEditOwner={isAdmin} canViewCustomFields={isAdmin} activities={activities.filter((a) => a.deal_id === detailDealId)} history={history.filter((h) => h.deal_id === detailDealId)} activePipeline="Pipeline de Vendas" closeDealPage={closeDealPage} saveDeal={saveDeal} createActivity={createActivityForDeal} customFields={isAdmin ? customFields.filter((field) => field.entity === 'deal') : []} customFieldValues={isAdmin ? customFieldValues.filter((value) => value.entity_id === detailDealId) : []} completeActivity={completeActivity} />
   }
 
   const navItems: Array<[View, ReactNode, string]> = [
@@ -706,7 +755,7 @@ function CreateDealModal({ salesStages, crmUsers, canAssignOwner, newDeal, setNe
   </div>
 }
 
-function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canViewCustomFields, activities, history, customFields, customFieldValues, activePipeline, closeDealPage, saveDeal, completeActivity }: {
+function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canViewCustomFields, activities, history, customFields, customFieldValues, activePipeline, closeDealPage, saveDeal, createActivity, completeActivity }: {
   deal?: Deal
   loading: boolean
   error: string
@@ -721,10 +770,13 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
   activePipeline: string
   closeDealPage: () => void
   saveDeal: (form: DealForm, customValues: Record<string, string>) => Promise<void>
+  createActivity: (activity: NewActivity) => Promise<void>
   completeActivity: (id: string) => Promise<void>
 }) {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [creatingActivity, setCreatingActivity] = useState(false)
+  const [activityDraft, setActivityDraft] = useState<NewActivity>(() => blankNewActivity())
   const [form, setForm] = useState<DealForm>(() => dealToForm(deal))
   const [customDrafts, setCustomDrafts] = useState<Record<string, string>>(() => customValuesToDrafts(customFields, customFieldValues))
 
@@ -737,6 +789,18 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
       setSaved(true)
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function submitActivity() {
+    setCreatingActivity(true)
+    try {
+      await createActivity(activityDraft)
+      setActivityDraft(blankNewActivity())
+    } catch {
+      // O erro já é exibido pelo estado global da página.
+    } finally {
+      setCreatingActivity(false)
     }
   }
 
@@ -827,9 +891,30 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
         </Panel>
 
         <Panel className="overflow-hidden">
-          <div className="flex items-center gap-2 border-b border-slate-200 bg-white p-4"><CalendarClock size={17}/><h2 className="font-bold">Atividades</h2></div>
+          <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-white p-4">
+            <div className="flex items-center gap-2"><CalendarClock size={17}/><h2 className="font-bold">Atividades</h2></div>
+            <Badge tone="bg-blue-100 text-blue-700">{activities.length} registradas</Badge>
+          </div>
           <div className="space-y-3 p-4">
-            {activities.length ? activities.map((a) => <div key={a.id} className="rounded border border-slate-200 bg-white p-3 text-sm shadow-sm"><div className="flex items-start gap-3"><button type="button" onClick={() => void completeActivity(a.id)} className="mt-1 h-5 w-5 shrink-0 rounded-full border-2 border-slate-300 hover:border-emerald-500"/><div><b>{a.title}</b><p className="mt-1 text-xs text-slate-500">{a.due_at ? new Date(a.due_at).toLocaleDateString('pt-BR') : 'sem data'} · {a.status}</p>{a.note && <p className="mt-2 text-slate-600">{a.note}</p>}</div></div></div>) : <p className="text-sm text-slate-500">Nenhuma atividade planejada.</p>}
+            <div className="rounded-lg border border-emerald-100 bg-emerald-50/70 p-3">
+              <div className="grid gap-2">
+                <input value={activityDraft.title} onChange={(e) => setActivityDraft((current) => ({ ...current, title: e.target.value }))} className="rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" placeholder="Título da atividade" />
+                <div className="grid gap-2 sm:grid-cols-[1fr_1fr_1fr]">
+                  <select value={activityDraft.activity_type} onChange={(e) => setActivityDraft((current) => ({ ...current, activity_type: e.target.value }))} className="rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100">
+                    <option value="task">Tarefa</option>
+                    <option value="call">Ligação</option>
+                    <option value="meeting">Reunião</option>
+                    <option value="email">Email</option>
+                    <option value="whatsapp">WhatsApp</option>
+                  </select>
+                  <input type="date" value={activityDraft.due_date} onChange={(e) => setActivityDraft((current) => ({ ...current, due_date: e.target.value }))} className="rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" />
+                  <input type="time" value={activityDraft.due_time} onChange={(e) => setActivityDraft((current) => ({ ...current, due_time: e.target.value }))} className="rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" />
+                </div>
+                <textarea value={activityDraft.note} onChange={(e) => setActivityDraft((current) => ({ ...current, note: e.target.value }))} rows={3} className="rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" placeholder="Observação, próximo passo ou combinado" />
+                <button type="button" disabled={creatingActivity || !activityDraft.title.trim()} onClick={() => void submitActivity()} className="rounded bg-[#238847] px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-[#1f7a40] disabled:opacity-60">{creatingActivity ? 'Criando...' : 'Criar atividade'}</button>
+              </div>
+            </div>
+            {activities.length ? activities.map((a) => <div key={a.id} className="rounded border border-slate-200 bg-white p-3 text-sm shadow-sm"><div className="flex items-start gap-3"><button type="button" onClick={() => void completeActivity(a.id)} className="mt-1 h-5 w-5 shrink-0 rounded-full border-2 border-slate-300 hover:border-emerald-500"/><div><b>{a.title}</b><p className="mt-1 text-xs text-slate-500">{a.due_at ? new Date(a.due_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : 'sem data'} · {a.status}</p>{a.note && <p className="mt-2 text-slate-600">{a.note}</p>}</div></div></div>) : <p className="text-sm text-slate-500">Nenhuma atividade planejada.</p>}
           </div>
         </Panel>
 
