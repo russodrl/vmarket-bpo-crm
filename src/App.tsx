@@ -21,7 +21,7 @@ import {
   Tags,
   Workflow,
 } from 'lucide-react'
-import { supabase, supabaseConfigured, type ActivityRow, type BpoPartner, type CrmCompany, type CrmUser, type CustomField, type CustomFieldValue, type Deal, type HistoryRow, type Organization, type Person, type Profile, type Stage } from './supabase'
+import { supabase, supabaseConfigured, type ActivityRow, type CrmCompany, type CrmUser, type CustomField, type CustomFieldValue, type Deal, type HistoryRow, type Organization, type Person, type Profile, type Stage } from './supabase'
 import './App.css'
 
 type View = 'pipeline' | 'contacts' | 'companies' | 'activities' | 'fields' | 'admin'
@@ -35,7 +35,6 @@ type NewDeal = {
   monthly_purchase: string
   plan: string
   stage_id: string
-  bpo_id: string
   owner_id: string
 }
 
@@ -49,14 +48,12 @@ const blankNewDeal = (): NewDeal => ({
   monthly_purchase: '',
   plan: '',
   stage_id: '',
-  bpo_id: '',
   owner_id: '',
 })
 
 type DealForm = {
   title: string
   stage_id: string
-  bpo_id: string
   owner_id: string
   status: string
   value: string
@@ -202,12 +199,11 @@ function App() {
   const [customFieldValues, setCustomFieldValues] = useState<CustomFieldValue[]>([])
   const [organizations, setOrganizations] = useState<Organization[]>([])
   const [people, setPeople] = useState<Person[]>([])
-  const [bpos, setBpos] = useState<BpoPartner[]>([])
   const [crmUsers, setCrmUsers] = useState<CrmUser[]>([])
   const [crmCompanies, setCrmCompanies] = useState<CrmCompany[]>([])
   const [selectedId, setSelectedId] = useState<string>('')
   const [activeView, setActiveView] = useState<View>('pipeline')
-  const [activePipeline, setActivePipeline] = useState('Pipeline de Vendas BPO')
+  const [activePipeline, setActivePipeline] = useState('Pipeline de Vendas')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [creating, setCreating] = useState(false)
@@ -223,6 +219,7 @@ function App() {
     const source = pipelineNames.length ? stages.filter((stage) => stage.pipeline_name === activePipeline) : stages
     return source.length ? source : stages
   }, [stages, pipelineNames, activePipeline])
+  const salesStages = useMemo(() => stages.filter((stage) => stage.pipeline_name === 'Pipeline de Vendas'), [stages])
   const visibleDeals = useMemo(() => {
     const visibleStageIds = new Set(visibleStages.map((stage) => stage.id))
     return visibleStageIds.size ? deals.filter((deal) => deal.stage_id && visibleStageIds.has(deal.stage_id)) : deals
@@ -261,10 +258,9 @@ function App() {
     setLoading(true)
     setError('')
     try {
-      const [profileRes, stagesRes, bpoRes, crmUsersRes, crmCompaniesRes, orgRes, peopleRes, dealsRes, actsRes, histRes, fieldsRes, valuesRes] = await Promise.all([
+      const [profileRes, stagesRes, crmUsersRes, crmCompaniesRes, orgRes, peopleRes, dealsRes, actsRes, histRes, fieldsRes, valuesRes] = await Promise.all([
         supabase.from('profiles').select('*').eq('id', session!.user.id).maybeSingle(),
         supabase.from('pipeline_stages').select('*').order('sort_order'),
-        supabase.from('bpo_partners').select('*').order('name'),
         supabase.from('crm_users').select('*, crm_companies(*)').order('full_name'),
         supabase.from('crm_companies').select('*').order('name'),
         supabase.from('organizations').select('*').order('created_at', { ascending: false }),
@@ -275,14 +271,13 @@ function App() {
         supabase.from('custom_fields').select('*').order('sort_order'),
         supabase.from('custom_field_values').select('*'),
       ])
-      const firstError = [profileRes, stagesRes, bpoRes, crmUsersRes, crmCompaniesRes, orgRes, peopleRes, dealsRes, actsRes, histRes, fieldsRes, valuesRes].find((r) => r.error)?.error
+      const firstError = [profileRes, stagesRes, crmUsersRes, crmCompaniesRes, orgRes, peopleRes, dealsRes, actsRes, histRes, fieldsRes, valuesRes].find((r) => r.error)?.error
       if (firstError) throw firstError
       setProfile(profileRes.data as Profile | null)
       setStages((stagesRes.data || []) as Stage[])
       const loadedStages = (stagesRes.data || []) as Stage[]
       const loadedPipelineNames = [...new Set(loadedStages.map((stage) => stage.pipeline_name).filter((name): name is string => Boolean(name)))]
       if (loadedPipelineNames.length && !loadedPipelineNames.includes(activePipeline)) setActivePipeline(loadedPipelineNames[0])
-      setBpos((bpoRes.data || []) as BpoPartner[])
       setCrmUsers((crmUsersRes.data || []) as CrmUser[])
       setCrmCompanies((crmCompaniesRes.data || []) as CrmCompany[])
       setOrganizations((orgRes.data || []) as Organization[])
@@ -306,7 +301,6 @@ function App() {
     setError('')
     const numberOrNull = (value: string) => value.trim() === '' ? null : Number(value)
     try {
-      const bpoId = newDeal.bpo_id || null
       const ownerId = newDeal.owner_id || session?.user.id || null
       let orgId: string | null = null
       let personId: string | null = null
@@ -315,7 +309,7 @@ function App() {
         const { data: org, error: orgErr } = await supabase.from('organizations').insert({
           name: newDeal.organization_name.trim(),
           monthly_purchase: numberOrNull(newDeal.monthly_purchase),
-          bpo_id: bpoId,
+          bpo_id: null,
           owner_id: ownerId,
         }).select('*').single()
         if (orgErr) throw orgErr
@@ -329,7 +323,7 @@ function App() {
           phone: newDeal.contact_phone || null,
           organization_id: orgId,
           labels: [],
-          bpo_id: bpoId,
+          bpo_id: null,
           owner_id: ownerId,
         }).select('*').single()
         if (personErr) throw personErr
@@ -341,7 +335,7 @@ function App() {
         organization_id: orgId,
         person_id: personId,
         stage_id: newDeal.stage_id || null,
-        bpo_id: bpoId,
+        bpo_id: null,
         owner_id: ownerId,
         value: numberOrNull(newDeal.value),
         monthly_purchase: numberOrNull(newDeal.monthly_purchase),
@@ -445,7 +439,6 @@ function App() {
       const { error: dealErr } = await supabase.from('deals').update({
         title: form.title,
         stage_id: form.stage_id || null,
-        bpo_id: form.bpo_id || null,
         owner_id: form.owner_id || session?.user.id || null,
         status: form.status as Deal['status'],
         value: numberOrNull(form.value),
@@ -469,7 +462,6 @@ function App() {
           cnpjs: numberOrNull(form.organization_cnpjs),
           supplier_count: numberOrNull(form.organization_supplier_count),
           monthly_purchase: numberOrNull(form.monthly_purchase),
-          bpo_id: form.bpo_id || null,
           owner_id: form.owner_id || session?.user.id || null,
         }).eq('id', detailDeal.organization_id)
         if (orgErr) throw orgErr
@@ -481,7 +473,6 @@ function App() {
           role_title: form.person_role || null,
           email: form.person_email || null,
           phone: form.person_phone || null,
-          bpo_id: form.bpo_id || null,
           owner_id: form.owner_id || session?.user.id || null,
         }).eq('id', detailDeal.person_id)
         if (personErr) throw personErr
@@ -511,7 +502,7 @@ function App() {
 
   if (detailDealId) {
     const isAdmin = profile?.role === 'admin_vmarket'
-    return <DealPage key={detailDealId} deal={detailDeal} loading={loading} error={error} stages={stages} bpos={bpos} crmUsers={crmUsers} canEditOwner={isAdmin} canViewCustomFields={isAdmin} activities={activities.filter((a) => a.deal_id === detailDealId)} history={history.filter((h) => h.deal_id === detailDealId)} activePipeline={activePipeline} closeDealPage={closeDealPage} saveDeal={saveDeal} customFields={isAdmin ? customFields.filter((field) => field.entity === 'deal') : []} customFieldValues={isAdmin ? customFieldValues.filter((value) => value.entity_id === detailDealId) : []} completeActivity={completeActivity} />
+    return <DealPage key={detailDealId} deal={detailDeal} loading={loading} error={error} stages={salesStages} crmUsers={crmUsers} canEditOwner={isAdmin} canViewCustomFields={isAdmin} activities={activities.filter((a) => a.deal_id === detailDealId)} history={history.filter((h) => h.deal_id === detailDealId)} activePipeline="Pipeline de Vendas" closeDealPage={closeDealPage} saveDeal={saveDeal} customFields={isAdmin ? customFields.filter((field) => field.entity === 'deal') : []} customFieldValues={isAdmin ? customFieldValues.filter((value) => value.entity_id === detailDealId) : []} completeActivity={completeActivity} />
   }
 
   const navItems: Array<[View, ReactNode, string]> = [
@@ -548,7 +539,7 @@ function App() {
             {error && <div className="m-4 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><b>Erro:</b> {error}</div>}
             {loading ? <div className="m-4 rounded bg-white p-4 text-sm shadow-sm">Carregando dados do Supabase...</div> : (
               <>
-                {activeView === 'pipeline' && <PipelineView stages={visibleStages} allStages={stages} deals={visibleDeals} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} setDraggingId={setDraggingId} handleDrop={handleDrop} totals={totals} newDeal={newDeal} setNewDeal={setNewDeal} createDeal={createDeal} creating={creating} bpos={bpos} crmUsers={crmUsers} canAssignOwner={profile?.role === 'admin_vmarket'} activePipeline={activePipeline} setActivePipeline={setActivePipeline} pipelineNames={pipelineNames} pipelineView={pipelineView} setPipelineView={setPipelineView} />}
+                {activeView === 'pipeline' && <PipelineView stages={visibleStages} salesStages={salesStages} deals={visibleDeals} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} setDraggingId={setDraggingId} handleDrop={handleDrop} totals={totals} newDeal={newDeal} setNewDeal={setNewDeal} createDeal={createDeal} creating={creating} crmUsers={crmUsers} canAssignOwner={profile?.role === 'admin_vmarket'} activePipeline={activePipeline} setActivePipeline={setActivePipeline} pipelineNames={pipelineNames} pipelineView={pipelineView} setPipelineView={setPipelineView} />}
                 {activeView === 'contacts' && <ListView title="Contatos" icon={<Contact size={18}/>} rows={people.map((p) => ({ id: p.id, title: p.full_name, sub: `${p.role_title || 'Contato'} · ${p.email || 'sem email'}`, meta: p.phone || 'sem telefone' }))} />}
                 {activeView === 'companies' && <ListView title="Empresas" icon={<Building2 size={18}/>} rows={organizations.map((o) => ({ id: o.id, title: o.name, sub: `${o.segment || 'Segmento não informado'} · ${o.city || ''} ${o.state || ''}`, meta: money(o.monthly_purchase) }))} />}
                 {activeView === 'activities' && <ActivitiesView activities={activities} deals={deals} completeActivity={completeActivity} />}
@@ -563,9 +554,9 @@ function App() {
   )
 }
 
-function PipelineView({ stages, allStages, deals, selectedId, setSelectedId, openDealPage, setDraggingId, handleDrop, totals, newDeal, setNewDeal, createDeal, creating, bpos, crmUsers, canAssignOwner, activePipeline, setActivePipeline, pipelineNames, pipelineView, setPipelineView }: {
+function PipelineView({ stages, salesStages, deals, selectedId, setSelectedId, openDealPage, setDraggingId, handleDrop, totals, newDeal, setNewDeal, createDeal, creating, crmUsers, canAssignOwner, activePipeline, setActivePipeline, pipelineNames, pipelineView, setPipelineView }: {
   stages: Stage[]
-  allStages: Stage[]
+  salesStages: Stage[]
   deals: Deal[]
   selectedId?: string
   setSelectedId: (id: string) => void
@@ -577,7 +568,6 @@ function PipelineView({ stages, allStages, deals, selectedId, setSelectedId, ope
   setNewDeal: (deal: NewDeal) => void
   createDeal: (e: FormEvent) => Promise<void>
   creating: boolean
-  bpos: BpoPartner[]
   crmUsers: CrmUser[]
   canAssignOwner: boolean
   activePipeline: string
@@ -609,7 +599,7 @@ function PipelineView({ stages, allStages, deals, selectedId, setSelectedId, ope
           <label className="flex items-center gap-1 rounded border border-slate-300 bg-white px-2 py-1.5 font-semibold text-slate-700">
             <Workflow size={15}/>
             <select value={activePipeline} onChange={(e) => setActivePipeline(e.target.value)} className="max-w-[190px] bg-transparent text-sm outline-none">
-              {(pipelineNames.length ? pipelineNames : ['Pipeline de Vendas BPO']).map((name) => <option key={name}>{name}</option>)}
+              {(pipelineNames.length ? pipelineNames : ['Pipeline de Vendas']).map((name) => <option key={name}>{name}</option>)}
             </select>
           </label>
           <button className="hidden h-8 w-8 place-items-center rounded border border-slate-200 text-slate-500 hover:bg-slate-50 md:grid">✎</button>
@@ -661,13 +651,12 @@ function PipelineView({ stages, allStages, deals, selectedId, setSelectedId, ope
       </div>
     </div> : pipelineView === 'list' ? <ListViewDeals deals={deals} stages={stages} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} /> : <ForecastView deals={deals} stages={stages} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} />}
 
-    {showCreateDeal && <CreateDealModal allStages={allStages} bpos={bpos} crmUsers={crmUsers} canAssignOwner={canAssignOwner} newDeal={newDeal} setNewDeal={setNewDeal} createDeal={submitCreateDeal} creating={creating} close={() => { setShowCreateDeal(false); setNewDeal(blankNewDeal()) }} />}
+    {showCreateDeal && <CreateDealModal salesStages={salesStages} crmUsers={crmUsers} canAssignOwner={canAssignOwner} newDeal={newDeal} setNewDeal={setNewDeal} createDeal={submitCreateDeal} creating={creating} close={() => { setShowCreateDeal(false); setNewDeal(blankNewDeal()) }} />}
   </div>
 }
 
-function CreateDealModal({ allStages, bpos, crmUsers, canAssignOwner, newDeal, setNewDeal, createDeal, creating, close }: {
-  allStages: Stage[]
-  bpos: BpoPartner[]
+function CreateDealModal({ salesStages, crmUsers, canAssignOwner, newDeal, setNewDeal, createDeal, creating, close }: {
+  salesStages: Stage[]
   crmUsers: CrmUser[]
   canAssignOwner: boolean
   newDeal: NewDeal
@@ -698,7 +687,7 @@ function CreateDealModal({ allStages, bpos, crmUsers, canAssignOwner, newDeal, s
           <span className="mb-1.5 block font-semibold text-slate-700">Etapa</span>
           <select className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" value={newDeal.stage_id} onChange={(e) => setNewDeal({ ...newDeal, stage_id: e.target.value })}>
             <option value="">Sem etapa</option>
-            {allStages.map((s) => <option key={s.id} value={s.id}>{s.pipeline_name ? `${s.pipeline_name} / ` : ''}{s.name}</option>)}
+            {salesStages.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
         </label>
         {canAssignOwner && <label className="block text-sm">
@@ -708,13 +697,6 @@ function CreateDealModal({ allStages, bpos, crmUsers, canAssignOwner, newDeal, s
             {crmUsers.map((user) => <option key={user.id} value={user.auth_user_id || ''} disabled={!user.auth_user_id}>{user.full_name} · {user.crm_companies?.name || 'sem empresa'}{!user.auth_user_id ? ' · envie acesso primeiro' : ''}</option>)}
           </select>
         </label>}
-        <label className="block text-sm">
-          <span className="mb-1.5 block font-semibold text-slate-700">BPO / responsável</span>
-          <select className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" value={newDeal.bpo_id} onChange={(e) => setNewDeal({ ...newDeal, bpo_id: e.target.value })}>
-            <option value="">Sem BPO</option>
-            {bpos.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-          </select>
-        </label>
         <div className="flex justify-end gap-2 border-t border-slate-100 pt-4 md:col-span-2">
           <button type="button" onClick={close} className="rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Cancelar</button>
           <button disabled={creating || !newDeal.title.trim()} className="rounded bg-[#238847] px-5 py-2 text-sm font-bold text-white shadow-sm hover:bg-[#1f7a40] disabled:opacity-60">{creating ? 'Criando...' : 'Criar negócio'}</button>
@@ -724,12 +706,11 @@ function CreateDealModal({ allStages, bpos, crmUsers, canAssignOwner, newDeal, s
   </div>
 }
 
-function DealPage({ deal, loading, error, stages, bpos, crmUsers, canEditOwner, canViewCustomFields, activities, history, customFields, customFieldValues, activePipeline, closeDealPage, saveDeal, completeActivity }: {
+function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canViewCustomFields, activities, history, customFields, customFieldValues, activePipeline, closeDealPage, saveDeal, completeActivity }: {
   deal?: Deal
   loading: boolean
   error: string
   stages: Stage[]
-  bpos: BpoPartner[]
   crmUsers: CrmUser[]
   canEditOwner: boolean
   canViewCustomFields: boolean
@@ -796,7 +777,6 @@ function DealPage({ deal, loading, error, stages, bpos, crmUsers, canEditOwner, 
             <EditInput label="Fonte" value={form.source} onChange={(v) => update('source', v)} />
             <EditInput label="Plano recomendado" value={form.plan} onChange={(v) => update('plan', v)} />
             {canEditOwner && <EditSelect label="Proprietário do negócio" value={form.owner_id} onChange={(v) => update('owner_id', v)} options={[[deal.owner_id || '', deal.owner_id ? 'Proprietário atual' : 'Sem proprietário'], ...crmUsers.filter((u) => u.auth_user_id).map((u) => [u.auth_user_id || '', `${u.full_name} · ${u.crm_companies?.name || 'sem empresa'}`] as [string, string])]} />}
-            <EditSelect label="BPO / responsável" value={form.bpo_id} onChange={(v) => update('bpo_id', v)} options={[['', 'Sem BPO'], ...bpos.map((b) => [b.id, b.name] as [string, string])]} />
           </div>
         </Panel>
 
@@ -868,7 +848,6 @@ function dealToForm(deal?: Deal): DealForm {
   return {
     title: deal?.title || '',
     stage_id: deal?.stage_id || '',
-    bpo_id: deal?.bpo_id || '',
     owner_id: deal?.owner_id || '',
     status: deal?.status || 'morno',
     value: String(deal?.value ?? ''),
