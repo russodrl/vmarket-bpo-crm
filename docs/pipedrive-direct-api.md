@@ -203,12 +203,13 @@ Inbound Pipedrive → CRM BPO:
 - A função replica organização, pessoa, etapa do funil e campos preenchidos para `custom_field_values`.
 - Negócios de outros owners são ignorados quando ainda não existe vínculo local, para não puxar o Pipedrive inteiro para o CRM BPO.
 
-Regra de etapa CRM BPO → Pipedrive:
+Regra de alteração CRM BPO → Pipedrive:
 
-- Quando um negócio já vinculado ao Pipedrive tem a etapa alterada no CRM BPO para uma etapa do funil `Pipeline de Vendas`, o CRM chama `sync-existing-deal-stage-to-pipedrive`.
-- Essa ação só atualiza `stage_id` no Pipedrive se já existir registro em `external_records` para o negócio.
-- Se o negócio não veio do Pipedrive ou ainda não tem vínculo externo, a ação retorna `ignored` e não cria negócio novo.
-- Alterações em outros pipelines do CRM BPO não disparam atualização de etapa no Pipedrive.
+- Quando um negócio já vinculado ao Pipedrive é editado no CRM BPO dentro do funil `Pipeline de Vendas`, o CRM chama `sync-existing-deal-to-pipedrive`.
+- Essa ação só sincroniza se já existir registro em `external_records` para o negócio. Se não houver vínculo externo, retorna `ignored` e não cria negócio novo.
+- A sincronização envia `title`, `value`, `expected_close_date`, `status`, `stage_id`, organização, pessoa e campos customizados preenchidos conforme `custom_fields.pipedrive_key`.
+- Alterações de empresa e pessoa também são refletidas no Pipedrive quando esses registros já têm vínculo externo.
+- Alterações em outros pipelines do CRM BPO não disparam atualização no Pipedrive.
 
 ## Mapeamento de campos Pipedrive
 

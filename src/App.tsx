@@ -325,16 +325,16 @@ function App() {
     return stages.find((stage) => stage.id === stageId)?.pipeline_name === 'Pipeline de Vendas'
   }
 
-  async function syncDealStageToPipedriveIfSalesPipeline(dealId: string, stageId: string) {
+  async function syncExistingDealToPipedriveIfSalesPipeline(dealId: string, stageId: string) {
     if (!isSalesPipelineStage(stageId)) return
-    const syncRes = await supabase.functions.invoke('pipedrive-sync', { body: { action: 'sync-existing-deal-stage-to-pipedrive', deal_id: dealId } })
+    const syncRes = await supabase.functions.invoke('pipedrive-sync', { body: { action: 'sync-existing-deal-to-pipedrive', deal_id: dealId } })
     if (syncRes.error) throw syncRes.error
     if (syncRes.data?.error) throw new Error(String(syncRes.data.error))
     if (syncRes.data?.ignored) return
     await supabase.from('deal_history').insert({
       deal_id: dealId,
       event_type: 'Integração',
-      title: 'Etapa sincronizada com Pipedrive',
+      title: 'Campos sincronizados com Pipedrive',
       description: `Pipeline de Vendas sincronizado. Pipedrive deal ID ${syncRes.data?.pipedrive_deal_id || 'existente'}`,
     })
   }
@@ -348,7 +348,7 @@ function App() {
     else {
       try {
         await supabase.from('deal_history').insert({ deal_id: dealId, event_type: 'Campo', title: 'Etapa do pipeline alterada', description: `Nova etapa: ${stages.find((s) => s.id === stageId)?.name || ''}` })
-        await syncDealStageToPipedriveIfSalesPipeline(dealId, stageId)
+        await syncExistingDealToPipedriveIfSalesPipeline(dealId, stageId)
         await loadAll()
         setSelectedId(dealId)
       } catch (e) {
@@ -445,10 +445,9 @@ function App() {
         if (customErr) throw customErr
       }
 
-      const stageChanged = Boolean(form.stage_id && form.stage_id !== detailDeal.stage_id)
-      if (stageChanged) await syncDealStageToPipedriveIfSalesPipeline(detailDeal.id, form.stage_id)
+      if (form.stage_id) await syncExistingDealToPipedriveIfSalesPipeline(detailDeal.id, form.stage_id)
 
-      await supabase.from('deal_history').insert({ deal_id: detailDeal.id, event_type: 'Edição', title: 'Ficha do negócio atualizada', description: 'Campos editados na URL da ficha completa.' })
+      await supabase.from('deal_history').insert({ deal_id: detailDeal.id, event_type: 'Edição', title: 'Ficha do negócio atualizada', description: 'Campos editados na URL da ficha completa e sincronizados com Pipedrive quando aplicável.' })
       await loadAll()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))

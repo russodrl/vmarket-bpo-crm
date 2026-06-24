@@ -7,7 +7,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 type JsonRecord = Record<string, unknown>
 type SyncPayload = {
-  action?: 'webhook' | 'sync-deal-to-pipedrive' | 'sync-existing-deal-stage-to-pipedrive'
+  action?: 'webhook' | 'sync-deal-to-pipedrive' | 'sync-existing-deal-to-pipedrive' | 'sync-existing-deal-stage-to-pipedrive'
   deal_id?: string
 }
 
@@ -67,6 +67,13 @@ Deno.serve(async (req: Request) => {
       const user = await requireInternalOrUserAuth(req)
       if (!payload.deal_id) return json({ error: 'deal_id is required' }, 400)
       const result = await syncExistingDealStageToPipedrive(payload.deal_id, user?.id || null)
+      return json(result)
+    }
+
+    if (action === 'sync-existing-deal-to-pipedrive') {
+      const user = await requireInternalOrUserAuth(req)
+      if (!payload.deal_id) return json({ error: 'deal_id is required' }, 400)
+      const result = await syncExistingDealToPipedrive(payload.deal_id, user?.id || null)
       return json(result)
     }
 
@@ -198,16 +205,36 @@ async function syncExistingDealStageToPipedrive(dealId: string, userId: string |
   return { ok: true, deal_id: dealId, pipedrive_deal_id: external.external_id, pipedrive_stage_id: pipedriveStageId }
 }
 
+async function syncExistingDealToPipedrive(dealId: string, userId: string | null) {
+  const { data: deal, error } = await supabase
+    .from('deals')
+    .select('id, owner_id, stage_id, pipeline_stages(*)')
+    .eq('id', dealId)
+    .single()
+  if (error) throw error
+  if (userId && deal.owner_id && deal.owner_id !== userId) throw new Error('User cannot sync a deal owned by another CRM user')
+  if (deal.pipeline_stages?.pipeline_name !== 'Pipeline de Vendas') return { ok: true, ignored: true, reason: 'Deal is not in Pipeline de Vendas', deal_id: dealId }
+  const external = await findExternalRecord('deal', dealId)
+  if (!external?.external_id) return { ok: true, ignored: true, reason: 'Deal has no Pipedrive external record', deal_id: dealId }
+  return syncDealToPipedrive(dealId, userId)
+}
+
 async function ensurePipedriveOrganization(integrationId: string, organizationId: string, organization: JsonRecord) {
   const external = await findExternalRecord('organization', organizationId)
-  if (external?.external_id) return String(external.external_id)
   const name = String(organization.name || '').trim()
-  const found = await findPipedriveOrganizationBySimilarName(name)
   const payload = await buildPipedriveCustomPayload(organizationId, 'organization')
+  if (external?.external_id) {
+    const updateBody: JsonRecord = { name, ...payload }
+    const updated = await pipedrive(`/organizations/${external.external_id}`, { method: 'PUT', body: updateBody }) as JsonRecord
+    const pdOrg = (updated.data || updated) as JsonRecord
+    await upsertExternalRecord(integrationId, 'organization', organizationId, String(external.external_id), pdOrg)
+    return String(external.external_id)
+  }
+  const found = await findPipedriveOrganizationBySimilarName(name)
   let pdOrg: JsonRecord
   if (found?.id) {
     pdOrg = found
-    const updateBody: JsonRecord = { ...payload }
+    const updateBody: JsonRecord = { name, ...payload }
     if (Object.keys(updateBody).length) await pipedrive(`/organizations/${found.id}`, { method: 'PUT', body: updateBody })
   } else {
     const created = await pipedrive('/organizations', { method: 'POST', body: { name, ...payload } }) as JsonRecord
@@ -221,12 +248,9 @@ async function ensurePipedriveOrganization(integrationId: string, organizationId
 
 async function ensurePipedrivePerson(integrationId: string, personId: string, person: JsonRecord, orgExternalId: string) {
   const external = await findExternalRecord('person', personId)
-  if (external?.external_id) return String(external.external_id)
   const email = stringOrNull(person.email)
   const phone = stringOrNull(person.phone)
-  const found = await findPipedrivePerson(email, phone)
   const payload = await buildPipedriveCustomPayload(personId, 'person')
-  let pdPerson: JsonRecord
   const body: JsonRecord = {
     name: person.full_name,
     org_id: Number(orgExternalId),
@@ -234,6 +258,14 @@ async function ensurePipedrivePerson(integrationId: string, personId: string, pe
     ...(phone ? { phone: [{ value: phone, primary: true }] } : {}),
     ...payload,
   }
+  if (external?.external_id) {
+    const updated = await pipedrive(`/persons/${external.external_id}`, { method: 'PUT', body }) as JsonRecord
+    const pdPerson = (updated.data || updated) as JsonRecord
+    await upsertExternalRecord(integrationId, 'person', personId, String(external.external_id), pdPerson)
+    return String(external.external_id)
+  }
+  const found = await findPipedrivePerson(email, phone)
+  let pdPerson: JsonRecord
   if (found?.id) {
     const updated = await pipedrive(`/persons/${found.id}`, { method: 'PUT', body }) as JsonRecord
     pdPerson = (updated.data || updated) as JsonRecord
