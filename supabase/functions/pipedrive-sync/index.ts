@@ -80,7 +80,8 @@ async function requireInternalOrUserAuth(req: Request) {
 
 async function verifyWebhook(req: Request) {
   if (!PIPEDRIVE_WEBHOOK_SECRET) return
-  const received = req.headers.get('x-vmarket-webhook-secret') || req.headers.get('x-pipedrive-webhook-secret') || ''
+  const url = new URL(req.url)
+  const received = req.headers.get('x-vmarket-webhook-secret') || req.headers.get('x-pipedrive-webhook-secret') || url.searchParams.get('secret') || ''
   if (received !== PIPEDRIVE_WEBHOOK_SECRET) throw new Error('Invalid webhook secret')
 }
 

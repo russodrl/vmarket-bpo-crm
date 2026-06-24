@@ -120,10 +120,16 @@ O Pipedrive chama:
 POST /pipedrive-sync
 ```
 
-Header recomendado:
+Header recomendado ou query string segura:
 
 ```text
 x-vmarket-webhook-secret: valor_de_PIPEDRIVE_WEBHOOK_SECRET
+```
+
+Quando o provedor de webhook não permitir header customizado, use:
+
+```text
+https://ujmjqbqhipjbkokncjja.functions.supabase.co/pipedrive-sync?secret=valor_de_PIPEDRIVE_WEBHOOK_SECRET
 ```
 
 Fluxo:
