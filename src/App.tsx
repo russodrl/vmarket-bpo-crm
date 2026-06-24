@@ -253,9 +253,13 @@ function Login() {
                   </div>)}
                 </div>
                 <div className="mt-4 space-y-2">
-                  {['Lead diagnóstico BPO', 'Proposta VMarket', 'Onboarding parceiro'].map((item, index) => <div key={item} className="flex items-center justify-between rounded-lg border border-slate-100 bg-white px-3 py-2 shadow-sm">
-                    <div className="flex items-center gap-2"><span className="grid h-7 w-7 place-items-center rounded-full bg-slate-100 text-xs font-bold text-slate-500">{index + 1}</span><span className="text-sm font-semibold">{item}</span></div>
-                    <span className="text-xs font-bold text-slate-500">R$ {(index + 2) * 399}</span>
+                  {[
+                    { label: 'Plataforma VMarket', value: '419' },
+                    { label: 'Implantação', value: '845' },
+                    { label: 'Compras BPO', value: '1820' },
+                  ].map((item, index) => <div key={item.label} className="flex items-center justify-between rounded-lg border border-slate-100 bg-white px-3 py-2 shadow-sm">
+                    <div className="flex items-center gap-2"><span className="grid h-7 w-7 place-items-center rounded-full bg-slate-100 text-xs font-bold text-slate-500">{index + 1}</span><span className="text-sm font-semibold">{item.label}</span></div>
+                    <span className="text-xs font-bold text-slate-500">R$ {item.value}</span>
                   </div>)}
                 </div>
               </div>
