@@ -210,8 +210,9 @@ async function syncExistingDealToPipedrive(dealId: string, userId: string | null
     .from('deals')
     .select('id, owner_id, stage_id, pipeline_stages(*)')
     .eq('id', dealId)
-    .single()
+    .maybeSingle()
   if (error) throw error
+  if (!deal) return { ok: true, ignored: true, reason: 'Deal not found', deal_id: dealId }
   if (userId && deal.owner_id && deal.owner_id !== userId) throw new Error('User cannot sync a deal owned by another CRM user')
   if (deal.pipeline_stages?.pipeline_name !== 'Pipeline de Vendas') return { ok: true, ignored: true, reason: 'Deal is not in Pipeline de Vendas', deal_id: dealId }
   const external = await findExternalRecord('deal', dealId)
