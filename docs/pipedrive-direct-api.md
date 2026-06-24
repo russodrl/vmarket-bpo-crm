@@ -138,11 +138,21 @@ Fluxo:
 2. Extrai o ID do negócio Pipedrive.
 3. Busca o negócio completo em `/deals/{id}` na API do Pipedrive.
 4. Procura em `external_records` se esse negócio já existe no CRM.
-5. Se existir, atualiza `deals`.
-6. Se não existir, cria `deals`.
-7. Grava ou atualiza `external_records`.
-8. Sincroniza campos customizados conforme `external_field_mappings`.
-9. Registra `integration_events`, `integration_logs` e `deal_history`.
+5. Se não existir e o owner não for Aleksander, ignora.
+6. Se o owner for Aleksander, cria/atualiza organização, pessoa e negócio no CRM BPO.
+7. Se já existir vínculo local, atualiza o registro existente.
+8. Grava ou atualiza `external_records`.
+9. Sincroniza campos customizados conforme `custom_fields.pipedrive_key`.
+10. Registra `integration_events`, `integration_logs` e `deal_history`.
+
+Webhooks ativos no Pipedrive:
+
+```text
+deal.create -> pipedrive-sync, webhook id 1879953
+deal.change -> pipedrive-sync, webhook id 1879954
+```
+
+Esses webhooks cobrem negócios novos e alterações de owner para Aleksander.
 
 ## Outbound, CRM → Pipedrive
 
