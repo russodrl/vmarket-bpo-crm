@@ -1206,6 +1206,63 @@ type CleanupResult = {
   after?: number
 }
 
+function UserDetailField({ label, value }: { label: string; value?: string | number | boolean | string[] | null }) {
+  const display = Array.isArray(value) ? value.join(', ') : typeof value === 'boolean' ? (value ? 'Sim' : 'Não') : value
+  return <div className="rounded-lg border border-slate-100 bg-white p-3">
+    <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">{label}</p>
+    <p className="mt-1 whitespace-pre-wrap text-sm font-semibold text-slate-800">{display === null || display === undefined || display === '' ? '-' : display}</p>
+  </div>
+}
+
+function CrmUserTallyDetails({ user }: { user: CrmUser }) {
+  const contacts = (user.additional_contacts || []).filter((contact) => contact?.name || contact?.role || contact?.whatsapp)
+  return <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+      <h3 className="text-sm font-black text-slate-900">Dados do cadastro Tally</h3>
+      {user.tally_submitted_at && <Badge tone="bg-purple-100 text-purple-700">Enviado em {new Date(user.tally_submitted_at).toLocaleDateString('pt-BR')}</Badge>}
+    </div>
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      <UserDetailField label="Razão social" value={user.legal_company_name} />
+      <UserDetailField label="CNPJ" value={user.cnpj} />
+      <UserDetailField label="Endereço completo da sede" value={user.headquarters_address} />
+      <UserDetailField label="Inscrição estadual/municipal" value={user.state_registration} />
+      <UserDetailField label="Representante legal" value={user.legal_representative_name} />
+      <UserDetailField label="Nacionalidade" value={user.nationality} />
+      <UserDetailField label="Estado civil" value={user.marital_status} />
+      <UserDetailField label="Profissão" value={user.profession} />
+      <UserDetailField label="RG e órgão emissor" value={user.rg_issuer} />
+      <UserDetailField label="CPF" value={user.cpf} />
+      <UserDetailField label="Cargo na empresa" value={user.company_role} />
+      <UserDetailField label="Email principal" value={user.primary_email} />
+      <UserDetailField label="Telefone/WhatsApp CRM" value={user.crm_phone} />
+      <UserDetailField label="Emite NF de serviço" value={user.issues_service_invoice} />
+      <UserDetailField label="Banco" value={user.bank_name} />
+      <UserDetailField label="Agência" value={user.bank_agency} />
+      <UserDetailField label="Conta e tipo" value={user.bank_account} />
+      <UserDetailField label="Chave PIX" value={user.pix_key} />
+      <UserDetailField label="Regiões de atuação" value={user.service_regions} />
+      <UserDetailField label="Tipos de operação" value={user.operation_types} />
+      <UserDetailField label="Clientes novos/mês" value={user.monthly_new_clients_capacity} />
+      <UserDetailField label="Experiência food service" value={user.food_service_experience} />
+      <UserDetailField label="Clientes atuais" value={user.current_clients_count} />
+      <UserDetailField label="Clientes em compras" value={user.current_purchasing_clients_count} />
+      <UserDetailField label="Ticket médio compras" value={user.purchasing_ticket_avg} />
+      <UserDetailField label="Serviços oferecidos" value={user.offered_services} />
+      <UserDetailField label="Autorização" value={user.data_authorization} />
+    </div>
+    <div className="mt-4">
+      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Outras pessoas da empresa</p>
+      {contacts.length ? <div className="mt-2 grid gap-2 md:grid-cols-3">
+        {contacts.map((contact, index) => <div key={`${contact.name || 'contato'}-${index}`} className="rounded-lg border border-slate-100 bg-white p-3 text-sm">
+          <b>{contact.name || `Pessoa ${index + 1}`}</b>
+          <p className="mt-1 text-slate-500">{contact.role || 'Cargo não informado'}</p>
+          <p className="mt-1 font-semibold text-slate-700">{contact.whatsapp || 'WhatsApp não informado'}</p>
+        </div>)}
+      </div> : <p className="mt-2 text-sm text-slate-400">Nenhum contato adicional cadastrado.</p>}
+    </div>
+  </div>
+}
+
 function AdminUsersView({ users, companies, dealsCount, activitiesCount, peopleCount, organizationsCount, reload, setError }: {
   users: CrmUser[]
   companies: CrmCompany[]
@@ -1346,15 +1403,18 @@ function AdminUsersView({ users, companies, dealsCount, activitiesCount, peopleC
         </form>
 
         <div className="divide-y divide-slate-100">
-          {users.map((user) => <div key={user.id} className="grid gap-3 p-4 text-sm hover:bg-slate-50 md:grid-cols-[1.1fr_1.1fr_1fr_100px_1fr_150px_150px_100px]">
-            <div><b>{user.full_name}</b><p className="mt-1 text-xs text-slate-500">ID usuário: <code>{user.id}</code></p></div>
-            <div className="text-slate-600">{user.email}</div>
-            <div><b>{user.crm_companies?.name || 'Sem empresa'}</b><p className="mt-1 text-xs text-slate-500">ID empresa: <code>{user.company_id}</code></p></div>
-            <div><Badge tone={user.status === 'active' ? 'bg-emerald-100 text-emerald-700' : user.status === 'invited' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}>{user.status}</Badge></div>
-            <input value={passwordDrafts[user.id] || ''} onChange={(e) => setPasswordDrafts((current) => ({ ...current, [user.id]: e.target.value }))} className="rounded border border-slate-300 px-3 py-2 text-sm" placeholder="Senha inicial" type="text" autoComplete="new-password" />
-            <button onClick={() => void setInitialPassword(user)} disabled={busyId === `password-${user.id}` || !(passwordDrafts[user.id] || '').trim()} className="rounded border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-60">{busyId === `password-${user.id}` ? 'Salvando...' : 'Definir senha'}</button>
-            <button onClick={() => void sendAccessEmail(user)} disabled={busyId === user.id} className="rounded border border-[#238847] px-3 py-2 text-sm font-bold text-[#238847] hover:bg-emerald-50 disabled:opacity-60">{busyId === user.id ? 'Enviando...' : user.auth_user_id ? 'Redefinir senha' : 'Enviar acesso'}</button>
-            <button type="button" onClick={() => void deleteUser(user)} disabled={busyId === `delete-${user.id}`} className="rounded border border-rose-200 px-3 py-2 text-sm font-bold text-rose-600 hover:bg-rose-50 disabled:opacity-60">{busyId === `delete-${user.id}` ? 'Apagando...' : 'Apagar'}</button>
+          {users.map((user) => <div key={user.id} className="p-4 text-sm hover:bg-slate-50">
+            <div className="grid gap-3 md:grid-cols-[1.1fr_1.1fr_1fr_100px_1fr_150px_150px_100px]">
+              <div><b>{user.full_name}</b><p className="mt-1 text-xs text-slate-500">ID usuário: <code>{user.id}</code></p></div>
+              <div className="text-slate-600">{user.email}</div>
+              <div><b>{user.crm_companies?.name || 'Sem empresa'}</b><p className="mt-1 text-xs text-slate-500">ID empresa: <code>{user.company_id}</code></p></div>
+              <div><Badge tone={user.status === 'active' ? 'bg-emerald-100 text-emerald-700' : user.status === 'invited' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}>{user.status}</Badge></div>
+              <input value={passwordDrafts[user.id] || ''} onChange={(e) => setPasswordDrafts((current) => ({ ...current, [user.id]: e.target.value }))} className="rounded border border-slate-300 px-3 py-2 text-sm" placeholder="Senha inicial" type="text" autoComplete="new-password" />
+              <button onClick={() => void setInitialPassword(user)} disabled={busyId === `password-${user.id}` || !(passwordDrafts[user.id] || '').trim()} className="rounded border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-60">{busyId === `password-${user.id}` ? 'Salvando...' : 'Definir senha'}</button>
+              <button onClick={() => void sendAccessEmail(user)} disabled={busyId === user.id} className="rounded border border-[#238847] px-3 py-2 text-sm font-bold text-[#238847] hover:bg-emerald-50 disabled:opacity-60">{busyId === user.id ? 'Enviando...' : user.auth_user_id ? 'Redefinir senha' : 'Enviar acesso'}</button>
+              <button type="button" onClick={() => void deleteUser(user)} disabled={busyId === `delete-${user.id}`} className="rounded border border-rose-200 px-3 py-2 text-sm font-bold text-rose-600 hover:bg-rose-50 disabled:opacity-60">{busyId === `delete-${user.id}` ? 'Apagando...' : 'Apagar'}</button>
+            </div>
+            <CrmUserTallyDetails user={user} />
           </div>)}
           {!users.length && <div className="p-8 text-center text-slate-400">Nenhum usuário cadastrado.</div>}
         </div>

@@ -28,6 +28,12 @@ export type CrmCompany = {
   updated_at?: string
 }
 
+export type CrmAdditionalContact = {
+  name?: string
+  role?: string
+  whatsapp?: string
+}
+
 export type CrmUser = {
   id: string
   full_name: string
@@ -36,6 +42,38 @@ export type CrmUser = {
   auth_user_id: string | null
   status: 'pending' | 'invited' | 'active' | 'disabled'
   last_invited_at: string | null
+  legal_company_name?: string | null
+  cnpj?: string | null
+  headquarters_address?: string | null
+  state_registration?: string | null
+  legal_representative_name?: string | null
+  nationality?: string | null
+  marital_status?: string | null
+  profession?: string | null
+  rg_issuer?: string | null
+  cpf?: string | null
+  company_role?: string | null
+  primary_email?: string | null
+  crm_phone?: string | null
+  additional_contacts?: CrmAdditionalContact[] | null
+  issues_service_invoice?: boolean | null
+  bank_name?: string | null
+  bank_agency?: string | null
+  bank_account?: string | null
+  pix_key?: string | null
+  service_regions?: string | null
+  operation_types?: string[] | null
+  monthly_new_clients_capacity?: number | null
+  food_service_experience?: string | null
+  current_clients_count?: number | null
+  current_purchasing_clients_count?: number | null
+  purchasing_ticket_avg?: number | null
+  offered_services?: string[] | null
+  data_authorization?: string | null
+  tally_form_id?: string | null
+  tally_submission_id?: string | null
+  tally_submitted_at?: string | null
+  tally_synced_at?: string | null
   crm_companies?: CrmCompany | null
   created_at?: string
   updated_at?: string

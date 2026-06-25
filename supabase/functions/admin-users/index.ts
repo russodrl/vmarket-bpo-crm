@@ -34,6 +34,83 @@ function cleanEmail(email: unknown) {
   return String(email || '').trim().toLowerCase()
 }
 
+function cleanText(value: unknown) {
+  const text = String(value || '').trim()
+  return text || null
+}
+
+function cleanStringArray(value: unknown) {
+  if (Array.isArray(value)) return value.map((item) => String(item || '').trim()).filter(Boolean)
+  if (typeof value === 'string') return value.split(/[,;\n]/).map((item) => item.trim()).filter(Boolean)
+  return []
+}
+
+function cleanNumber(value: unknown) {
+  if (value === null || value === undefined || value === '') return null
+  const number = Number(String(value).replace(',', '.'))
+  return Number.isFinite(number) ? number : null
+}
+
+function cleanBool(value: unknown) {
+  if (value === null || value === undefined || value === '') return null
+  if (typeof value === 'boolean') return value
+  const text = String(value).trim().toLowerCase()
+  if (['sim', 'true', '1', 'yes'].includes(text)) return true
+  if (['não', 'nao', 'false', '0', 'no'].includes(text)) return false
+  return null
+}
+
+function cleanAdditionalContacts(value: unknown) {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((contact) => {
+      const item = contact as Record<string, unknown>
+      return {
+        name: cleanText(item.name),
+        role: cleanText(item.role),
+        whatsapp: cleanText(item.whatsapp),
+      }
+    })
+    .filter((contact) => contact.name || contact.role || contact.whatsapp)
+}
+
+function crmUserDetailsPayload(body: Record<string, unknown>) {
+  return {
+    legal_company_name: cleanText(body.legal_company_name),
+    cnpj: cleanText(body.cnpj),
+    headquarters_address: cleanText(body.headquarters_address),
+    state_registration: cleanText(body.state_registration),
+    legal_representative_name: cleanText(body.legal_representative_name),
+    nationality: cleanText(body.nationality),
+    marital_status: cleanText(body.marital_status),
+    profession: cleanText(body.profession),
+    rg_issuer: cleanText(body.rg_issuer),
+    cpf: cleanText(body.cpf),
+    company_role: cleanText(body.company_role),
+    primary_email: body.primary_email ? cleanEmail(body.primary_email) : null,
+    crm_phone: cleanText(body.crm_phone),
+    additional_contacts: cleanAdditionalContacts(body.additional_contacts),
+    issues_service_invoice: cleanBool(body.issues_service_invoice),
+    bank_name: cleanText(body.bank_name),
+    bank_agency: cleanText(body.bank_agency),
+    bank_account: cleanText(body.bank_account),
+    pix_key: cleanText(body.pix_key),
+    service_regions: cleanText(body.service_regions),
+    operation_types: cleanStringArray(body.operation_types),
+    monthly_new_clients_capacity: cleanNumber(body.monthly_new_clients_capacity),
+    food_service_experience: cleanText(body.food_service_experience),
+    current_clients_count: cleanNumber(body.current_clients_count),
+    current_purchasing_clients_count: cleanNumber(body.current_purchasing_clients_count),
+    purchasing_ticket_avg: cleanNumber(body.purchasing_ticket_avg),
+    offered_services: cleanStringArray(body.offered_services),
+    data_authorization: cleanText(body.data_authorization),
+    tally_form_id: cleanText(body.tally_form_id),
+    tally_submission_id: cleanText(body.tally_submission_id),
+    tally_submitted_at: cleanText(body.tally_submitted_at),
+    tally_synced_at: cleanText(body.tally_synced_at),
+  }
+}
+
 async function requireAdmin(req: Request) {
   const auth = req.headers.get('Authorization') || ''
   const token = auth.replace(/^Bearer\s+/i, '')
@@ -92,6 +169,7 @@ async function upsertCrmUser(body: Record<string, unknown>) {
       company_id: company.id,
       auth_user_id: existingAuthUser?.id || null,
       status: existingAuthUser ? 'active' : 'pending',
+      ...crmUserDetailsPayload(body),
     }, { onConflict: 'email' })
     .select('*, crm_companies(*)')
     .single()
@@ -113,6 +191,21 @@ async function upsertCrmUser(body: Record<string, unknown>) {
     })
   }
 
+  return { user: crmUser }
+}
+
+async function updateCrmUserDetails(body: Record<string, unknown>) {
+  const crmUserId = String(body.crm_user_id || '')
+  if (!crmUserId) throw new Error('crm_user_id_required')
+
+  const { data: crmUser, error } = await admin
+    .from('crm_users')
+    .update(crmUserDetailsPayload(body))
+    .eq('id', crmUserId)
+    .select('*, crm_companies(*)')
+    .maybeSingle()
+  if (error) throw error
+  if (!crmUser) throw new Error('crm_user_not_found')
   return { user: crmUser }
 }
 
@@ -404,6 +497,7 @@ Deno.serve(async (req) => {
     const action = String(body.action || 'list')
     if (action === 'list') return json(await listUsers())
     if (action === 'create-crm-user') return json(await upsertCrmUser(body))
+    if (action === 'update-crm-user-details') return json(await updateCrmUserDetails(body))
     if (action === 'send-access-email') return json(await sendAccessEmail(body))
     if (action === 'set-initial-password') return json(await setInitialPassword(body))
     if (action === 'cleanup-data') return json(await cleanupData(body, user.id))
