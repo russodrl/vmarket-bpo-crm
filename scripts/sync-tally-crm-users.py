@@ -12,7 +12,9 @@ import asyncio
 import json
 import os
 import re
+import subprocess
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib import request, error, parse
@@ -61,6 +63,7 @@ CONTACTS = [
     ("LXDOAz", "pGezjy", "1MWRZ4"),
 ]
 NUMERIC = {"monthly_new_clients_capacity", "current_clients_count", "current_purchasing_clients_count", "purchasing_ticket_avg"}
+INTEGER = {"monthly_new_clients_capacity", "current_clients_count", "current_purchasing_clients_count"}
 ARRAY = {"operation_types", "offered_services"}
 
 
@@ -122,7 +125,8 @@ def submission_to_user(sub):
         if key in ARRAY:
             user[key] = [str(x).strip() for x in ans] if isinstance(ans, list) else [str(ans).strip()] if ans else []
         elif key in NUMERIC:
-            user[key] = number_or_none(ans)
+            number = number_or_none(ans)
+            user[key] = int(number) if key in INTEGER and number is not None else number
         elif key == "issues_service_invoice":
             user[key] = bool_or_none(ans)
         else:
@@ -200,7 +204,7 @@ def upsert_company(name):
     raise RuntimeError("company_upsert_failed")
 
 
-def sync_users(users):
+def sync_users_rest(users):
     synced = 0
     skipped = 0
     for user in users:
@@ -214,7 +218,146 @@ def sync_users(users):
         payload.setdefault("status", "pending")
         status, data = supabase_request("POST", "/rest/v1/crm_users?on_conflict=email", payload)
         synced += 1
-    return synced, skipped
+    return synced, skipped, "rest"
+
+
+def sql_literal(value):
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def sync_users_cli(users):
+    valid = [u for u in users if u.get("email") and u.get("company_name") and u.get("full_name")]
+    skipped = len(users) - len(valid)
+    if not valid:
+        return 0, skipped, "supabase_cli"
+    payload = json.dumps(valid, ensure_ascii=False)
+    sql = f"""
+with rows as (
+  select * from jsonb_to_recordset({sql_literal(payload)}::jsonb) as x(
+    full_name text,
+    email text,
+    company_name text,
+    legal_company_name text,
+    cnpj text,
+    headquarters_address text,
+    state_registration text,
+    legal_representative_name text,
+    nationality text,
+    marital_status text,
+    profession text,
+    rg_issuer text,
+    cpf text,
+    company_role text,
+    primary_email text,
+    crm_phone text,
+    additional_contacts jsonb,
+    issues_service_invoice boolean,
+    bank_name text,
+    bank_agency text,
+    bank_account text,
+    pix_key text,
+    service_regions text,
+    operation_types text[],
+    monthly_new_clients_capacity integer,
+    food_service_experience text,
+    current_clients_count integer,
+    current_purchasing_clients_count integer,
+    purchasing_ticket_avg numeric,
+    offered_services text[],
+    data_authorization text,
+    tally_form_id text,
+    tally_submission_id text,
+    tally_submitted_at timestamptz,
+    tally_synced_at timestamptz
+  )
+), companies as (
+  insert into public.crm_companies (name)
+  select distinct company_name from rows
+  where nullif(company_name, '') is not null
+  on conflict (name) do update set name = excluded.name
+  returning id, name
+), all_companies as (
+  select id, name from companies
+  union
+  select cc.id, cc.name from public.crm_companies cc join rows r on r.company_name = cc.name
+)
+insert into public.crm_users (
+  full_name, email, company_id, status,
+  legal_company_name, cnpj, headquarters_address, state_registration,
+  legal_representative_name, nationality, marital_status, profession, rg_issuer, cpf,
+  company_role, primary_email, crm_phone, additional_contacts,
+  issues_service_invoice, bank_name, bank_agency, bank_account, pix_key,
+  service_regions, operation_types, monthly_new_clients_capacity,
+  food_service_experience, current_clients_count, current_purchasing_clients_count,
+  purchasing_ticket_avg, offered_services, data_authorization,
+  tally_form_id, tally_submission_id, tally_submitted_at, tally_synced_at
+)
+select
+  r.full_name, r.email::citext, c.id, 'pending',
+  r.legal_company_name, r.cnpj, r.headquarters_address, r.state_registration,
+  r.legal_representative_name, r.nationality, r.marital_status, r.profession, r.rg_issuer, r.cpf,
+  r.company_role, nullif(r.primary_email, '')::citext, r.crm_phone, coalesce(r.additional_contacts, '[]'::jsonb),
+  r.issues_service_invoice, r.bank_name, r.bank_agency, r.bank_account, r.pix_key,
+  r.service_regions, coalesce(r.operation_types, '{{}}'::text[]), r.monthly_new_clients_capacity,
+  r.food_service_experience, r.current_clients_count, r.current_purchasing_clients_count,
+  r.purchasing_ticket_avg, coalesce(r.offered_services, '{{}}'::text[]), r.data_authorization,
+  r.tally_form_id, r.tally_submission_id, r.tally_submitted_at, r.tally_synced_at
+from rows r
+join all_companies c on c.name = r.company_name
+on conflict (email) do update set
+  full_name = excluded.full_name,
+  company_id = excluded.company_id,
+  legal_company_name = excluded.legal_company_name,
+  cnpj = excluded.cnpj,
+  headquarters_address = excluded.headquarters_address,
+  state_registration = excluded.state_registration,
+  legal_representative_name = excluded.legal_representative_name,
+  nationality = excluded.nationality,
+  marital_status = excluded.marital_status,
+  profession = excluded.profession,
+  rg_issuer = excluded.rg_issuer,
+  cpf = excluded.cpf,
+  company_role = excluded.company_role,
+  primary_email = excluded.primary_email,
+  crm_phone = excluded.crm_phone,
+  additional_contacts = excluded.additional_contacts,
+  issues_service_invoice = excluded.issues_service_invoice,
+  bank_name = excluded.bank_name,
+  bank_agency = excluded.bank_agency,
+  bank_account = excluded.bank_account,
+  pix_key = excluded.pix_key,
+  service_regions = excluded.service_regions,
+  operation_types = excluded.operation_types,
+  monthly_new_clients_capacity = excluded.monthly_new_clients_capacity,
+  food_service_experience = excluded.food_service_experience,
+  current_clients_count = excluded.current_clients_count,
+  current_purchasing_clients_count = excluded.current_purchasing_clients_count,
+  purchasing_ticket_avg = excluded.purchasing_ticket_avg,
+  offered_services = excluded.offered_services,
+  data_authorization = excluded.data_authorization,
+  tally_form_id = excluded.tally_form_id,
+  tally_submission_id = excluded.tally_submission_id,
+  tally_submitted_at = excluded.tally_submitted_at,
+  tally_synced_at = excluded.tally_synced_at,
+  updated_at = now();
+"""
+    tmp = tempfile.NamedTemporaryFile("w", suffix=".sql", delete=False, encoding="utf-8")
+    try:
+        tmp.write(sql)
+        tmp.close()
+        subprocess.run(["npx", "supabase", "db", "query", "--linked", "--file", tmp.name], check=True, stdout=subprocess.DEVNULL)
+    finally:
+        try:
+            os.unlink(tmp.name)
+        except FileNotFoundError:
+            pass
+    return len(valid), skipped, "supabase_cli"
+
+
+def sync_users(users):
+    if os.environ.get("SUPABASE_SERVICE_ROLE_KEY"):
+        return sync_users_rest(users)
+    return sync_users_cli(users)
 
 
 async def main():
@@ -236,8 +379,8 @@ async def main():
     if args.dry_run:
         print(json.dumps(summary, indent=2, ensure_ascii=False))
         return
-    synced, skipped = sync_users(users)
-    summary.update({"synced": synced, "skipped": skipped})
+    synced, skipped, method = sync_users(users)
+    summary.update({"synced": synced, "skipped": skipped, "method": method})
     print(json.dumps(summary, indent=2, ensure_ascii=False))
 
 if __name__ == "__main__":

@@ -51,6 +51,12 @@ CRM VMarket → Supabase Edge Function → Pipedrive API
 
 Make fica apenas como automação auxiliar, documentado em `docs/make-pipedrive-api.md`.
 
+A automação direta dos formulários Tally do programa BPO para CRM BPO e Pipedrive está documentada em:
+
+```text
+docs/tally-bpo-direct-automation.md
+```
+
 O schema cria:
 
 - perfis e roles

@@ -8,3 +8,6 @@ dist/
 .local-secrets/
 scripts/store_supabase_pipedrive_secrets.py
 scripts/prepare_function_secrets.py
+__pycache__/
+*.pyc
+.sync-state/
