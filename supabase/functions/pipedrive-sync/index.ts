@@ -453,8 +453,8 @@ async function syncCustomFieldsFromPipedrive(entityId: string, entity: string, p
   const { data: fields, error } = await supabase.from('custom_fields').select('id, entity, pipedrive_key, pipedrive_field_type').eq('entity', entity).not('pipedrive_key', 'is', null)
   if (error) throw error
   const rows = ((fields || []) as CustomFieldRow[])
-    .filter((field) => field.pipedrive_key && field.pipedrive_key in payload)
-    .map((field) => ({ field_id: field.id, entity_id: entityId, value: payload[field.pipedrive_key as string] ?? null }))
+    .filter((field) => field.pipedrive_key && field.pipedrive_key in payload && payload[field.pipedrive_key as string] !== null && payload[field.pipedrive_key as string] !== undefined)
+    .map((field) => ({ field_id: field.id, entity_id: entityId, value: payload[field.pipedrive_key as string] }))
   if (!rows.length) return
   const { error: upsertError } = await supabase.from('custom_field_values').upsert(rows, { onConflict: 'field_id,entity_id' })
   if (upsertError) throw upsertError
