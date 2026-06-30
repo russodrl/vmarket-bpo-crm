@@ -136,6 +136,20 @@ export type Deal = {
   probability: number | null
   status: 'aberto' | 'ganho' | 'perdido' | 'quente' | 'morno' | 'risco' | null
   lost_reason: string | null
+  lead_source: 'vmarket' | 'parceiro' | null
+  vm_sale: boolean | null
+  contract_with: 'cliente' | 'parceiro' | null
+  vm_product_type: 'restaurante' | 'hotel' | 'fornecedor' | null
+  vm_cnpj_count: number | null
+  vm_plan: string | null
+  vm_value_per_cnpj: number | null
+  contract_legal_name: string | null
+  contract_tax_id: string | null
+  contract_address: string | null
+  contract_representative: string | null
+  contract_email: string | null
+  contract_phone: string | null
+  partner_services: Record<string, unknown> | null
   source: string | null
   plan: string | null
   pipedrive_owner_name: string | null

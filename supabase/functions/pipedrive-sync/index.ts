@@ -382,6 +382,7 @@ async function upsertCrmDealFromPipedrive(integrationId: string, pdDeal: JsonRec
     expected_close_date: stringOrNull(pdDeal.expected_close_date),
     status: mapPipedriveStatusToCrm(stringOrNull(pdDeal.status)),
     lost_reason: stringOrNull(pdDeal.status) === 'lost' ? (stringOrNull(pdDeal.lost_reason) || stringOrNull(pdDeal.lost_message) || 'Perdido no Pipedrive') : null,
+    lead_source: 'vmarket',
     source: 'Pipedrive API',
     stage_id: stageId,
     organization_id: organization?.id || null,

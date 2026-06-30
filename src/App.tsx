@@ -211,6 +211,7 @@ function buildFilterFields(customFields: CustomField[]): FilterField[] {
     { id: 'deal:estimated_savings', entity: 'deal', key: 'estimated_savings', label: 'Economia estimada', type: 'number' },
     { id: 'deal:probability', entity: 'deal', key: 'probability', label: 'Probabilidade', type: 'number' },
     { id: 'deal:status', entity: 'deal', key: 'status', label: 'Status', type: 'option' },
+    { id: 'deal:lead_source', entity: 'deal', key: 'lead_source', label: 'Fonte do Lead', type: 'option' },
     { id: 'deal:source', entity: 'deal', key: 'source', label: 'Origem', type: 'text' },
     { id: 'deal:stage', entity: 'deal', key: 'stage', label: 'Etapa', type: 'option' },
     { id: 'deal:pipeline', entity: 'deal', key: 'pipeline', label: 'Funil', type: 'option' },
@@ -284,6 +285,30 @@ type DealForm = {
   organization_state: string
   organization_cnpjs: string
   lost_reason: string
+  lead_source: string
+  vm_sale: boolean
+  contract_with: string
+  vm_product_type: string
+  vm_cnpj_count: string
+  vm_plan: string
+  vm_value_per_cnpj: string
+  contract_legal_name: string
+  contract_tax_id: string
+  contract_address: string
+  contract_representative: string
+  contract_email: string
+  contract_phone: string
+  partner_service_implantacao: boolean
+  partner_service_implantacao_value: string
+  partner_service_bpo_compras: boolean
+  partner_service_bpo_compras_value: string
+  partner_service_consultoria: boolean
+  partner_service_consultoria_value: string
+  partner_service_bpo_financeiro: boolean
+  partner_service_bpo_financeiro_value: string
+  partner_service_other: boolean
+  partner_service_other_name: string
+  partner_service_other_value: string
   person_name: string
   person_role: string
   person_email: string
@@ -292,6 +317,8 @@ type DealForm = {
 
 const money = (value?: number | null) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(Number(value || 0))
+
+const numberOrNull = (value: string) => value.trim() === '' ? null : Number(value)
 
 const formatDateTime = (value?: string | null) => value ? new Date(value).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '-'
 const toLocalDate = (value?: string | null) => value ? new Date(value).toISOString().slice(0, 10) : ''
@@ -666,7 +693,8 @@ function App() {
         estimated_savings: null,
         probability: null,
         status: 'aberto',
-        source: null,
+        lead_source: 'parceiro',
+        source: 'Parceiro',
         expected_close_date: null,
         score: null,
         focus_items: [],
@@ -930,6 +958,28 @@ function App() {
     setError('')
     const numberOrNull = (value: string) => value.trim() === '' ? null : Number(value)
     const canManageCustomFields = profile?.role === 'admin_vmarket'
+    const contractPartner = crmUsers.find((user) => user.auth_user_id && user.auth_user_id === form.owner_id) || crmUsers.find((user) => user.auth_user_id && user.auth_user_id === detailDeal.owner_id)
+    const partnerContract = form.contract_with === 'parceiro' ? partnerContractValues(contractPartner) : null
+    const contractSource = partnerContract ? {
+      legal: partnerContract.legal,
+      tax: partnerContract.tax,
+      address: partnerContract.address,
+      representative: partnerContract.representative,
+      email: partnerContract.email,
+      phone: partnerContract.phone,
+    } : {
+      legal: form.contract_legal_name,
+      tax: form.contract_tax_id,
+      address: form.contract_address,
+      representative: form.contract_representative,
+      email: form.contract_email,
+      phone: form.contract_phone,
+    }
+    if (form.partner_service_other && !form.partner_service_other_name.trim()) {
+      const message = 'Informe qual é o outro serviço parceiro.'
+      setError(message)
+      throw new Error(message)
+    }
     const dealFields = canManageCustomFields ? customFields.filter((field) => field.entity === 'deal') : []
     const parseCustomValue = (field: CustomField, raw: string) => {
       if (field.field_type === 'numeric' || field.field_type === 'monetary' || field.field_type === 'formula') return raw.trim() === '' ? null : Number(raw)
@@ -943,6 +993,19 @@ function App() {
         owner_id: form.owner_id || session?.user.id || null,
         status: form.status as Deal['status'],
         lost_reason: form.status === 'perdido' ? (form.lost_reason.trim() || null) : null,
+        vm_sale: form.vm_sale,
+        contract_with: form.vm_sale ? (form.contract_with || 'cliente') : null,
+        vm_product_type: form.vm_sale ? (form.vm_product_type || null) : null,
+        vm_cnpj_count: form.vm_sale ? numberOrNull(form.vm_cnpj_count) : null,
+        vm_plan: form.vm_sale ? (form.vm_plan || null) : null,
+        vm_value_per_cnpj: form.vm_sale ? numberOrNull(form.vm_value_per_cnpj) : null,
+        contract_legal_name: form.vm_sale ? (contractSource.legal || null) : null,
+        contract_tax_id: form.vm_sale ? (contractSource.tax || null) : null,
+        contract_address: form.vm_sale ? (contractSource.address || null) : null,
+        contract_representative: form.vm_sale ? (contractSource.representative || null) : null,
+        contract_email: form.vm_sale ? (contractSource.email || null) : null,
+        contract_phone: form.vm_sale ? (contractSource.phone || null) : null,
+        partner_services: partnerServicesFromForm(form),
         value: numberOrNull(form.value),
         monthly_purchase: numberOrNull(form.monthly_purchase),
         source: form.source || null,
@@ -1181,7 +1244,8 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
               {stageDeals.map((deal) => {
                 const indicator = activityIndicator(deal)
                 const labels = labelsForDeal(deal.id)
-                return <div key={deal.id} draggable onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', deal.id); setDraggingId(deal.id) }} onDragEnd={() => setDraggingId(null)} onClick={() => openDealPage(deal.id)} role="button" tabIndex={0} className={cn('group relative w-full cursor-grab rounded border p-2 text-left shadow-sm transition hover:border-blue-200 hover:shadow-md active:cursor-grabbing', deal.status === 'perdido' ? 'bg-slate-100' : 'bg-white', selectedId === deal.id ? 'border-blue-300 ring-2 ring-blue-200/70' : 'border-slate-200')}>
+                return <div key={deal.id} draggable onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', deal.id); setDraggingId(deal.id) }} onDragEnd={() => setDraggingId(null)} onClick={() => openDealPage(deal.id)} role="button" tabIndex={0} className={cn('group relative w-full cursor-grab rounded border p-2 text-left shadow-sm transition hover:border-blue-200 hover:shadow-md active:cursor-grabbing', deal.status === 'ganho' ? 'bg-emerald-50 border-emerald-200' : deal.status === 'perdido' ? 'bg-slate-100' : 'bg-white', selectedId === deal.id ? 'border-blue-300 ring-2 ring-blue-200/70' : 'border-slate-200')}>
+                  {deal.status === 'ganho' && <span className="absolute right-2 top-2 rounded-full bg-emerald-200 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wide text-emerald-800">Ganho</span>}
                   {deal.status === 'perdido' && <span className="absolute right-2 top-2 rounded-full bg-slate-200 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wide text-slate-600">Perdido</span>}
                   <DealLabelPills labels={labels} compact />
                   <p className="line-clamp-2 text-sm font-bold leading-snug text-slate-900">{deal.title}</p>
@@ -1569,13 +1633,16 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
   if (loading) return <main className="min-h-screen bg-[#f4f5f7] p-5 text-slate-900"><LoadingBpo /></main>
   if (!deal) return <main className="min-h-screen bg-[#f4f5f7] p-5 text-slate-900"><div className="rounded bg-white p-6 shadow-sm"><h1 className="text-xl font-bold">Negócio não encontrado</h1><button onClick={closeDealPage} className="mt-4 rounded bg-[#238847] px-4 py-2 text-sm font-bold text-white">Voltar ao funil</button></div></main>
 
-  const update = (key: keyof DealForm, value: string) => setForm((current) => ({ ...current, [key]: value }))
+  const update = (key: keyof DealForm, value: string | boolean) => setForm((current) => ({ ...current, [key]: value }))
   const currentStage = stages.find((s) => s.id === form.stage_id) || stages.find((s) => s.id === deal.stage_id)
   const currentPipeline = currentStage?.pipeline_name || deal.pipeline_stages?.pipeline_name || 'Sem funil'
   const pipelineStages = stages.filter((stage) => (stage.pipeline_name || 'Sem funil') === currentPipeline)
   const currentPipelineStages = pipelineStages.length ? pipelineStages : [currentStage].filter(Boolean) as Stage[]
   const currentStageDays = daysSince(deal.pipedrive_stage_entered_at || deal.updated_at || deal.pipedrive_deal_created_at || deal.created_at)
   const ownerName = crmUsers.find((user) => user.auth_user_id && user.auth_user_id === form.owner_id)?.full_name || 'Sem proprietário CRM'
+  const contractPartner = crmUsers.find((user) => user.auth_user_id && user.auth_user_id === form.owner_id) || crmUsers.find((user) => user.auth_user_id && user.auth_user_id === deal.owner_id)
+  const partnerContract = partnerContractValues(contractPartner)
+  const contractLocked = form.vm_sale && form.contract_with === 'parceiro' && Boolean(partnerContract)
   const selectedLabels = assignedLabels.map((assignment) => assignment.deal_labels).filter((label): label is DealLabel => Boolean(label))
   const openActivities = activities.filter((activity) => activity.status === 'open')
   const notes = history.filter((row) => row.event_type.toLowerCase().includes('nota') || row.event_type.toLowerCase().includes('anot'))
@@ -1639,6 +1706,7 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
             <p className="mt-1 text-xs text-slate-500">Clique no lápis para editar o valor.</p>
           </div>
           <div className="divide-y divide-slate-100">
+            <ReadOnlyField label="Fonte do Lead" value={form.lead_source === 'vmarket' ? 'VMarket' : 'Parceiro'} />
             <InlineField label="Título do negócio" value={form.title} onChange={(v) => update('title', v)} />
             <InlineSelect label="Etapa" value={form.stage_id} onChange={(v) => update('stage_id', v)} options={currentPipelineStages.map((s) => [s.id, s.name])} />
             <InlineSelect label="Status" value={form.status} onChange={(v) => v === 'perdido' ? setShowLostReason(true) : update('status', v)} options={Object.entries(statusLabel)} />
@@ -1653,6 +1721,59 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
             {canEditOwner && <InlineSelect label="Proprietário CRM" value={form.owner_id} onChange={(v) => update('owner_id', v)} options={[[deal.owner_id || '', deal.owner_id ? 'Proprietário atual' : 'Sem proprietário'], ...crmUsers.filter((u) => u.auth_user_id).map((u) => [u.auth_user_id || '', `${u.full_name} · ${u.crm_companies?.name || 'sem empresa'}`] as [string, string])]} />}
           </div>
         </Panel>
+
+        <CollapsibleSection title="Plataforma VMarket" defaultOpen>
+          <div className="divide-y divide-slate-100">
+            <label className="flex items-center gap-3 p-3 text-sm font-semibold text-slate-800">
+              <input type="checkbox" checked={form.vm_sale} onChange={(e) => update('vm_sale', e.target.checked)} className="h-4 w-4 accent-[#238847]" />
+              Venda VMarket?
+            </label>
+            {form.vm_sale && <>
+              <InlineSelect label="Contrato com" value={form.contract_with} onChange={(v) => update('contract_with', v)} options={[['cliente', 'Cliente'], ['parceiro', 'Parceiro']]} />
+              <InlineSelect label="Tipo" value={form.vm_product_type} onChange={(v) => update('vm_product_type', v)} options={[['', 'Selecione'], ['restaurante', 'Restaurante'], ['hotel', 'Hotel'], ['fornecedor', 'Fornecedor']]} />
+              <InlineField label="Quantidade de CNPJs" value={form.vm_cnpj_count} onChange={(v) => update('vm_cnpj_count', v)} type="number" />
+              <InlineField label="Plano" value={form.vm_plan} onChange={(v) => update('vm_plan', v)} />
+              <InlineField label="Valor por CNPJ" value={form.vm_value_per_cnpj} onChange={(v) => update('vm_value_per_cnpj', v)} type="number" displayValue={money(Number(form.vm_value_per_cnpj || 0))} />
+              <div className="p-3">
+                <CollapsibleSection title="Campos do Contrato" defaultOpen={false} className="border border-slate-200 shadow-none">
+                  <div className="divide-y divide-slate-100">
+                    {contractLocked ? <>
+                      <ReadOnlyField label="Razão social" value={partnerContract?.legal || '-'} />
+                      <ReadOnlyField label="CNPJ" value={partnerContract?.tax || '-'} />
+                      <ReadOnlyField label="Endereço" value={partnerContract?.address || '-'} />
+                      <ReadOnlyField label="Representante legal" value={partnerContract?.representative || '-'} />
+                      <ReadOnlyField label="Email" value={partnerContract?.email || '-'} />
+                      <ReadOnlyField label="Telefone" value={partnerContract?.phone || '-'} />
+                    </> : <>
+                      <InlineField label="Razão social" value={form.contract_legal_name} onChange={(v) => update('contract_legal_name', v)} />
+                      <InlineField label="CNPJ" value={form.contract_tax_id} onChange={(v) => update('contract_tax_id', v)} />
+                      <InlineField label="Endereço" value={form.contract_address} onChange={(v) => update('contract_address', v)} />
+                      <InlineField label="Representante legal" value={form.contract_representative} onChange={(v) => update('contract_representative', v)} />
+                      <InlineField label="Email" value={form.contract_email} onChange={(v) => update('contract_email', v)} type="email" />
+                      <InlineField label="Telefone" value={form.contract_phone} onChange={(v) => update('contract_phone', v)} />
+                    </>}
+                  </div>
+                </CollapsibleSection>
+              </div>
+            </>}
+          </div>
+        </CollapsibleSection>
+
+        <CollapsibleSection title="Serviços Parceiro" defaultOpen>
+          <div className="divide-y divide-slate-100">
+            {partnerServiceDefinitions.map(([, label, flagKey, valueKey]) => <div key={flagKey} className="grid grid-cols-[1fr_120px] items-center gap-3 p-3 text-sm">
+              <label className="flex min-w-0 items-center gap-2 font-semibold text-slate-800"><input type="checkbox" checked={Boolean(form[flagKey])} onChange={(e) => update(flagKey, e.target.checked)} className="h-4 w-4 accent-[#238847]" /> <span className="truncate">{label}</span></label>
+              <input type="number" value={String(form[valueKey] || '')} onChange={(e) => update(valueKey, e.target.value)} disabled={!form[flagKey]} className="w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none focus:border-[#238847] focus:ring-2 focus:ring-emerald-100 disabled:bg-slate-100" placeholder="Valor" />
+            </div>)}
+            <div className="grid gap-3 p-3 text-sm">
+              <div className="grid grid-cols-[1fr_120px] items-center gap-3">
+                <label className="flex min-w-0 items-center gap-2 font-semibold text-slate-800"><input type="checkbox" checked={form.partner_service_other} onChange={(e) => update('partner_service_other', e.target.checked)} className="h-4 w-4 accent-[#238847]" /> Outro</label>
+                <input type="number" value={form.partner_service_other_value} onChange={(e) => update('partner_service_other_value', e.target.value)} disabled={!form.partner_service_other} className="w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none focus:border-[#238847] focus:ring-2 focus:ring-emerald-100 disabled:bg-slate-100" placeholder="Valor" />
+              </div>
+              {form.partner_service_other && <input value={form.partner_service_other_name} onChange={(e) => update('partner_service_other_name', e.target.value)} required className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" placeholder="Qual outro serviço?" />}
+            </div>
+          </div>
+        </CollapsibleSection>
 
         <CollapsibleSection title="Empresa" defaultOpen>
           <div className="divide-y divide-slate-100">
@@ -1750,6 +1871,53 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
   </main>
 }
 
+
+const partnerServiceDefinitions = [
+  ['implantacao', 'Implantação VMarket', 'partner_service_implantacao', 'partner_service_implantacao_value'],
+  ['bpo_compras', 'BPO de Compras', 'partner_service_bpo_compras', 'partner_service_bpo_compras_value'],
+  ['consultoria', 'Consultoria de Compras', 'partner_service_consultoria', 'partner_service_consultoria_value'],
+  ['bpo_financeiro', 'BPO Financeiro', 'partner_service_bpo_financeiro', 'partner_service_bpo_financeiro_value'],
+] as const
+
+function partnerServicesToForm(value: Record<string, unknown> | null | undefined) {
+  const services = (value || {}) as Record<string, { selected?: boolean; value?: string | number; name?: string }>
+  return {
+    partner_service_implantacao: Boolean(services.implantacao?.selected),
+    partner_service_implantacao_value: String(services.implantacao?.value ?? ''),
+    partner_service_bpo_compras: Boolean(services.bpo_compras?.selected),
+    partner_service_bpo_compras_value: String(services.bpo_compras?.value ?? ''),
+    partner_service_consultoria: Boolean(services.consultoria?.selected),
+    partner_service_consultoria_value: String(services.consultoria?.value ?? ''),
+    partner_service_bpo_financeiro: Boolean(services.bpo_financeiro?.selected),
+    partner_service_bpo_financeiro_value: String(services.bpo_financeiro?.value ?? ''),
+    partner_service_other: Boolean(services.other?.selected),
+    partner_service_other_name: String(services.other?.name ?? ''),
+    partner_service_other_value: String(services.other?.value ?? ''),
+  }
+}
+
+function partnerServicesFromForm(form: DealForm) {
+  return {
+    implantacao: { selected: form.partner_service_implantacao, value: numberOrNull(form.partner_service_implantacao_value) },
+    bpo_compras: { selected: form.partner_service_bpo_compras, value: numberOrNull(form.partner_service_bpo_compras_value) },
+    consultoria: { selected: form.partner_service_consultoria, value: numberOrNull(form.partner_service_consultoria_value) },
+    bpo_financeiro: { selected: form.partner_service_bpo_financeiro, value: numberOrNull(form.partner_service_bpo_financeiro_value) },
+    other: { selected: form.partner_service_other, name: form.partner_service_other_name.trim(), value: numberOrNull(form.partner_service_other_value) },
+  }
+}
+
+function partnerContractValues(user?: CrmUser) {
+  if (!user) return null
+  return {
+    legal: user.legal_company_name || user.crm_companies?.name || user.full_name || '',
+    tax: user.cnpj || '',
+    address: user.headquarters_address || '',
+    representative: user.legal_representative_name || user.full_name || '',
+    email: user.primary_email || user.email || '',
+    phone: user.crm_phone || '',
+  }
+}
+
 function dealToForm(deal?: Deal): DealForm {
   return {
     title: deal?.title || '',
@@ -1761,6 +1929,20 @@ function dealToForm(deal?: Deal): DealForm {
     source: deal?.source || '',
     expected_close_date: deal?.expected_close_date || '',
     lost_reason: deal?.lost_reason || '',
+    lead_source: deal?.lead_source || (deal?.source === 'Pipedrive API' ? 'vmarket' : 'parceiro'),
+    vm_sale: Boolean(deal?.vm_sale),
+    contract_with: deal?.contract_with || 'cliente',
+    vm_product_type: deal?.vm_product_type || '',
+    vm_cnpj_count: String(deal?.vm_cnpj_count ?? ''),
+    vm_plan: deal?.vm_plan || deal?.plan || '',
+    vm_value_per_cnpj: String(deal?.vm_value_per_cnpj ?? ''),
+    contract_legal_name: deal?.contract_legal_name || '',
+    contract_tax_id: deal?.contract_tax_id || '',
+    contract_address: deal?.contract_address || '',
+    contract_representative: deal?.contract_representative || '',
+    contract_email: deal?.contract_email || '',
+    contract_phone: deal?.contract_phone || '',
+    ...partnerServicesToForm(deal?.partner_services),
     focus_items: (deal?.focus_items || []).join('\n'),
     organization_name: deal?.organizations?.name || '',
     organization_segment: deal?.organizations?.segment || '',
