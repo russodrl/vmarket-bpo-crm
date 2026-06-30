@@ -176,6 +176,8 @@ export type ActivityRow = {
   person_id: string | null
   owner_id: string | null
   bpo_id: string | null
+  created_at?: string
+  completed_at?: string | null
 }
 
 export type HistoryRow = {

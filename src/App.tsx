@@ -43,6 +43,10 @@ type NewActivity = {
   note: string
 }
 
+type ActivityEditDraft = NewActivity & {
+  status: ActivityRow['status']
+}
+
 type DeleteTarget = 'deal' | 'activity' | 'person' | 'organization' | 'user'
 
 const blankNewDeal = (): NewDeal => ({
@@ -92,6 +96,16 @@ type DealForm = {
 
 const money = (value?: number | null) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(Number(value || 0))
+
+const formatDateTime = (value?: string | null) => value ? new Date(value).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '-'
+const toLocalDate = (value?: string | null) => value ? new Date(value).toISOString().slice(0, 10) : ''
+const toLocalTime = (value?: string | null) => value ? new Date(value).toTimeString().slice(0, 5) : ''
+function activityDisplayStatus(activity: ActivityRow) {
+  if (activity.status === 'done') return 'concluida'
+  if (activity.status === 'cancelled') return 'cancelada'
+  if (activity.due_at && new Date(activity.due_at).getTime() < Date.now()) return 'atrasada'
+  return 'aberta'
+}
 
 const statusLabel: Record<string, string> = { quente: 'Quente', morno: 'Morno', risco: 'Risco', ganho: 'Ganho', perdido: 'Perdido' }
 
@@ -490,9 +504,38 @@ function App() {
   }
 
   async function completeActivity(id: string) {
-    const { error } = await supabase.from('activities').update({ status: 'done' }).eq('id', id)
+    const { error } = await supabase.from('activities').update({ status: 'done', completed_at: new Date().toISOString() }).eq('id', id)
     if (error) setError(error.message)
     else await loadAll()
+  }
+
+  async function updateActivity(activityId: string, draft: ActivityEditDraft) {
+    const title = draft.title.trim()
+    if (!title) throw new Error('Informe o título da atividade.')
+    const dueAt = draft.due_date ? new Date(`${draft.due_date}T${draft.due_time || '09:00'}`).toISOString() : null
+    const activity = activities.find((item) => item.id === activityId)
+    const becameDone = draft.status === 'done' && activity?.status !== 'done'
+    const { error: activityErr } = await supabase.from('activities').update({
+      title,
+      activity_type: draft.activity_type,
+      due_at: dueAt,
+      status: draft.status,
+      note: draft.note.trim() || null,
+      completed_at: draft.status === 'done' ? (activity?.completed_at || new Date().toISOString()) : null,
+    }).eq('id', activityId)
+    if (activityErr) {
+      setError(errorMessage(activityErr))
+      throw activityErr
+    }
+    if (activity?.deal_id) {
+      await supabase.from('deal_history').insert({
+        deal_id: activity.deal_id,
+        event_type: 'Atividade',
+        title: becameDone ? 'Atividade concluída' : 'Atividade editada',
+        description: title,
+      })
+    }
+    await loadAll()
   }
 
   async function createActivityForDeal(activity: NewActivity) {
@@ -559,6 +602,18 @@ function App() {
     }
     await loadAll()
     return data as DealLabel
+  }
+
+  async function deleteDealLabel(label: DealLabel) {
+    const confirmed = window.confirm(`Apagar etiqueta ${label.name}? Ela será removida de todos os negócios.`)
+    if (!confirmed) return
+    setError('')
+    const { error } = await supabase.from('deal_labels').delete().eq('id', label.id)
+    if (error) {
+      setError(errorMessage(error))
+      throw error
+    }
+    await loadAll()
   }
 
   async function updateDealLabels(dealId: string, labelIds: string[]) {
@@ -691,7 +746,7 @@ function App() {
 
   if (detailDealId) {
     const isAdmin = profile?.role === 'admin_vmarket'
-    return <DealPage key={detailDealId} deal={detailDeal} loading={loading} error={error} stages={stages} crmUsers={crmUsers} canEditOwner={isAdmin} canViewCustomFields={isAdmin} activities={activities.filter((a) => a.deal_id === detailDealId)} history={history.filter((h) => h.deal_id === detailDealId)} dealLabels={dealLabels} assignedLabels={dealLabelAssignments.filter((assignment) => assignment.deal_id === detailDealId)} closeDealPage={closeDealPage} saveDeal={saveDeal} createActivity={createActivityForDeal} createNote={createNoteForDeal} deleteDeal={(id, label) => deleteOneRecord('deal', id, label)} deleteActivity={(id, label) => deleteOneRecord('activity', id, label)} customFields={isAdmin ? customFields.filter((field) => field.entity === 'deal') : []} customFieldValues={isAdmin ? customFieldValues.filter((value) => value.entity_id === detailDealId) : []} completeActivity={completeActivity} createLabel={createDealLabel} updateDealLabels={updateDealLabels} />
+    return <DealPage key={detailDealId} deal={detailDeal} loading={loading} error={error} stages={stages} crmUsers={crmUsers} canEditOwner={isAdmin} canViewCustomFields={isAdmin} activities={activities.filter((a) => a.deal_id === detailDealId)} history={history.filter((h) => h.deal_id === detailDealId)} dealLabels={dealLabels} assignedLabels={dealLabelAssignments.filter((assignment) => assignment.deal_id === detailDealId)} closeDealPage={closeDealPage} saveDeal={saveDeal} createActivity={createActivityForDeal} createNote={createNoteForDeal} deleteDeal={(id, label) => deleteOneRecord('deal', id, label)} deleteActivity={(id, label) => deleteOneRecord('activity', id, label)} customFields={isAdmin ? customFields.filter((field) => field.entity === 'deal') : []} customFieldValues={isAdmin ? customFieldValues.filter((value) => value.entity_id === detailDealId) : []} completeActivity={completeActivity} updateActivity={updateActivity} createLabel={createDealLabel} deleteLabel={deleteDealLabel} updateDealLabels={updateDealLabels} />
   }
 
   const navItems: Array<[View, ReactNode, string]> = [
@@ -730,7 +785,7 @@ function App() {
                 {activeView === 'pipeline' && <PipelineView stages={visibleStages} salesStages={salesStages} deals={visibleDeals} activities={activities} crmUsers={crmUsers} dealLabelAssignments={dealLabelAssignments} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} setDraggingId={setDraggingId} handleDrop={handleDrop} newDeal={newDeal} setNewDeal={setNewDeal} createDeal={createDeal} creating={creating} canAssignOwner={profile?.role === 'admin_vmarket'} activePipeline={activePipeline} setActivePipeline={setActivePipeline} pipelineNames={pipelineNames} pipelineView={pipelineView} setPipelineView={setPipelineView} />}
                 {activeView === 'contacts' && <ListView title="Contatos" icon={<Contact size={18}/>} rows={people.map((p) => ({ id: p.id, title: p.full_name, sub: `${p.role_title || 'Contato'} · ${p.email || 'sem email'}`, meta: p.phone || 'sem telefone' }))} canDelete={profile?.role === 'admin_vmarket'} onDelete={(id, label) => deleteOneRecord('person', id, label)} />}
                 {activeView === 'companies' && <ListView title="Empresas" icon={<Building2 size={18}/>} rows={organizations.map((o) => ({ id: o.id, title: o.name, sub: `${o.segment || 'Segmento não informado'} · ${o.city || ''} ${o.state || ''}`, meta: money(o.monthly_purchase) }))} canDelete={profile?.role === 'admin_vmarket'} onDelete={(id, label) => deleteOneRecord('organization', id, label)} />}
-                {activeView === 'activities' && <ActivitiesView activities={activities} deals={deals} completeActivity={completeActivity} canDelete={profile?.role === 'admin_vmarket'} deleteActivity={(id, label) => deleteOneRecord('activity', id, label)} />}
+                {activeView === 'activities' && <ActivitiesView activities={activities} deals={deals} completeActivity={completeActivity} updateActivity={updateActivity} canDelete={profile?.role === 'admin_vmarket'} deleteActivity={(id, label) => deleteOneRecord('activity', id, label)} />}
                 {activeView === 'fields' && profile?.role === 'admin_vmarket' && <FieldsConfigView fields={customFields} setError={setError} reload={loadAll} />}
                 {activeView === 'admin' && profile?.role === 'admin_vmarket' && <AdminUsersView users={crmUsers} companies={crmCompanies} dealsCount={deals.length} activitiesCount={activities.length} peopleCount={people.length} organizationsCount={organizations.length} reload={loadAll} setError={setError} />}
               </>
@@ -909,7 +964,7 @@ function CreateDealModal({ salesStages, crmUsers, canAssignOwner, newDeal, setNe
   </div>
 }
 
-function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canViewCustomFields, activities, history, customFields, customFieldValues, dealLabels, assignedLabels, closeDealPage, saveDeal, createActivity, createNote, deleteDeal, deleteActivity, completeActivity, createLabel, updateDealLabels }: {
+function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canViewCustomFields, activities, history, customFields, customFieldValues, dealLabels, assignedLabels, closeDealPage, saveDeal, createActivity, createNote, deleteDeal, deleteActivity, completeActivity, updateActivity, createLabel, deleteLabel, updateDealLabels }: {
   deal?: Deal
   loading: boolean
   error: string
@@ -930,7 +985,9 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
   deleteDeal: (id: string, label: string) => void
   deleteActivity: (id: string, label: string) => void
   completeActivity: (id: string) => Promise<void>
+  updateActivity: (activityId: string, draft: ActivityEditDraft) => Promise<void>
   createLabel: (name: string, color: string) => Promise<DealLabel>
+  deleteLabel: (label: DealLabel) => Promise<void>
   updateDealLabels: (dealId: string, labelIds: string[]) => Promise<void>
 }) {
   const [saving, setSaving] = useState(false)
@@ -941,6 +998,7 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
   const [noteDraft, setNoteDraft] = useState('')
   const [composerMode, setComposerMode] = useState<'note' | 'activity'>('note')
   const [showLabelPicker, setShowLabelPicker] = useState(false)
+  const [editingActivity, setEditingActivity] = useState<ActivityRow | null>(null)
   const [form, setForm] = useState<DealForm>(() => dealToForm(deal))
   const [customDrafts, setCustomDrafts] = useState<Record<string, string>>(() => customValuesToDrafts(customFields, customFieldValues))
 
@@ -1019,7 +1077,11 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
             {(pipelineStages.length ? pipelineStages : [currentStage].filter(Boolean) as Stage[]).map((stage, index) => {
               const isCurrent = stage.id === (form.stage_id || deal.stage_id)
               const isDone = index < stageIndex
-              return <button key={stage.id} type="button" onClick={() => update('stage_id', stage.id)} className={cn('relative min-w-[110px] flex-1 px-3 py-2 text-center text-[11px] font-bold transition after:absolute after:right-[-9px] after:top-0 after:z-10 after:h-full after:w-[18px] after:skew-x-[-20deg] after:border-r after:border-slate-200', isCurrent ? 'bg-emerald-500 text-white after:bg-emerald-500' : isDone ? 'bg-emerald-100 text-emerald-700 after:bg-emerald-100' : 'bg-slate-100 text-slate-500 after:bg-slate-100')}>{stage.name}</button>
+              const totalStages = pipelineStages.length || 1
+              const isFirst = index === 0
+              const isLast = index === totalStages - 1
+              const clipPath = `polygon(${isFirst ? '0' : '14px'} 0, ${isLast ? '100%' : 'calc(100% - 14px)'} 0, 100% 50%, ${isLast ? '100%' : 'calc(100% - 14px)'} 100%, ${isFirst ? '0' : '14px'} 100%, 0 50%)`
+              return <button key={stage.id} type="button" onClick={() => update('stage_id', stage.id)} style={{ clipPath }} className={cn('relative min-w-[120px] flex-1 border-r border-white/70 px-5 py-3 text-center text-[12px] font-semibold transition first:ml-0 -ml-3', isCurrent ? 'z-20 bg-emerald-500 text-white' : isDone ? 'z-10 bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500 hover:bg-slate-200')}>{stage.name}</button>
             })}
           </div>
           <p className="mt-1 text-xs text-slate-500">{currentPipeline} · {currentStage?.name || 'Sem etapa'}</p>
@@ -1112,11 +1174,11 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
             </div>
             <div className="min-h-[420px] space-y-0 p-4">
               {timeline.length ? timeline.map((item) => <div key={item.id} className="grid grid-cols-[22px_1fr] gap-3 pb-5 text-sm last:pb-0">
-                <div className="relative flex justify-center"><span className={cn('mt-1 h-3 w-3 rounded-full ring-4', item.kind === 'Atividade' ? 'bg-amber-400 ring-amber-100' : item.kind.toLowerCase().includes('nota') || item.kind.toLowerCase().includes('anot') ? 'bg-blue-500 ring-blue-100' : 'bg-slate-400 ring-slate-100')} /><span className="absolute top-5 h-full w-px bg-slate-200" /></div>
+                <div className="relative flex justify-center">{item.activity ? <ActivityStatusDot status={item.activity.status} /> : <span className={cn('mt-1 h-3 w-3 rounded-full ring-4', item.kind.toLowerCase().includes('nota') || item.kind.toLowerCase().includes('anot') ? 'bg-blue-500 ring-blue-100' : 'bg-slate-400 ring-slate-100')} />}<span className="absolute top-5 h-full w-px bg-slate-200" /></div>
                 <div className="rounded border border-slate-200 bg-white p-3 shadow-sm">
                   <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{item.kind}</p><b className="text-slate-900">{item.title}</b></div>
-                    <div className="flex items-center gap-2">{item.date && <span className="text-xs text-slate-500">{new Date(item.date).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</span>}{item.activity?.status === 'open' && <button type="button" onClick={() => item.activity && void completeActivity(item.activity.id)} className="rounded border border-emerald-200 px-2 py-1 text-[10px] font-bold text-emerald-700 hover:bg-emerald-50">Concluir</button>}{item.activity && canEditOwner && <button type="button" onClick={() => item.activity && deleteActivity(item.activity.id, item.activity.title)} className="rounded border border-rose-200 px-2 py-1 text-[10px] font-bold text-rose-600 hover:bg-rose-50">Apagar</button>}</div>
+                    <div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{item.kind}</p>{item.activity ? <button type="button" onClick={() => item.activity && setEditingActivity(item.activity)} className="text-left font-bold text-slate-900 hover:text-blue-700 hover:underline">{item.title}</button> : <b className="text-slate-900">{item.title}</b>}</div>
+                    <div className="flex items-center gap-2">{item.activity?.status === 'done' && <span className="text-xs font-bold text-emerald-700">Concluído</span>}{item.date && <span className="text-xs text-slate-500">{formatDateTime(item.date)}</span>}{item.activity?.status === 'open' && <button type="button" onClick={() => item.activity && void completeActivity(item.activity.id)} className="rounded border border-emerald-200 px-2 py-1 text-[10px] font-bold text-emerald-700 hover:bg-emerald-50">Concluir</button>}{item.activity && canEditOwner && <button type="button" onClick={() => item.activity && deleteActivity(item.activity.id, item.activity.title)} className="rounded border border-rose-200 px-2 py-1 text-[10px] font-bold text-rose-600 hover:bg-rose-50">Apagar</button>}</div>
                   </div>
                   {item.description && <p className="mt-2 whitespace-pre-wrap text-slate-600">{item.description}</p>}
                 </div>
@@ -1135,7 +1197,8 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
       </section>
     </form>
 
-    {showLabelPicker && <LabelPickerModal deal={deal} labels={dealLabels} assignedLabelIds={assignedLabels.map((assignment) => assignment.label_id)} onClose={() => setShowLabelPicker(false)} onCreateLabel={createLabel} onSave={async (labelIds) => { await updateDealLabels(deal.id, labelIds); setShowLabelPicker(false) }} />}
+    {editingActivity && <ActivityEditorModal activity={editingActivity} onClose={() => setEditingActivity(null)} onSave={async (draft) => { await updateActivity(editingActivity.id, draft); setEditingActivity(null) }} />}
+    {showLabelPicker && <LabelPickerModal deal={deal} labels={dealLabels} assignedLabelIds={assignedLabels.map((assignment) => assignment.label_id)} onClose={() => setShowLabelPicker(false)} onCreateLabel={createLabel} onDeleteLabel={deleteLabel} onSave={async (labelIds) => { await updateDealLabels(deal.id, labelIds); setShowLabelPicker(false) }} />}
   </main>
 }
 
@@ -1166,6 +1229,60 @@ function dealToForm(deal?: Deal): DealForm {
   }
 }
 
+
+function activityToEditDraft(activity: ActivityRow): ActivityEditDraft {
+  return {
+    title: activity.title || '',
+    activity_type: activity.activity_type || 'task',
+    due_date: toLocalDate(activity.due_at),
+    due_time: toLocalTime(activity.due_at),
+    note: activity.note || '',
+    status: activity.status || 'open',
+  }
+}
+
+function ActivityStatusDot({ status }: { status: ActivityRow['status'] }) {
+  if (status === 'done') return <span className="mt-0.5 grid h-5 w-5 place-items-center rounded-full bg-emerald-500 text-[12px] font-black leading-none text-white ring-4 ring-emerald-100">✓</span>
+  return <span className="mt-1 h-4 w-4 rounded-full border-2 border-slate-300 bg-white ring-4 ring-slate-100" />
+}
+
+function ActivityEditorModal({ activity, onClose, onSave }: { activity: ActivityRow; onClose: () => void; onSave: (draft: ActivityEditDraft) => Promise<void> }) {
+  const [draft, setDraft] = useState<ActivityEditDraft>(() => activityToEditDraft(activity))
+  const [saving, setSaving] = useState(false)
+  const [localError, setLocalError] = useState('')
+  async function submit(e: FormEvent) {
+    e.preventDefault()
+    setSaving(true)
+    setLocalError('')
+    try {
+      await onSave(draft)
+    } catch (e) {
+      setLocalError(errorMessage(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+  return <div className="fixed inset-0 z-[80] grid place-items-center bg-slate-950/40 p-4 backdrop-blur-sm" onClick={onClose}>
+    <form onSubmit={submit} className="w-full max-w-xl overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+      <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
+        <div><h2 className="text-lg font-bold text-slate-950">Editar atividade</h2><p className="mt-1 text-xs text-slate-500">Clique em salvar para atualizar o título, data, observação e status.</p></div>
+        <button type="button" onClick={onClose} className="grid h-9 w-9 place-items-center rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50">×</button>
+      </div>
+      <div className="grid gap-4 p-5">
+        {localError && <p className="rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{localError}</p>}
+        <label className="block text-sm"><span className="mb-1.5 block font-semibold text-slate-700">Nome da atividade</span><input value={draft.title} onChange={(e) => setDraft((current) => ({ ...current, title: e.target.value }))} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" /></label>
+        <div className="grid gap-3 md:grid-cols-[1fr_150px_130px]">
+          <label className="block text-sm"><span className="mb-1.5 block font-semibold text-slate-700">Tipo</span><select value={draft.activity_type} onChange={(e) => setDraft((current) => ({ ...current, activity_type: e.target.value }))} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100"><option value="task">Tarefa</option><option value="call">Ligação</option><option value="meeting">Reunião</option><option value="email">Email</option><option value="whatsapp">WhatsApp</option></select></label>
+          <label className="block text-sm"><span className="mb-1.5 block font-semibold text-slate-700">Data</span><input type="date" value={draft.due_date} onChange={(e) => setDraft((current) => ({ ...current, due_date: e.target.value }))} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" /></label>
+          <label className="block text-sm"><span className="mb-1.5 block font-semibold text-slate-700">Hora</span><input type="time" value={draft.due_time} onChange={(e) => setDraft((current) => ({ ...current, due_time: e.target.value }))} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" /></label>
+        </div>
+        <label className="block text-sm"><span className="mb-1.5 block font-semibold text-slate-700">Status</span><select value={draft.status} onChange={(e) => setDraft((current) => ({ ...current, status: e.target.value as ActivityRow['status'] }))} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100"><option value="open">Aberta</option><option value="done">Concluída</option><option value="cancelled">Cancelada</option></select></label>
+        <label className="block text-sm"><span className="mb-1.5 block font-semibold text-slate-700">Observação</span><textarea value={draft.note} onChange={(e) => setDraft((current) => ({ ...current, note: e.target.value }))} rows={4} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" /></label>
+      </div>
+      <div className="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-4"><button type="button" onClick={onClose} className="rounded border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">Cancelar</button><button disabled={saving || !draft.title.trim()} className="rounded bg-[#238847] px-5 py-2 text-sm font-bold text-white disabled:opacity-60">{saving ? 'Salvando...' : 'Salvar'}</button></div>
+    </form>
+  </div>
+}
 
 function customValuesToDrafts(fields: CustomField[], values: CustomFieldValue[]) {
   const drafts: Record<string, string> = {}
@@ -1208,7 +1325,7 @@ function ReadOnlyField({ label, value, action }: { label: string; value: string;
   return <div className="p-3 text-sm"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><span className="block text-[11px] font-semibold text-slate-500">{label}</span><span className="mt-0.5 block break-words font-semibold text-slate-800">{value || '-'}</span></div>{action}</div></div>
 }
 
-function LabelPickerModal({ deal, labels, assignedLabelIds, onClose, onCreateLabel, onSave }: { deal: Deal; labels: DealLabel[]; assignedLabelIds: string[]; onClose: () => void; onCreateLabel: (name: string, color: string) => Promise<DealLabel>; onSave: (labelIds: string[]) => Promise<void> }) {
+function LabelPickerModal({ deal, labels, assignedLabelIds, onClose, onCreateLabel, onDeleteLabel, onSave }: { deal: Deal; labels: DealLabel[]; assignedLabelIds: string[]; onClose: () => void; onCreateLabel: (name: string, color: string) => Promise<DealLabel>; onDeleteLabel: (label: DealLabel) => Promise<void>; onSave: (labelIds: string[]) => Promise<void> }) {
   const colors = ['#3b82f6', '#5eead4', '#fde047', '#dc2626', '#a855f7', '#e5e7eb', '#92400e', '#fb923c', '#4b5563', '#f472b6']
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<string[]>(assignedLabelIds)
@@ -1236,7 +1353,7 @@ function LabelPickerModal({ deal, labels, assignedLabelIds, onClose, onCreateLab
         <div className="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-4 py-3"><button type="button" onClick={() => setCreating(false)} className="rounded border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700">Cancelar</button><button type="button" onClick={() => void addNewLabel()} disabled={!newName.trim()} className="rounded bg-[#238847] px-4 py-2 text-sm font-bold text-white disabled:opacity-60">Salvar</button></div>
       </> : <>
         <div className="p-3"><input value={query} onChange={(e) => setQuery(e.target.value)} className="w-full rounded border border-slate-400 px-3 py-2 text-sm outline-none focus:border-blue-500" placeholder="Buscar etiquetas" /></div>
-        <div className="max-h-64 space-y-2 overflow-y-auto border-y border-slate-200 p-3">{filtered.map((label) => <button key={label.id} type="button" onClick={() => toggle(label.id)} className="block text-left"><span className={cn('inline-flex rounded px-2 py-1 text-[11px] font-black uppercase text-white ring-offset-2', selected.includes(label.id) && 'ring-2 ring-blue-500')} style={{ backgroundColor: label.color }}>{label.name}</span></button>)}{!filtered.length && <p className="text-sm text-slate-400">Nenhuma etiqueta encontrada.</p>}</div>
+        <div className="max-h-64 space-y-2 overflow-y-auto border-y border-slate-200 p-3">{filtered.map((label) => <div key={label.id} className="flex items-center justify-between gap-2"><button type="button" onClick={() => toggle(label.id)} className="min-w-0 flex-1 text-left"><span className={cn('inline-flex max-w-full rounded px-2 py-1 text-[11px] font-black uppercase text-white ring-offset-2', selected.includes(label.id) && 'ring-2 ring-blue-500')} style={{ backgroundColor: label.color }}>{label.name}</span></button><button type="button" onClick={async () => { await onDeleteLabel(label); setSelected((current) => current.filter((id) => id !== label.id)) }} className="rounded border border-rose-200 px-2 py-1 text-[10px] font-bold text-rose-600 hover:bg-rose-50">Deletar</button></div>)}{!filtered.length && <p className="text-sm text-slate-400">Nenhuma etiqueta encontrada.</p>}</div>
         <button type="button" onClick={() => setCreating(true)} className="flex w-full items-center gap-2 border-b border-slate-200 px-4 py-3 text-left text-sm font-semibold text-blue-600 hover:bg-blue-50">+ Adicionar etiqueta</button>
         <div className="flex justify-end gap-2 bg-slate-50 px-4 py-3"><button type="button" onClick={onClose} className="rounded border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700">Cancelar</button><button type="button" disabled={saving} onClick={() => { setSaving(true); void onSave(selected).finally(() => setSaving(false)) }} className="rounded bg-[#238847] px-4 py-2 text-sm font-bold text-white disabled:opacity-60">{saving ? 'Salvando...' : 'Salvar'}</button></div>
       </>}
@@ -1354,8 +1471,40 @@ function ListView({ title, icon, rows, canDelete = false, onDelete }: { title: s
   return <div className="h-full overflow-y-auto p-5"><Panel><div className="flex items-center gap-2 border-b border-slate-200 p-4"><span className="text-[#6f5cf6]">{icon}</span><h2 className="text-lg font-bold">{title}</h2></div><div className="divide-y divide-slate-100">{rows.map((row) => <div key={row.id} className="grid gap-2 p-4 text-sm hover:bg-slate-50 md:grid-cols-[1fr_1fr_160px_100px]"><b>{row.title}</b><span className="text-slate-500">{row.sub}</span><span className="font-semibold text-slate-700">{row.meta}</span>{canDelete && <button type="button" onClick={() => onDelete?.(row.id, row.title)} className="rounded border border-rose-200 px-3 py-2 text-xs font-bold text-rose-600 hover:bg-rose-50">Apagar</button>}</div>)}</div></Panel></div>
 }
 
-function ActivitiesView({ activities, deals, completeActivity, canDelete = false, deleteActivity }: { activities: ActivityRow[]; deals: Deal[]; completeActivity: (id: string) => Promise<void>; canDelete?: boolean; deleteActivity?: (id: string, label: string) => void }) {
-  return <div className="h-full overflow-y-auto p-5"><Panel><div className="flex items-center gap-2 border-b border-slate-200 p-4"><CalendarClock size={18} className="text-[#6f5cf6]"/><h2 className="text-lg font-bold">Atividades</h2></div><div className="divide-y divide-slate-100">{activities.map((a) => { const deal = deals.find((d) => d.id === a.deal_id); return <div key={a.id} className="grid gap-2 p-4 text-sm hover:bg-slate-50 md:grid-cols-[1fr_220px_140px_100px_100px]"><b>{a.title}</b><span className="text-slate-500">{deal?.title || 'Sem negócio'}</span><span>{a.due_at ? new Date(a.due_at).toLocaleDateString('pt-BR') : 'sem data'}</span>{a.status === 'open' ? <button onClick={() => void completeActivity(a.id)} className="text-left font-bold text-emerald-700">Concluir</button> : <Badge>OK</Badge>}{canDelete && <button type="button" onClick={() => deleteActivity?.(a.id, a.title)} className="rounded border border-rose-200 px-3 py-2 text-xs font-bold text-rose-600 hover:bg-rose-50">Apagar</button>}</div> })}</div></Panel></div>
+function ActivitiesView({ activities, deals, completeActivity, updateActivity, canDelete = false, deleteActivity }: { activities: ActivityRow[]; deals: Deal[]; completeActivity: (id: string) => Promise<void>; updateActivity: (activityId: string, draft: ActivityEditDraft) => Promise<void>; canDelete?: boolean; deleteActivity?: (id: string, label: string) => void }) {
+  const [editingActivity, setEditingActivity] = useState<ActivityRow | null>(null)
+  const statusTone = (status: string) => status === 'concluida' ? 'bg-emerald-100 text-emerald-700' : status === 'atrasada' ? 'bg-rose-100 text-rose-700' : 'bg-blue-100 text-blue-700'
+  return <div className="h-full overflow-y-auto p-5">
+    <Panel>
+      <div className="flex items-center gap-2 border-b border-slate-200 p-4"><CalendarClock size={18} className="text-[#6f5cf6]"/><h2 className="text-lg font-bold">Atividades</h2></div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">
+            <tr><th className="px-4 py-3">Atividade</th><th className="px-4 py-3">Criada em</th><th className="px-4 py-3">Concluída em</th><th className="px-4 py-3">Negócio</th><th className="px-4 py-3">Contato</th><th className="px-4 py-3">Empresa</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Vencimento</th><th className="px-4 py-3">Ações</th></tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {activities.map((a) => {
+              const deal = deals.find((d) => d.id === a.deal_id)
+              const displayStatus = activityDisplayStatus(a)
+              return <tr key={a.id} className="hover:bg-slate-50">
+                <td className="min-w-[220px] px-4 py-3"><div className="flex items-center gap-3"><ActivityStatusDot status={a.status}/><button type="button" onClick={() => setEditingActivity(a)} className="text-left font-bold text-slate-900 hover:text-blue-700 hover:underline">{a.title}</button></div></td>
+                <td className="px-4 py-3 text-slate-600">{formatDateTime(a.created_at)}</td>
+                <td className="px-4 py-3 text-slate-600">{formatDateTime(a.completed_at)}</td>
+                <td className="px-4 py-3 text-slate-700">{deal?.title || 'Sem negócio'}</td>
+                <td className="px-4 py-3 text-slate-600">{deal?.people?.full_name || 'Sem contato'}</td>
+                <td className="px-4 py-3 text-slate-600">{deal?.organizations?.name || 'Sem empresa'}</td>
+                <td className="px-4 py-3"><Badge tone={statusTone(displayStatus)}>{displayStatus}</Badge></td>
+                <td className="px-4 py-3 text-slate-600">{formatDateTime(a.due_at)}</td>
+                <td className="px-4 py-3"><div className="flex gap-2">{a.status === 'open' && <button type="button" onClick={() => void completeActivity(a.id)} className="rounded border border-emerald-200 px-3 py-1.5 text-xs font-bold text-emerald-700 hover:bg-emerald-50">Concluir</button>}{canDelete && <button type="button" onClick={() => deleteActivity?.(a.id, a.title)} className="rounded border border-rose-200 px-3 py-1.5 text-xs font-bold text-rose-600 hover:bg-rose-50">Apagar</button>}</div></td>
+              </tr>
+            })}
+          </tbody>
+        </table>
+        {activities.length === 0 && <div className="p-8 text-center text-slate-400">Nenhuma atividade encontrada.</div>}
+      </div>
+    </Panel>
+    {editingActivity && <ActivityEditorModal activity={editingActivity} onClose={() => setEditingActivity(null)} onSave={async (draft) => { await updateActivity(editingActivity.id, draft); setEditingActivity(null) }} />}
+  </div>
 }
 
 type CleanupTarget = 'deals' | 'activities' | 'people' | 'organizations' | 'users'
