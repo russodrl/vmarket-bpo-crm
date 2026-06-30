@@ -308,6 +308,8 @@ async function upsertCrmDealFromPipedrive(integrationId: string, pdDeal: JsonRec
     organization_id: organization?.id || null,
     person_id: person?.id || null,
     pipedrive_owner_name: pipedriveOwnerName(pdDeal.user_id),
+    pipedrive_deal_created_at: stringOrNull(pdDeal.add_time) || stringOrNull(pdDeal.create_time),
+    pipedrive_stage_entered_at: stringOrNull(pdDeal.stage_change_time) || stringOrNull(pdDeal.update_time) || stringOrNull(pdDeal.add_time),
   }
   if (!existing?.internal_id && inheritedOwnerId) payload.owner_id = inheritedOwnerId
   if (!existing?.internal_id && inheritedBpoId) payload.bpo_id = inheritedBpoId

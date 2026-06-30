@@ -13,6 +13,10 @@ import {
   LogOut,
   Mail,
   MessageSquare,
+  PhoneCall,
+  FileText,
+  CheckSquare,
+  Users,
   Pencil,
   RefreshCw,
   Search,
@@ -76,9 +80,6 @@ type DealForm = {
   status: string
   value: string
   monthly_purchase: string
-  estimated_savings: string
-  probability: string
-  score: string
   source: string
   expected_close_date: string
   focus_items: string
@@ -105,6 +106,15 @@ function activityDisplayStatus(activity: ActivityRow) {
   if (activity.status === 'cancelled') return 'cancelada'
   if (activity.due_at && new Date(activity.due_at).getTime() < Date.now()) return 'atrasada'
   return 'aberta'
+}
+function daysSince(value?: string | null) {
+  if (!value) return 0
+  const start = new Date(value).getTime()
+  if (!Number.isFinite(start)) return 0
+  return Math.max(0, Math.floor((Date.now() - start) / 86_400_000))
+}
+function dayLabel(days: number) {
+  return `${days} ${days === 1 ? 'dia' : 'dias'}`
 }
 
 const statusLabel: Record<string, string> = { quente: 'Quente', morno: 'Morno', risco: 'Risco', ganho: 'Ganho', perdido: 'Perdido' }
@@ -688,9 +698,6 @@ function App() {
         status: form.status as Deal['status'],
         value: numberOrNull(form.value),
         monthly_purchase: numberOrNull(form.monthly_purchase),
-        estimated_savings: numberOrNull(form.estimated_savings),
-        probability: numberOrNull(form.probability),
-        score: numberOrNull(form.score),
         source: form.source || null,
         expected_close_date: form.expected_close_date || null,
         focus_items: form.focus_items.split('\n').map((item) => item.trim()).filter(Boolean),
@@ -1045,7 +1052,8 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
   const currentStage = stages.find((s) => s.id === form.stage_id) || stages.find((s) => s.id === deal.stage_id)
   const currentPipeline = currentStage?.pipeline_name || deal.pipeline_stages?.pipeline_name || 'Sem funil'
   const pipelineStages = stages.filter((stage) => (stage.pipeline_name || 'Sem funil') === currentPipeline)
-  const stageIndex = Math.max(0, pipelineStages.findIndex((stage) => stage.id === (form.stage_id || deal.stage_id)))
+  const currentPipelineStages = pipelineStages.length ? pipelineStages : [currentStage].filter(Boolean) as Stage[]
+  const currentStageDays = daysSince(deal.pipedrive_stage_entered_at || deal.updated_at || deal.pipedrive_deal_created_at || deal.created_at)
   const ownerName = crmUsers.find((user) => user.auth_user_id && user.auth_user_id === form.owner_id)?.full_name || 'Sem proprietário CRM'
   const selectedLabels = assignedLabels.map((assignment) => assignment.deal_labels).filter((label): label is DealLabel => Boolean(label))
   const openActivities = activities.filter((activity) => activity.status === 'open')
@@ -1073,15 +1081,14 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
       </div>
       <div className="border-t border-slate-100 px-4 pb-3">
         <div className="mx-auto max-w-[1600px]">
-          <div className="flex overflow-hidden rounded-sm border border-slate-200 bg-white">
-            {(pipelineStages.length ? pipelineStages : [currentStage].filter(Boolean) as Stage[]).map((stage, index) => {
+          <div className="flex h-9 overflow-hidden rounded-sm border border-slate-200 bg-[#eef1f5]">
+            {currentPipelineStages.map((stage, index) => {
               const isCurrent = stage.id === (form.stage_id || deal.stage_id)
-              const isDone = index < stageIndex
-              const totalStages = pipelineStages.length || 1
+              const totalStages = currentPipelineStages.length || 1
               const isFirst = index === 0
               const isLast = index === totalStages - 1
-              const clipPath = `polygon(${isFirst ? '0' : '14px'} 0, ${isLast ? '100%' : 'calc(100% - 14px)'} 0, 100% 50%, ${isLast ? '100%' : 'calc(100% - 14px)'} 100%, ${isFirst ? '0' : '14px'} 100%, 0 50%)`
-              return <button key={stage.id} type="button" onClick={() => update('stage_id', stage.id)} style={{ clipPath }} className={cn('relative min-w-[120px] flex-1 border-r border-white/70 px-5 py-3 text-center text-[12px] font-semibold transition first:ml-0 -ml-3', isCurrent ? 'z-20 bg-emerald-500 text-white' : isDone ? 'z-10 bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500 hover:bg-slate-200')}>{stage.name}</button>
+              const clipPath = `polygon(${isFirst ? '0' : '14px'} 0, ${isLast ? '100%' : 'calc(100% - 12px)'} 0, 100% 50%, ${isLast ? '100%' : 'calc(100% - 12px)'} 100%, ${isFirst ? '0' : '14px'} 100%, 0 50%)`
+              return <button key={stage.id} type="button" onClick={() => update('stage_id', stage.id)} title={stage.name} style={{ clipPath }} className={cn('relative flex min-w-[118px] flex-1 items-center justify-center px-5 text-center text-xs font-semibold transition first:ml-0 -ml-3', isCurrent ? 'z-20 bg-[#0abf75] text-white' : 'bg-[#edf1f7] text-slate-500 hover:bg-slate-200')}>{dayLabel(isCurrent ? currentStageDays : 0)}</button>
             })}
           </div>
           <p className="mt-1 text-xs text-slate-500">{currentPipeline} · {currentStage?.name || 'Sem etapa'}</p>
@@ -1100,15 +1107,13 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
           </div>
           <div className="divide-y divide-slate-100">
             <InlineField label="Título do negócio" value={form.title} onChange={(v) => update('title', v)} />
-            <InlineSelect label="Etapa" value={form.stage_id} onChange={(v) => update('stage_id', v)} options={stages.map((s) => [s.id, `${s.pipeline_name || 'Funil'} · ${s.name}`])} />
+            <InlineSelect label="Etapa" value={form.stage_id} onChange={(v) => update('stage_id', v)} options={currentPipelineStages.map((s) => [s.id, s.name])} />
             <InlineSelect label="Status" value={form.status} onChange={(v) => update('status', v)} options={Object.entries(statusLabel)} />
             <InlineField label="Valor do negócio" value={form.value} onChange={(v) => update('value', v)} type="number" displayValue={money(Number(form.value || 0))} />
             <InlineField label="GMV mensal" value={form.monthly_purchase} onChange={(v) => update('monthly_purchase', v)} type="number" displayValue={money(Number(form.monthly_purchase || 0))} />
-            <InlineField label="Economia estimada" value={form.estimated_savings} onChange={(v) => update('estimated_savings', v)} type="number" displayValue={money(Number(form.estimated_savings || 0))} />
-            <InlineField label="Probabilidade" value={form.probability} onChange={(v) => update('probability', v)} type="number" displayValue={form.probability ? `${form.probability}%` : 'Não informado'} />
-            <InlineField label="Score" value={form.score} onChange={(v) => update('score', v)} type="number" />
             <InlineField label="Fonte" value={form.source} onChange={(v) => update('source', v)} />
-            <InlineField label="Data esperada" value={form.expected_close_date} onChange={(v) => update('expected_close_date', v)} type="date" />
+            <InlineField label="Data esperada de Fechamento" value={form.expected_close_date} onChange={(v) => update('expected_close_date', v)} type="date" />
+            <ReadOnlyField label="Criação do Negócio" value={formatDateTime(deal.pipedrive_deal_created_at)} />
             <ReadOnlyField label="Proprietário do negócio no Pipedrive" value={deal.pipedrive_owner_name || 'Não sincronizado'} />
             <ReadOnlyField label="Etiquetas" value={selectedLabels.length ? selectedLabels.map((label) => label.name).join(', ') : 'Sem etiqueta'} action={<button type="button" onClick={() => setShowLabelPicker(true)} className="text-xs font-bold text-blue-600 hover:text-blue-700">Adicionar etiqueta</button>} />
             {canEditOwner && <InlineSelect label="Proprietário CRM" value={form.owner_id} onChange={(v) => update('owner_id', v)} options={[[deal.owner_id || '', deal.owner_id ? 'Proprietário atual' : 'Sem proprietário'], ...crmUsers.filter((u) => u.auth_user_id).map((u) => [u.auth_user_id || '', `${u.full_name} · ${u.crm_companies?.name || 'sem empresa'}`] as [string, string])]} />}
@@ -1173,8 +1178,8 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
               <div className="flex flex-wrap gap-2"><Badge tone="bg-blue-100 text-blue-700">{notes.length} anotações</Badge><Badge tone="bg-amber-100 text-amber-700">{openActivities.length} atividades abertas</Badge><Badge tone="bg-slate-100 text-slate-700">{history.length} eventos</Badge></div>
             </div>
             <div className="min-h-[420px] space-y-0 p-4">
-              {timeline.length ? timeline.map((item) => <div key={item.id} className="grid grid-cols-[22px_1fr] gap-3 pb-5 text-sm last:pb-0">
-                <div className="relative flex justify-center">{item.activity ? <ActivityStatusDot status={item.activity.status} /> : <span className={cn('mt-1 h-3 w-3 rounded-full ring-4', item.kind.toLowerCase().includes('nota') || item.kind.toLowerCase().includes('anot') ? 'bg-blue-500 ring-blue-100' : 'bg-slate-400 ring-slate-100')} />}<span className="absolute top-5 h-full w-px bg-slate-200" /></div>
+              {timeline.length ? timeline.map((item) => <div key={item.id} className="grid grid-cols-[40px_1fr] gap-3 pb-5 text-sm last:pb-0">
+                <div className="relative flex justify-center"><TimelineIcon item={item} /><span className="absolute top-10 h-full w-px bg-slate-200" /></div>
                 <div className="rounded border border-slate-200 bg-white p-3 shadow-sm">
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{item.kind}</p>{item.activity ? <button type="button" onClick={() => item.activity && setEditingActivity(item.activity)} className="text-left font-bold text-slate-900 hover:text-blue-700 hover:underline">{item.title}</button> : <b className="text-slate-900">{item.title}</b>}</div>
@@ -1210,9 +1215,6 @@ function dealToForm(deal?: Deal): DealForm {
     status: deal?.status || 'morno',
     value: String(deal?.value ?? ''),
     monthly_purchase: String(deal?.monthly_purchase ?? ''),
-    estimated_savings: String(deal?.estimated_savings ?? ''),
-    probability: String(deal?.probability ?? ''),
-    score: String(deal?.score ?? ''),
     source: deal?.source || '',
     expected_close_date: deal?.expected_close_date || '',
     focus_items: (deal?.focus_items || []).join('\n'),
@@ -1244,6 +1246,25 @@ function activityToEditDraft(activity: ActivityRow): ActivityEditDraft {
 function ActivityStatusDot({ status }: { status: ActivityRow['status'] }) {
   if (status === 'done') return <span className="mt-0.5 grid h-5 w-5 place-items-center rounded-full bg-emerald-500 text-[12px] font-black leading-none text-white ring-4 ring-emerald-100">✓</span>
   return <span className="mt-1 h-4 w-4 rounded-full border-2 border-slate-300 bg-white ring-4 ring-slate-100" />
+}
+
+function TimelineIcon({ item }: { item: { kind: string; activity?: ActivityRow } }) {
+  const type = item.activity?.activity_type || ''
+  const lowerKind = item.kind.toLowerCase()
+  let icon: ReactNode = <FileText size={16} />
+  let tone = 'bg-white text-slate-500 ring-slate-200'
+  if (item.activity) {
+    if (type === 'call') icon = <PhoneCall size={15} />
+    else if (type === 'email') icon = <Mail size={15} />
+    else if (type === 'meeting') icon = <Users size={15} />
+    else if (type === 'whatsapp') icon = <MessageSquare size={15} />
+    else icon = <CheckSquare size={15} />
+    tone = item.activity.status === 'done' ? 'bg-emerald-50 text-emerald-700 ring-emerald-200' : 'bg-white text-slate-600 ring-slate-200'
+  } else if (lowerKind.includes('nota') || lowerKind.includes('anot')) {
+    icon = <MessageSquare size={15} />
+    tone = 'bg-amber-50 text-amber-700 ring-amber-200'
+  }
+  return <span className={cn('mt-0 grid h-9 w-9 place-items-center rounded-full ring-1 shadow-sm', tone)}>{icon}</span>
 }
 
 function ActivityEditorModal({ activity, onClose, onSave }: { activity: ActivityRow; onClose: () => void; onSave: (draft: ActivityEditDraft) => Promise<void> }) {
@@ -1301,7 +1322,7 @@ function apiSlug(field: CustomField) {
 
 function DealLabelPills({ labels, compact = false }: { labels: DealLabel[]; compact?: boolean }) {
   if (!labels.length) return null
-  return <div className={cn('mb-1.5 flex flex-wrap gap-1', compact && 'min-h-[10px]')}>{labels.slice(0, compact ? 3 : 8).map((label) => <span key={label.id} className={cn('inline-flex max-w-full items-center rounded px-1.5 py-0.5 text-[10px] font-black uppercase leading-none text-white shadow-sm', compact ? 'h-2 min-w-8 overflow-hidden text-[0px]' : '')} style={{ backgroundColor: label.color }} title={label.name}>{label.name}</span>)}</div>
+  return <div className={cn('mb-1.5 flex flex-wrap gap-1', compact && 'min-h-[10px]')}>{labels.slice(0, compact ? 4 : 8).map((label) => compact ? <span key={label.id} className="block h-2.5 w-9 rounded-sm shadow-sm" style={{ backgroundColor: label.color }} title={label.name} aria-label={label.name} /> : <span key={label.id} className="inline-flex max-w-full items-center rounded px-1.5 py-0.5 text-[10px] font-black uppercase leading-none text-white shadow-sm" style={{ backgroundColor: label.color }} title={label.name}>{label.name}</span>)}</div>
 }
 
 function InlineField({ label, value, onChange, type = 'text', displayValue }: { label: string; value: string; onChange: (value: string) => void; type?: string; displayValue?: string }) {
@@ -1767,7 +1788,7 @@ function ListViewDeals({ deals, stages, dealLabelAssignments, selectedId, setSel
           <th className="px-4 py-3">Etapa</th>
           <th className="px-4 py-3">Valor</th>
           <th className="px-4 py-3">Status</th>
-          <th className="px-4 py-3">Data esperada</th>
+          <th className="px-4 py-3">Data esperada de Fechamento</th>
           {canDelete && <th className="px-4 py-3">Ação</th>}
         </tr>
       </thead>

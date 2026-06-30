@@ -138,9 +138,13 @@ export type Deal = {
   source: string | null
   plan: string | null
   pipedrive_owner_name: string | null
+  pipedrive_deal_created_at: string | null
+  pipedrive_stage_entered_at: string | null
   expected_close_date: string | null
   score: number | null
   focus_items: string[] | null
+  created_at?: string
+  updated_at?: string
   organizations?: Organization | null
   people?: Person | null
   bpo_partners?: BpoPartner | null
