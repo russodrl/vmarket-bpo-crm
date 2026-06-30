@@ -15,6 +15,9 @@ import {
   MessageSquare,
   PhoneCall,
   FileText,
+  Filter,
+  Star,
+  User,
   ClipboardList,
   CheckSquare,
   Users,
@@ -53,6 +56,194 @@ type ActivityEditDraft = NewActivity & {
 }
 
 type DeleteTarget = 'deal' | 'activity' | 'person' | 'organization' | 'user'
+
+
+type FilterEntity = 'deal' | 'person' | 'organization' | 'activity'
+type FilterGroup = 'all' | 'any'
+type FilterOperator = 'contains' | 'equals' | 'is_empty' | 'is_not_empty'
+type FilterField = {
+  id: string
+  entity: FilterEntity
+  key: string
+  label: string
+  type: 'text' | 'number' | 'date' | 'option' | 'custom'
+  customFieldId?: string
+}
+type FilterRule = {
+  id: string
+  group: FilterGroup
+  entity: FilterEntity
+  fieldId: string
+  operator: FilterOperator
+  value: string
+}
+type SavedDealFilter = {
+  id: string
+  name: string
+  favorite: boolean
+  visibility: 'private'
+  rules: FilterRule[]
+  createdAt: string
+}
+type FilterDraft = {
+  id?: string
+  name: string
+  favorite: boolean
+  rules: FilterRule[]
+}
+
+type FilterContext = {
+  stages: Stage[]
+  activities: ActivityRow[]
+  customFields: CustomField[]
+  customFieldValues: CustomFieldValue[]
+}
+
+const filterEntityLabel: Record<FilterEntity, string> = {
+  deal: 'Negócio',
+  person: 'Pessoa',
+  organization: 'Empresa',
+  activity: 'Atividade',
+}
+const filterOperatorLabel: Record<FilterOperator, string> = {
+  contains: 'contém',
+  equals: 'é igual a',
+  is_empty: 'está vazio',
+  is_not_empty: 'não está vazio',
+}
+const dealFilterStorageKey = 'vmarket-crm-deal-filters'
+const emptyFilterDraft = (): FilterDraft => ({ name: '', favorite: false, rules: [newFilterRule('all')] })
+function newFilterRule(group: FilterGroup): FilterRule {
+  return { id: `rule-${Date.now()}-${Math.random().toString(16).slice(2)}`, group, entity: 'deal', fieldId: '', operator: 'contains', value: '' }
+}
+function normalizeFilterValue(value: unknown): string {
+  if (value === null || value === undefined) return ''
+  if (Array.isArray(value)) return value.map(normalizeFilterValue).filter(Boolean).join(', ')
+  if (typeof value === 'object') return JSON.stringify(value)
+  return String(value)
+}
+function normalizeForCompare(value: unknown) {
+  return normalizeFilterValue(value).toLocaleLowerCase('pt-BR').trim()
+}
+function formatFilterValue(value: unknown) {
+  const text = normalizeFilterValue(value)
+  return text || 'Vazio'
+}
+function uniqueValues(values: unknown[]) {
+  const seen = new Map<string, string>()
+  values.map(formatFilterValue).forEach((value) => {
+    const key = value.toLocaleLowerCase('pt-BR')
+    if (value && !seen.has(key)) seen.set(key, value)
+  })
+  return [...seen.values()].sort((a, b) => a.localeCompare(b, 'pt-BR')).slice(0, 80)
+}
+function getCustomFieldValue(customFieldValues: CustomFieldValue[], fieldId: string, entityId?: string | null) {
+  if (!entityId) return ''
+  return customFieldValues.find((value) => value.field_id === fieldId && value.entity_id === entityId)?.value ?? ''
+}
+function getFilterRawValue(deal: Deal, rule: FilterRule, fields: FilterField[], context: FilterContext): unknown {
+  const field = fields.find((item) => item.id === rule.fieldId)
+  if (!field) return ''
+  if (field.customFieldId) {
+    if (field.entity === 'deal') return getCustomFieldValue(context.customFieldValues, field.customFieldId, deal.id)
+    if (field.entity === 'person') return getCustomFieldValue(context.customFieldValues, field.customFieldId, deal.person_id)
+    if (field.entity === 'organization') return getCustomFieldValue(context.customFieldValues, field.customFieldId, deal.organization_id)
+    const activityValues = context.activities
+      .filter((activity) => activity.deal_id === deal.id)
+      .map((activity) => getCustomFieldValue(context.customFieldValues, field.customFieldId!, activity.id))
+    return activityValues.filter(Boolean).join(', ')
+  }
+  if (field.entity === 'deal') {
+    if (field.key === 'stage') return context.stages.find((stage) => stage.id === deal.stage_id)?.name || deal.pipeline_stages?.name || ''
+    if (field.key === 'pipeline') return context.stages.find((stage) => stage.id === deal.stage_id)?.pipeline_name || deal.pipeline_stages?.pipeline_name || ''
+    if (field.key === 'owner') return deal.pipedrive_owner_name || deal.bpo_partners?.name || deal.owner_id || ''
+    return (deal as unknown as Record<string, unknown>)[field.key]
+  }
+  if (field.entity === 'person') return (deal.people as unknown as Record<string, unknown> | undefined)?.[field.key]
+  if (field.entity === 'organization') return (deal.organizations as unknown as Record<string, unknown> | undefined)?.[field.key]
+  const values = context.activities.filter((activity) => activity.deal_id === deal.id).map((activity) => {
+    if (field.key === 'display_status') return activityDisplayStatus(activity)
+    return (activity as unknown as Record<string, unknown>)[field.key]
+  })
+  return values.filter((value) => normalizeFilterValue(value)).join(', ')
+}
+function matchesFilterRule(deal: Deal, rule: FilterRule, fields: FilterField[], context: FilterContext) {
+  if (!rule.fieldId) return true
+  const raw = getFilterRawValue(deal, rule, fields, context)
+  const value = normalizeForCompare(raw)
+  const expected = normalizeForCompare(rule.value)
+  if (rule.operator === 'is_empty') return !value
+  if (rule.operator === 'is_not_empty') return Boolean(value)
+  if (!expected) return true
+  if (rule.operator === 'equals') return value === expected
+  return value.includes(expected)
+}
+function filterDealsBySavedFilter(deals: Deal[], savedFilter: SavedDealFilter | undefined, fields: FilterField[], context: FilterContext) {
+  if (!savedFilter || !savedFilter.rules.length) return deals
+  const allRules = savedFilter.rules.filter((rule) => rule.group === 'all' && rule.fieldId)
+  const anyRules = savedFilter.rules.filter((rule) => rule.group === 'any' && rule.fieldId)
+  return deals.filter((deal) => {
+    const allOk = allRules.every((rule) => matchesFilterRule(deal, rule, fields, context))
+    const anyOk = anyRules.length === 0 || anyRules.some((rule) => matchesFilterRule(deal, rule, fields, context))
+    return allOk && anyOk
+  })
+}
+function loadSavedDealFilters(): SavedDealFilter[] {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(dealFilterStorageKey) || '[]')
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+function saveDealFilters(filters: SavedDealFilter[]) {
+  window.localStorage.setItem(dealFilterStorageKey, JSON.stringify(filters))
+}
+function buildFilterFields(customFields: CustomField[]): FilterField[] {
+  const base: FilterField[] = [
+    { id: 'deal:title', entity: 'deal', key: 'title', label: 'Título', type: 'text' },
+    { id: 'deal:value', entity: 'deal', key: 'value', label: 'Valor', type: 'number' },
+    { id: 'deal:monthly_purchase', entity: 'deal', key: 'monthly_purchase', label: 'GMV mensal', type: 'number' },
+    { id: 'deal:estimated_savings', entity: 'deal', key: 'estimated_savings', label: 'Economia estimada', type: 'number' },
+    { id: 'deal:probability', entity: 'deal', key: 'probability', label: 'Probabilidade', type: 'number' },
+    { id: 'deal:status', entity: 'deal', key: 'status', label: 'Status', type: 'option' },
+    { id: 'deal:source', entity: 'deal', key: 'source', label: 'Origem', type: 'text' },
+    { id: 'deal:stage', entity: 'deal', key: 'stage', label: 'Etapa', type: 'option' },
+    { id: 'deal:pipeline', entity: 'deal', key: 'pipeline', label: 'Funil', type: 'option' },
+    { id: 'deal:owner', entity: 'deal', key: 'owner', label: 'Proprietário do negócio', type: 'text' },
+    { id: 'deal:pipedrive_owner_name', entity: 'deal', key: 'pipedrive_owner_name', label: 'Proprietário no Pipedrive', type: 'text' },
+    { id: 'deal:expected_close_date', entity: 'deal', key: 'expected_close_date', label: 'Data esperada de fechamento', type: 'date' },
+    { id: 'deal:pipedrive_deal_created_at', entity: 'deal', key: 'pipedrive_deal_created_at', label: 'Criação do Negócio', type: 'date' },
+    { id: 'deal:created_at', entity: 'deal', key: 'created_at', label: 'Criado em', type: 'date' },
+    { id: 'deal:updated_at', entity: 'deal', key: 'updated_at', label: 'Atualizado em', type: 'date' },
+    { id: 'person:full_name', entity: 'person', key: 'full_name', label: 'Nome da pessoa', type: 'text' },
+    { id: 'person:role_title', entity: 'person', key: 'role_title', label: 'Cargo da pessoa', type: 'text' },
+    { id: 'person:email', entity: 'person', key: 'email', label: 'Email da pessoa', type: 'text' },
+    { id: 'person:phone', entity: 'person', key: 'phone', label: 'Telefone da pessoa', type: 'text' },
+    { id: 'organization:name', entity: 'organization', key: 'name', label: 'Nome da empresa', type: 'text' },
+    { id: 'organization:segment', entity: 'organization', key: 'segment', label: 'Segmento da empresa', type: 'text' },
+    { id: 'organization:city', entity: 'organization', key: 'city', label: 'Cidade da empresa', type: 'text' },
+    { id: 'organization:state', entity: 'organization', key: 'state', label: 'Estado da empresa', type: 'text' },
+    { id: 'organization:cnpjs', entity: 'organization', key: 'cnpjs', label: 'CNPJs', type: 'number' },
+    { id: 'organization:monthly_purchase', entity: 'organization', key: 'monthly_purchase', label: 'Compra mensal', type: 'number' },
+    { id: 'organization:supplier_count', entity: 'organization', key: 'supplier_count', label: 'Qtd. fornecedores', type: 'number' },
+    { id: 'activity:title', entity: 'activity', key: 'title', label: 'Título da atividade', type: 'text' },
+    { id: 'activity:activity_type', entity: 'activity', key: 'activity_type', label: 'Tipo de atividade', type: 'option' },
+    { id: 'activity:display_status', entity: 'activity', key: 'display_status', label: 'Status da atividade', type: 'option' },
+    { id: 'activity:due_at', entity: 'activity', key: 'due_at', label: 'Vencimento da atividade', type: 'date' },
+    { id: 'activity:note', entity: 'activity', key: 'note', label: 'Nota da atividade', type: 'text' },
+    { id: 'activity:completed_at', entity: 'activity', key: 'completed_at', label: 'Conclusão da atividade', type: 'date' },
+  ]
+  const custom = customFields.map((field): FilterField => ({
+    id: `${field.entity}:custom:${field.id}`,
+    entity: field.entity,
+    key: field.name,
+    label: field.name,
+    type: 'custom',
+    customFieldId: field.id,
+  }))
+  return [...base, ...custom]
+}
 
 const blankNewDeal = (): NewDeal => ({
   title: '',
@@ -319,6 +510,9 @@ function App() {
   const [creating, setCreating] = useState(false)
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [pipelineView, setPipelineView] = useState<'kanban' | 'list' | 'forecast'>('kanban')
+  const [savedDealFilters, setSavedDealFilters] = useState<SavedDealFilter[]>(() => loadSavedDealFilters())
+  const [activeDealFilterId, setActiveDealFilterId] = useState('')
+  const [activeOwnerFilterId, setActiveOwnerFilterId] = useState('')
   const [detailDealId, setDetailDealId] = useState(() => new URLSearchParams(window.location.search).get('deal') || '')
   const [newDeal, setNewDeal] = useState<NewDeal>(() => blankNewDeal())
   const pipelineNames = useMemo(() => {
@@ -330,10 +524,14 @@ function App() {
     return source.length ? source : stages
   }, [stages, pipelineNames, activePipeline])
   const salesStages = useMemo(() => stages.filter((stage) => stage.pipeline_name === 'Pipeline de Vendas'), [stages])
+  const filterFields = useMemo(() => buildFilterFields(customFields), [customFields])
+  const filterContext = useMemo(() => ({ stages, activities, customFields, customFieldValues }), [stages, activities, customFields, customFieldValues])
   const visibleDeals = useMemo(() => {
     const visibleStageIds = new Set(visibleStages.map((stage) => stage.id))
-    return visibleStageIds.size ? deals.filter((deal) => deal.stage_id && visibleStageIds.has(deal.stage_id)) : deals
-  }, [deals, visibleStages])
+    const pipelineDeals = visibleStageIds.size ? deals.filter((deal) => deal.stage_id && visibleStageIds.has(deal.stage_id)) : deals
+    const ownerDeals = activeOwnerFilterId ? pipelineDeals.filter((deal) => deal.owner_id === activeOwnerFilterId) : pipelineDeals
+    return filterDealsBySavedFilter(ownerDeals, savedDealFilters.find((filter) => filter.id === activeDealFilterId), filterFields, filterContext)
+  }, [deals, visibleStages, activeOwnerFilterId, savedDealFilters, activeDealFilterId, filterFields, filterContext])
 
   const detailDeal = useMemo(() => deals.find((d) => d.id === detailDealId), [deals, detailDealId])
 
@@ -683,6 +881,35 @@ function App() {
     window.history.pushState({}, '', window.location.pathname)
   }
 
+  function persistDealFilters(next: SavedDealFilter[]) {
+    setSavedDealFilters(next)
+    saveDealFilters(next)
+  }
+
+  function saveDealFilter(draft: FilterDraft) {
+    const rules = draft.rules.filter((rule) => rule.fieldId || rule.operator === 'is_empty' || rule.operator === 'is_not_empty')
+    const saved: SavedDealFilter = {
+      id: draft.id || `filter-${Date.now()}`,
+      name: draft.name.trim() || 'Filtro sem nome',
+      favorite: draft.favorite,
+      visibility: 'private',
+      rules,
+      createdAt: new Date().toISOString(),
+    }
+    const next = savedDealFilters.some((filter) => filter.id === saved.id)
+      ? savedDealFilters.map((filter) => filter.id === saved.id ? saved : filter)
+      : [...savedDealFilters, saved]
+    persistDealFilters(next)
+    setActiveDealFilterId(saved.id)
+    setActiveOwnerFilterId('')
+  }
+
+  function deleteDealFilter(id: string) {
+    const next = savedDealFilters.filter((filter) => filter.id !== id)
+    persistDealFilters(next)
+    if (activeDealFilterId === id) setActiveDealFilterId('')
+  }
+
   async function saveDeal(form: DealForm, customValues: Record<string, string>) {
     if (!detailDeal) return
     setError('')
@@ -794,7 +1021,7 @@ function App() {
             {error && <div className="m-4 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><b>Erro:</b> {error}</div>}
             {loading ? <div className="m-4 rounded bg-white p-4 text-sm shadow-sm">Carregando dados do Supabase...</div> : (
               <>
-                {activeView === 'pipeline' && <PipelineView stages={visibleStages} salesStages={salesStages} deals={visibleDeals} activities={activities} crmUsers={crmUsers} dealLabelAssignments={dealLabelAssignments} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} setDraggingId={setDraggingId} handleDrop={handleDrop} newDeal={newDeal} setNewDeal={setNewDeal} createDeal={createDeal} creating={creating} canAssignOwner={profile?.role === 'admin_vmarket'} activePipeline={activePipeline} setActivePipeline={setActivePipeline} pipelineNames={pipelineNames} pipelineView={pipelineView} setPipelineView={setPipelineView} />}
+                {activeView === 'pipeline' && <PipelineView stages={visibleStages} salesStages={salesStages} deals={visibleDeals} allDeals={deals} activities={activities} crmUsers={crmUsers} dealLabelAssignments={dealLabelAssignments} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} setDraggingId={setDraggingId} handleDrop={handleDrop} newDeal={newDeal} setNewDeal={setNewDeal} createDeal={createDeal} creating={creating} canAssignOwner={profile?.role === 'admin_vmarket'} activePipeline={activePipeline} setActivePipeline={setActivePipeline} pipelineNames={pipelineNames} pipelineView={pipelineView} setPipelineView={setPipelineView} savedDealFilters={savedDealFilters} activeDealFilterId={activeDealFilterId} setActiveDealFilterId={setActiveDealFilterId} activeOwnerFilterId={activeOwnerFilterId} setActiveOwnerFilterId={setActiveOwnerFilterId} filterFields={filterFields} filterContext={filterContext} saveDealFilter={saveDealFilter} deleteDealFilter={deleteDealFilter} />}
                 {activeView === 'contacts' && <ListView title="Contatos" icon={<Contact size={18}/>} rows={people.map((p) => ({ id: p.id, title: p.full_name, sub: `${p.role_title || 'Contato'} · ${p.email || 'sem email'}`, meta: p.phone || 'sem telefone' }))} canDelete={profile?.role === 'admin_vmarket'} onDelete={(id, label) => deleteOneRecord('person', id, label)} />}
                 {activeView === 'companies' && <ListView title="Empresas" icon={<Building2 size={18}/>} rows={organizations.map((o) => ({ id: o.id, title: o.name, sub: `${o.segment || 'Segmento não informado'} · ${o.city || ''} ${o.state || ''}`, meta: money(o.monthly_purchase) }))} canDelete={profile?.role === 'admin_vmarket'} onDelete={(id, label) => deleteOneRecord('organization', id, label)} />}
                 {activeView === 'activities' && <ActivitiesView activities={activities} deals={deals} completeActivity={completeActivity} updateActivity={updateActivity} canDelete={profile?.role === 'admin_vmarket'} deleteActivity={(id, label) => deleteOneRecord('activity', id, label)} />}
@@ -810,10 +1037,11 @@ function App() {
   )
 }
 
-function PipelineView({ stages, salesStages, deals, activities, crmUsers, dealLabelAssignments, selectedId, setSelectedId, openDealPage, setDraggingId, handleDrop, newDeal, setNewDeal, createDeal, creating, canAssignOwner, activePipeline, setActivePipeline, pipelineNames, pipelineView, setPipelineView }: {
+function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUsers, dealLabelAssignments, selectedId, setSelectedId, openDealPage, setDraggingId, handleDrop, newDeal, setNewDeal, createDeal, creating, canAssignOwner, activePipeline, setActivePipeline, pipelineNames, pipelineView, setPipelineView, savedDealFilters, activeDealFilterId, setActiveDealFilterId, activeOwnerFilterId, setActiveOwnerFilterId, filterFields, filterContext, saveDealFilter, deleteDealFilter }: {
   stages: Stage[]
   salesStages: Stage[]
   deals: Deal[]
+  allDeals: Deal[]
   activities: ActivityRow[]
   crmUsers: CrmUser[]
   dealLabelAssignments: DealLabelAssignment[]
@@ -832,8 +1060,22 @@ function PipelineView({ stages, salesStages, deals, activities, crmUsers, dealLa
   pipelineNames: string[]
   pipelineView: 'kanban' | 'list' | 'forecast'
   setPipelineView: (view: 'kanban' | 'list' | 'forecast') => void
+  savedDealFilters: SavedDealFilter[]
+  activeDealFilterId: string
+  setActiveDealFilterId: (id: string) => void
+  activeOwnerFilterId: string
+  setActiveOwnerFilterId: (id: string) => void
+  filterFields: FilterField[]
+  filterContext: FilterContext
+  saveDealFilter: (draft: FilterDraft) => void
+  deleteDealFilter: (id: string) => void
 }) {
   const [showCreateDeal, setShowCreateDeal] = useState(false)
+  const [showFilters, setShowFilters] = useState(false)
+  const [editingFilter, setEditingFilter] = useState<FilterDraft | null>(null)
+  const activeFilter = savedDealFilters.find((filter) => filter.id === activeDealFilterId)
+  const activeOwner = crmUsers.find((user) => user.auth_user_id === activeOwnerFilterId)
+  const filterButtonLabel = activeFilter?.name || activeOwner?.full_name || 'Filtro'
   const submitCreateDeal = async (e: FormEvent) => {
     await createDeal(e)
     setShowCreateDeal(false)
@@ -884,6 +1126,24 @@ function PipelineView({ stages, salesStages, deals, activities, crmUsers, dealLa
           <select value={activePipeline} onChange={(e) => setActivePipeline(e.target.value)} className="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 outline-none">
             {(pipelineNames.length ? pipelineNames : ['Pipeline de Vendas']).map((name) => <option key={name}>{name}</option>)}
           </select>
+          <div className="relative">
+            <button type="button" onClick={() => setShowFilters((current) => !current)} className={cn('inline-flex items-center gap-2 rounded border px-3 py-1.5 text-sm font-semibold shadow-sm', activeDealFilterId || activeOwnerFilterId ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50')}>
+              <Filter size={15}/>
+              {filterButtonLabel}
+            </button>
+            {showFilters && <DealFilterDropdown
+              filters={savedDealFilters}
+              activeFilterId={activeDealFilterId}
+              activeOwnerId={activeOwnerFilterId}
+              users={crmUsers}
+              onSelectFilter={(id) => { setActiveDealFilterId(id); setActiveOwnerFilterId(''); setShowFilters(false) }}
+              onSelectOwner={(id) => { setActiveOwnerFilterId(id); setActiveDealFilterId(''); setShowFilters(false) }}
+              onClear={() => { setActiveDealFilterId(''); setActiveOwnerFilterId(''); setShowFilters(false) }}
+              onCreate={() => { setEditingFilter(emptyFilterDraft()); setShowFilters(false) }}
+              onEdit={(filter) => { setEditingFilter({ id: filter.id, name: filter.name, favorite: filter.favorite, rules: filter.rules.length ? filter.rules : [newFilterRule('all')] }); setShowFilters(false) }}
+              onDelete={deleteDealFilter}
+            />}
+          </div>
         </div>
       </div>
     </div>
@@ -924,6 +1184,165 @@ function PipelineView({ stages, salesStages, deals, activities, crmUsers, dealLa
     </div> : pipelineView === 'list' ? <ListViewDeals deals={deals} stages={stages} dealLabelAssignments={dealLabelAssignments} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} /> : <ForecastView deals={deals} stages={stages} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} />}
 
     {showCreateDeal && <CreateDealModal salesStages={salesStages} crmUsers={crmUsers} canAssignOwner={canAssignOwner} newDeal={newDeal} setNewDeal={setNewDeal} createDeal={submitCreateDeal} creating={creating} close={() => { setShowCreateDeal(false); setNewDeal(blankNewDeal()) }} />}
+    {editingFilter && <DealFilterBuilderModal
+      draft={editingFilter}
+      setDraft={setEditingFilter}
+      fields={filterFields}
+      deals={allDeals}
+      context={filterContext}
+      onClose={() => setEditingFilter(null)}
+      onSave={(draft) => { saveDealFilter(draft); setEditingFilter(null) }}
+    />}
+  </div>
+}
+
+function DealFilterDropdown({ filters, activeFilterId, activeOwnerId, users, onSelectFilter, onSelectOwner, onClear, onCreate, onEdit, onDelete }: {
+  filters: SavedDealFilter[]
+  activeFilterId: string
+  activeOwnerId: string
+  users: CrmUser[]
+  onSelectFilter: (id: string) => void
+  onSelectOwner: (id: string) => void
+  onClear: () => void
+  onCreate: () => void
+  onEdit: (filter: SavedDealFilter) => void
+  onDelete: (id: string) => void
+}) {
+  const [tab, setTab] = useState<'favorites' | 'owners' | 'filters'>('owners')
+  const [query, setQuery] = useState('')
+  const normalizedQuery = query.toLocaleLowerCase('pt-BR').trim()
+  const visibleUsers = users.filter((user) => user.full_name.toLocaleLowerCase('pt-BR').includes(normalizedQuery) || (user.email || '').toLocaleLowerCase('pt-BR').includes(normalizedQuery))
+  const favoriteFilters = filters.filter((filter) => filter.favorite)
+  const visibleFilters = (tab === 'favorites' ? favoriteFilters : filters).filter((filter) => filter.name.toLocaleLowerCase('pt-BR').includes(normalizedQuery))
+
+  return <div className="absolute right-0 top-full z-40 mt-2 w-[min(92vw,370px)] overflow-hidden rounded border border-slate-200 bg-white text-slate-800 shadow-2xl">
+    <div className="border-b border-slate-200 p-2">
+      <div className="flex items-center gap-2 rounded border border-slate-300 px-2 py-1.5 text-sm focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100">
+        <Search size={16} className="text-slate-500"/>
+        <input value={query} onChange={(e) => setQuery(e.target.value)} className="min-w-0 flex-1 bg-transparent outline-none" placeholder="Pesquisar proprietário ou filtro" />
+      </div>
+      <div className="mt-2 grid grid-cols-3 text-xs font-semibold text-slate-500">
+        <button type="button" onClick={() => setTab('favorites')} className={cn('grid gap-1 border-b-2 px-2 py-2', tab === 'favorites' ? 'border-blue-500 text-blue-600' : 'border-transparent hover:text-slate-800')}><Star size={17} className="mx-auto"/>Favoritos</button>
+        <button type="button" onClick={() => setTab('owners')} className={cn('grid gap-1 border-b-2 px-2 py-2', tab === 'owners' ? 'border-blue-500 text-blue-600' : 'border-transparent hover:text-slate-800')}><User size={17} className="mx-auto"/>Proprietários</button>
+        <button type="button" onClick={() => setTab('filters')} className={cn('grid gap-1 border-b-2 px-2 py-2', tab === 'filters' ? 'border-blue-500 text-blue-600' : 'border-transparent hover:text-slate-800')}><Filter size={17} className="mx-auto"/>Filtros</button>
+      </div>
+    </div>
+    <div className="max-h-[430px] overflow-y-auto py-1">
+      {tab === 'owners' && <>
+        <button type="button" onClick={onClear} className="flex w-full items-center justify-between px-4 py-2 text-left text-sm font-bold hover:bg-blue-50"><span>Todos</span>{!activeFilterId && !activeOwnerId && <span>✓</span>}</button>
+        {visibleUsers.map((user) => <button type="button" key={user.id} onClick={() => user.auth_user_id ? onSelectOwner(user.auth_user_id) : undefined} disabled={!user.auth_user_id} className="flex w-full items-center gap-3 px-4 py-2 text-left text-sm hover:bg-blue-50 disabled:opacity-45">
+          <span className="grid h-7 w-7 place-items-center rounded-full bg-slate-200 text-xs font-bold text-slate-600">{user.full_name.slice(0, 1)}</span>
+          <span className="min-w-0 flex-1 truncate">{user.full_name}</span>
+          {activeOwnerId === user.auth_user_id && <span>✓</span>}
+        </button>)}
+      </>}
+      {(tab === 'favorites' || tab === 'filters') && <>
+        {visibleFilters.map((filter) => <div key={filter.id} className="group flex items-center gap-2 px-3 py-2 hover:bg-blue-50">
+          <button type="button" onClick={() => onSelectFilter(filter.id)} className="flex min-w-0 flex-1 items-center gap-2 text-left text-sm">
+            <span className={cn('text-lg', filter.favorite ? 'text-amber-400' : 'text-slate-300')}>★</span>
+            <span className="min-w-0 flex-1 truncate font-semibold">{filter.name}</span>
+            {activeFilterId === filter.id && <span>✓</span>}
+          </button>
+          <button type="button" onClick={() => onEdit(filter)} className="rounded px-2 py-1 text-[11px] font-bold text-blue-600 opacity-0 hover:bg-blue-100 group-hover:opacity-100">Editar</button>
+          <button type="button" onClick={() => onDelete(filter.id)} className="rounded px-2 py-1 text-[11px] font-bold text-rose-600 opacity-0 hover:bg-rose-100 group-hover:opacity-100">Apagar</button>
+        </div>)}
+        {!visibleFilters.length && <div className="px-4 py-8 text-center text-sm text-slate-400">Nenhum filtro salvo.</div>}
+      </>}
+    </div>
+    <button type="button" onClick={onCreate} className="flex w-full items-center gap-3 border-t border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50"><span className="text-blue-600">+</span>Adicionar novo filtro</button>
+  </div>
+}
+
+function DealFilterBuilderModal({ draft, setDraft, fields, deals, context, onClose, onSave }: {
+  draft: FilterDraft
+  setDraft: (draft: FilterDraft | null) => void
+  fields: FilterField[]
+  deals: Deal[]
+  context: FilterContext
+  onClose: () => void
+  onSave: (draft: FilterDraft) => void
+}) {
+  const [fieldSearch, setFieldSearch] = useState('')
+  const filteredFields = fields.filter((field) => {
+    const query = fieldSearch.toLocaleLowerCase('pt-BR').trim()
+    return !query || `${filterEntityLabel[field.entity]} ${field.label}`.toLocaleLowerCase('pt-BR').includes(query)
+  })
+  const updateRule = (id: string, patch: Partial<FilterRule>) => setDraft({ ...draft, rules: draft.rules.map((rule) => rule.id === id ? { ...rule, ...patch, fieldId: patch.entity && patch.entity !== rule.entity ? '' : (patch.fieldId ?? rule.fieldId) } : rule) })
+  const removeRule = (id: string) => setDraft({ ...draft, rules: draft.rules.filter((rule) => rule.id !== id) })
+  const addRule = (group: FilterGroup) => setDraft({ ...draft, rules: [...draft.rules, newFilterRule(group)] })
+  const fieldsForEntity = (entity: FilterEntity) => filteredFields.filter((field) => field.entity === entity)
+  const valuesForRule = (rule: FilterRule) => uniqueValues(deals.map((deal) => getFilterRawValue(deal, rule, fields, context)))
+  const previewCount = filterDealsBySavedFilter(deals, { id: draft.id || 'preview', name: draft.name, favorite: draft.favorite, visibility: 'private', rules: draft.rules, createdAt: new Date().toISOString() }, fields, context).length
+  const renderRules = (group: FilterGroup) => {
+    const rules = draft.rules.filter((rule) => rule.group === group)
+    return <div className="space-y-2">
+      {rules.map((rule, index) => {
+        const values = valuesForRule(rule)
+        return <div key={rule.id} className="rounded-lg border border-slate-200 bg-white p-3">
+          {index > 0 && <div className="mb-2 text-center text-[11px] font-black uppercase text-slate-400">{group === 'all' ? 'E' : 'OU'}</div>}
+          <div className="grid gap-2 md:grid-cols-[140px_1fr_130px_1fr_38px]">
+            <select value={rule.entity} onChange={(e) => updateRule(rule.id, { entity: e.target.value as FilterEntity })} className="rounded border border-slate-300 bg-white px-2 py-2 text-sm outline-none">
+              {(Object.keys(filterEntityLabel) as FilterEntity[]).map((entity) => <option key={entity} value={entity}>{filterEntityLabel[entity]}</option>)}
+            </select>
+            <select value={rule.fieldId} onChange={(e) => updateRule(rule.id, { fieldId: e.target.value })} className="rounded border border-slate-300 bg-white px-2 py-2 text-sm outline-none">
+              <option value="">Selecione o campo</option>
+              {fieldsForEntity(rule.entity).map((field) => <option key={field.id} value={field.id}>{field.label}</option>)}
+            </select>
+            <select value={rule.operator} onChange={(e) => updateRule(rule.id, { operator: e.target.value as FilterOperator })} className="rounded border border-slate-300 bg-white px-2 py-2 text-sm outline-none">
+              {(Object.keys(filterOperatorLabel) as FilterOperator[]).map((operator) => <option key={operator} value={operator}>{filterOperatorLabel[operator]}</option>)}
+            </select>
+            <input list={`values-${rule.id}`} value={rule.value} onChange={(e) => updateRule(rule.id, { value: e.target.value })} disabled={rule.operator === 'is_empty' || rule.operator === 'is_not_empty'} placeholder="Digite ou selecione o valor" className="rounded border border-slate-300 px-2 py-2 text-sm outline-none disabled:bg-slate-100" />
+            <datalist id={`values-${rule.id}`}>{values.map((value) => <option key={value} value={value}/>)}</datalist>
+            <button type="button" onClick={() => removeRule(rule.id)} className="rounded border border-slate-200 text-slate-400 hover:bg-rose-50 hover:text-rose-600">×</button>
+          </div>
+        </div>
+      })}
+      <button type="button" onClick={() => addRule(group)} className="text-sm font-semibold text-blue-600 hover:text-blue-700">+ Adicionar condição</button>
+    </div>
+  }
+
+  return <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 p-4 backdrop-blur-sm">
+    <div className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+      <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+        <div>
+          <h2 className="text-xl font-bold text-slate-950">Criar novo filtro</h2>
+          <p className="mt-1 text-sm text-slate-500">Filtre negócios usando campos de negócios, pessoas, empresas e atividades.</p>
+        </div>
+        <button onClick={onClose} className="grid h-9 w-9 place-items-center rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50" type="button">×</button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto p-5">
+        <div className="mb-4 flex items-center gap-2 rounded border border-slate-300 px-3 py-2 text-sm focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100">
+          <Search size={16} className="text-slate-500"/>
+          <input value={fieldSearch} onChange={(e) => setFieldSearch(e.target.value)} className="min-w-0 flex-1 bg-transparent outline-none" placeholder="Digite o nome do campo para filtrar" />
+        </div>
+        <div className="rounded-xl bg-slate-50 p-4">
+          <h3 className="mb-3 text-sm font-bold text-slate-800">Atender a TODAS estas condições</h3>
+          {renderRules('all')}
+        </div>
+        <div className="mt-4 rounded-xl bg-slate-50 p-4">
+          <h3 className="mb-3 text-sm font-bold text-slate-800">E atender a QUALQUER destas condições</h3>
+          {renderRules('any')}
+        </div>
+        <div className="mt-5 grid gap-4 md:grid-cols-[1fr_180px_220px]">
+          <EditInput label="Nome do filtro" value={draft.name} onChange={(value) => setDraft({ ...draft, name: value })} />
+          <label className="block text-sm">
+            <span className="mb-1.5 block font-semibold text-slate-700">Visibilidade</span>
+            <div className="flex items-center gap-2 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-600"><LockKeyhole size={15}/>Privado</div>
+          </label>
+          <label className="mt-7 flex items-center gap-2 text-sm font-semibold text-slate-700">
+            <input type="checkbox" checked={draft.favorite} onChange={(e) => setDraft({ ...draft, favorite: e.target.checked })} />
+            Salvar em favoritos
+          </label>
+        </div>
+      </div>
+      <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-5 py-4">
+        <span className="text-sm text-slate-500">Pré-visualização: <b className="text-slate-800">{previewCount}</b> negócios encontrados</span>
+        <div className="flex gap-2">
+          <button type="button" onClick={onClose} className="rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Cancelar</button>
+          <button type="button" onClick={() => onSave(draft)} className="rounded bg-[#238847] px-5 py-2 text-sm font-bold text-white shadow-sm hover:bg-[#1f7a40]">Salvar</button>
+        </div>
+      </div>
+    </div>
   </div>
 }
 
