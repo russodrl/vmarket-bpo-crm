@@ -208,6 +208,57 @@ export type AuditLog = {
   created_at: string
 }
 
+export type AutomationRule = {
+  id: string
+  name: string
+  status: 'active' | 'paused' | 'draft' | 'deprecated'
+  source_system: string
+  target_system: string
+  trigger_system: string
+  trigger_type: string
+  description: string
+  triggers: unknown[]
+  filters: unknown[]
+  actions: unknown[]
+  fields_involved: unknown[]
+  implementation_refs: unknown[]
+  owner: string
+  created_by: string
+  updated_by: string
+  created_at: string
+  updated_at: string
+}
+
+export type AutomationRuleChange = {
+  id: string
+  rule_id: string
+  change_type: 'created' | 'updated' | 'status_changed' | 'implementation_changed'
+  changed_by: string
+  summary: string
+  before_snapshot: unknown
+  after_snapshot: unknown
+  created_at: string
+}
+
+export type AutomationRuleExecution = {
+  id: string
+  rule_id: string
+  integration_event_id: string | null
+  status: 'processing' | 'success' | 'error' | 'ignored'
+  trigger_system: string | null
+  trigger_type: string | null
+  record_entity: string | null
+  internal_id: string | null
+  external_id: string | null
+  started_at: string
+  finished_at: string | null
+  changed_fields: unknown[]
+  filters_evaluated: unknown[]
+  actions_performed: unknown[]
+  details: unknown
+  error_message: string | null
+}
+
 export type CustomField = {
   id: string
   entity: 'deal' | 'organization' | 'person' | 'activity'

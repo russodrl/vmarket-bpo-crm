@@ -121,9 +121,21 @@ async function handlePipedriveWebhook(payload: JsonRecord) {
     status: 'processing',
     payload,
   })
+  const execution = await createAutomationExecution({
+    rule_id: 'pipedrive_deal_webhook_to_crm',
+    integration_event_id: event.id,
+    status: 'processing',
+    trigger_system: 'Pipedrive',
+    trigger_type: eventType,
+    record_entity: 'deal',
+    external_id: dealId || null,
+    filters_evaluated: [{ field: 'payload.current.id', result: Boolean(dealId) }],
+    details: { event_type: eventType },
+  }).catch(() => null)
 
   if (!dealId) {
     await updateEvent(event.id, { status: 'ignored', error_message: 'No Pipedrive deal id in webhook payload' })
+    await finishAutomationExecution(execution?.id, { status: 'ignored', error_message: 'No Pipedrive deal id in webhook payload', finished_at: new Date().toISOString() }).catch(() => null)
     return { ok: true, ignored: true, reason: 'No deal id' }
   }
 
@@ -132,6 +144,12 @@ async function handlePipedriveWebhook(payload: JsonRecord) {
   const existing = await findExternalRecordByExternal('deal', dealId)
   if (!existing && ALEKSANDER_PIPEDRIVE_USER_ID && ownerId && ownerId !== ALEKSANDER_PIPEDRIVE_USER_ID) {
     await updateEvent(event.id, { status: 'ignored', error_message: `Owner ${ownerId} is not Aleksander` })
+    await finishAutomationExecution(execution?.id, {
+      status: 'ignored',
+      filters_evaluated: [{ field: 'owner/user_id', expected: ALEKSANDER_PIPEDRIVE_USER_ID, actual: ownerId, result: false }],
+      error_message: `Owner ${ownerId} is not Aleksander`,
+      finished_at: new Date().toISOString(),
+    }).catch(() => null)
     return { ok: true, ignored: true, reason: 'Owner is not Aleksander', pipedrive_owner_id: ownerId }
   }
 
@@ -145,6 +163,16 @@ async function handlePipedriveWebhook(payload: JsonRecord) {
     return 0
   })
   await updateEvent(event.id, { status: 'success', internal_id: crmDeal.id, processed_at: new Date().toISOString() })
+  await finishAutomationExecution(execution?.id, {
+    status: 'success',
+    internal_id: crmDeal.id,
+    external_id: dealId,
+    changed_fields: ['deals', 'organizations', 'people', 'custom_field_values', 'deal_history', 'activities', 'external_records'],
+    filters_evaluated: [{ field: 'owner/user_id', expected: ALEKSANDER_PIPEDRIVE_USER_ID, actual: ownerId, result: true }],
+    actions_performed: ['upsert CRM deal', 'sync notes', 'sync activities', 'upsert external records'],
+    details: { notes_synced: notesSynced, activities_synced: activitiesSynced },
+    finished_at: new Date().toISOString(),
+  }).catch(() => null)
   await logEvent({ event_id: event.id, message: 'Pipedrive deal synced inbound', details: { external_id: dealId, internal_id: crmDeal.id, notes_synced: notesSynced, activities_synced: activitiesSynced } })
   return { ok: true, deal_id: crmDeal.id, pipedrive_deal_id: dealId, notes_synced: notesSynced, activities_synced: activitiesSynced }
 }
@@ -165,6 +193,20 @@ async function syncDealToPipedrive(dealId: string, userId: string | null) {
   const orgExternalId = await ensurePipedriveOrganization(integration.id, deal.organization_id, deal.organizations)
   const personExternalId = await ensurePipedrivePerson(integration.id, deal.person_id, deal.people, orgExternalId)
   const external = await findExternalRecord('deal', dealId)
+  const execution = await createAutomationExecution({
+    rule_id: external?.external_id ? 'crm_deal_full_sync_to_pipedrive' : 'crm_manual_deal_create_to_pipedrive',
+    status: 'processing',
+    trigger_system: 'CRM BPO',
+    trigger_type: external?.external_id ? 'sync-existing-deal-to-pipedrive' : 'sync-deal-to-pipedrive',
+    record_entity: 'deal',
+    internal_id: dealId,
+    external_id: external?.external_id || null,
+    filters_evaluated: [
+      { field: 'organization_id', result: Boolean(deal.organization_id) },
+      { field: 'person_id', result: Boolean(deal.person_id) },
+      { field: 'external_records.deal', result: Boolean(external?.external_id) },
+    ],
+  }).catch(() => null)
   const customPayload = await buildPipedriveCustomPayload(dealId, 'deal')
   const body: JsonRecord = {
     title: deal.title,
@@ -189,6 +231,15 @@ async function syncDealToPipedrive(dealId: string, userId: string | null) {
   if (!externalId) throw new Error('Pipedrive did not return a deal id')
 
   await upsertExternalRecord(integration.id, 'deal', dealId, externalId, pdDeal)
+  await finishAutomationExecution(execution?.id, {
+    status: 'success',
+    internal_id: dealId,
+    external_id: externalId,
+    changed_fields: ['deals.title', 'deals.value', 'deals.status', 'deals.expected_close_date', 'deals.stage_id', 'organizations', 'people', 'custom_field_values', 'external_records'],
+    actions_performed: [external?.external_id ? 'PUT /deals/{id}' : 'POST /deals', 'ensure organization', 'ensure person', 'upsert external_records'],
+    details: { pipedrive_deal_id: externalId, pipedrive_person_id: personExternalId, pipedrive_organization_id: orgExternalId },
+    finished_at: new Date().toISOString(),
+  }).catch(() => null)
   await supabase.from('deal_history').insert({ deal_id: dealId, event_type: 'Integração', title: 'Sincronizado com Pipedrive', description: `Pipedrive deal ID ${externalId}` })
   return { ok: true, deal_id: dealId, pipedrive_deal_id: externalId, pipedrive_person_id: personExternalId, pipedrive_organization_id: orgExternalId }
 }
@@ -203,12 +254,39 @@ async function syncExistingDealStageToPipedrive(dealId: string, userId: string |
   if (userId && deal.owner_id && deal.owner_id !== userId) throw new Error('User cannot sync a deal owned by another CRM user')
   if (deal.pipeline_stages?.pipeline_name !== 'Pipeline de Vendas') return { ok: true, ignored: true, reason: 'Stage is not in Pipeline de Vendas', deal_id: dealId }
   const external = await findExternalRecord('deal', dealId)
-  if (!external?.external_id) return { ok: true, ignored: true, reason: 'Deal has no Pipedrive external record', deal_id: dealId }
+  const execution = await createAutomationExecution({
+    rule_id: 'crm_deal_stage_to_pipedrive',
+    status: 'processing',
+    trigger_system: 'CRM BPO',
+    trigger_type: 'sync-existing-deal-stage-to-pipedrive',
+    record_entity: 'deal',
+    internal_id: dealId,
+    external_id: external?.external_id || null,
+    filters_evaluated: [
+      { field: 'pipeline_stages.pipeline_name', expected: 'Pipeline de Vendas', actual: deal.pipeline_stages?.pipeline_name, result: deal.pipeline_stages?.pipeline_name === 'Pipeline de Vendas' },
+      { field: 'external_records.deal', result: Boolean(external?.external_id) },
+      { field: 'pipeline_stages.pipedrive_stage_id', result: Boolean(deal.pipeline_stages?.pipedrive_stage_id) },
+    ],
+  }).catch(() => null)
+  if (!external?.external_id) {
+    await finishAutomationExecution(execution?.id, { status: 'ignored', error_message: 'Deal has no Pipedrive external record', finished_at: new Date().toISOString() }).catch(() => null)
+    return { ok: true, ignored: true, reason: 'Deal has no Pipedrive external record', deal_id: dealId }
+  }
   const pipedriveStageId = deal.pipeline_stages?.pipedrive_stage_id
-  if (!pipedriveStageId) return { ok: true, ignored: true, reason: 'CRM stage has no Pipedrive stage id', deal_id: dealId }
+  if (!pipedriveStageId) {
+    await finishAutomationExecution(execution?.id, { status: 'ignored', error_message: 'CRM stage has no Pipedrive stage id', finished_at: new Date().toISOString() }).catch(() => null)
+    return { ok: true, ignored: true, reason: 'CRM stage has no Pipedrive stage id', deal_id: dealId }
+  }
   const response = await pipedrive(`/deals/${external.external_id}`, { method: 'PUT', body: { stage_id: pipedriveStageId } }) as JsonRecord
   const pdDeal = (response.data || response) as JsonRecord
   await upsertExternalRecord(external.integration_id, 'deal', dealId, String(external.external_id), pdDeal)
+  await finishAutomationExecution(execution?.id, {
+    status: 'success',
+    changed_fields: ['deals.stage_id', 'pipeline_stages.pipedrive_stage_id'],
+    actions_performed: ['PUT /deals/{id} stage_id', 'upsert external_records'],
+    details: { pipedrive_deal_id: external.external_id, pipedrive_stage_id: pipedriveStageId },
+    finished_at: new Date().toISOString(),
+  }).catch(() => null)
   await supabase.from('deal_history').insert({ deal_id: dealId, event_type: 'Integração', title: 'Etapa enviada ao Pipedrive', description: `Pipeline de Vendas sincronizado com Pipedrive deal ID ${external.external_id}` })
   return { ok: true, deal_id: dealId, pipedrive_deal_id: external.external_id, pipedrive_stage_id: pipedriveStageId }
 }
@@ -597,6 +675,18 @@ async function updateEvent(id: string, patch: JsonRecord) {
 
 async function logEvent(payload: { event_id?: string; level?: string; message: string; details?: JsonRecord }) {
   const { error } = await supabase.from('integration_logs').insert({ level: payload.level || 'info', message: payload.message, details: payload.details || {}, event_id: payload.event_id })
+  if (error) throw error
+}
+
+async function createAutomationExecution(payload: JsonRecord) {
+  const { data, error } = await supabase.from('automation_rule_executions').insert(payload).select('*').single()
+  if (error) throw error
+  return data
+}
+
+async function finishAutomationExecution(id: string | undefined, patch: JsonRecord) {
+  if (!id) return
+  const { error } = await supabase.from('automation_rule_executions').update(patch).eq('id', id)
   if (error) throw error
 }
 

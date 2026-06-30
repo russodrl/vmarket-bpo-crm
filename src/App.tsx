@@ -27,10 +27,10 @@ import {
   Settings,
   Tags,
 } from 'lucide-react'
-import { supabase, supabaseConfigured, type ActivityRow, type AuditLog, type CrmCompany, type CrmUser, type CustomField, type CustomFieldValue, type Deal, type DealLabel, type DealLabelAssignment, type HistoryRow, type Organization, type Person, type Profile, type Stage } from './supabase'
+import { supabase, supabaseConfigured, type ActivityRow, type AuditLog, type AutomationRule, type AutomationRuleChange, type AutomationRuleExecution, type CrmCompany, type CrmUser, type CustomField, type CustomFieldValue, type Deal, type DealLabel, type DealLabelAssignment, type HistoryRow, type Organization, type Person, type Profile, type Stage } from './supabase'
 import './App.css'
 
-type View = 'pipeline' | 'contacts' | 'companies' | 'activities' | 'audit' | 'fields' | 'admin'
+type View = 'pipeline' | 'contacts' | 'companies' | 'activities' | 'automations' | 'audit' | 'fields' | 'admin'
 type NewDeal = {
   title: string
   organization_name: string
@@ -494,6 +494,9 @@ function App() {
   const [activities, setActivities] = useState<ActivityRow[]>([])
   const [history, setHistory] = useState<HistoryRow[]>([])
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([])
+  const [automationRules, setAutomationRules] = useState<AutomationRule[]>([])
+  const [automationExecutions, setAutomationExecutions] = useState<AutomationRuleExecution[]>([])
+  const [automationChanges, setAutomationChanges] = useState<AutomationRuleChange[]>([])
   const [dealLabels, setDealLabels] = useState<DealLabel[]>([])
   const [dealLabelAssignments, setDealLabelAssignments] = useState<DealLabelAssignment[]>([])
   const [customFields, setCustomFields] = useState<CustomField[]>([])
@@ -561,7 +564,7 @@ function App() {
     setLoading(true)
     setError('')
     try {
-      const [profileRes, stagesRes, crmUsersRes, crmCompaniesRes, orgRes, peopleRes, dealsRes, actsRes, histRes, auditRes, labelRes, labelAssignRes, fieldsRes, valuesRes] = await Promise.all([
+      const [profileRes, stagesRes, crmUsersRes, crmCompaniesRes, orgRes, peopleRes, dealsRes, actsRes, histRes, auditRes, automationRulesRes, automationExecutionsRes, automationChangesRes, labelRes, labelAssignRes, fieldsRes, valuesRes] = await Promise.all([
         supabase.from('profiles').select('*').eq('id', session!.user.id).maybeSingle(),
         supabase.from('pipeline_stages').select('*').order('sort_order'),
         supabase.from('crm_users').select('*, crm_companies(*)').order('full_name'),
@@ -572,12 +575,15 @@ function App() {
         supabase.from('activities').select('*').order('due_at', { ascending: true }),
         supabase.from('deal_history').select('*').order('created_at', { ascending: false }),
         supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(1000),
+        supabase.from('automation_rules').select('*').order('name'),
+        supabase.from('automation_rule_executions').select('*').order('started_at', { ascending: false }).limit(1000),
+        supabase.from('automation_rule_changes').select('*').order('created_at', { ascending: false }).limit(500),
         supabase.from('deal_labels').select('*').order('name'),
         supabase.from('deal_label_assignments').select('*, deal_labels(*)'),
         supabase.from('custom_fields').select('*').order('sort_order'),
         supabase.from('custom_field_values').select('*'),
       ])
-      const firstError = [profileRes, stagesRes, crmUsersRes, crmCompaniesRes, orgRes, peopleRes, dealsRes, actsRes, histRes, auditRes, labelRes, labelAssignRes, fieldsRes, valuesRes].find((r) => r.error)?.error
+      const firstError = [profileRes, stagesRes, crmUsersRes, crmCompaniesRes, orgRes, peopleRes, dealsRes, actsRes, histRes, auditRes, automationRulesRes, automationExecutionsRes, automationChangesRes, labelRes, labelAssignRes, fieldsRes, valuesRes].find((r) => r.error)?.error
       if (firstError) throw firstError
       setProfile(profileRes.data as Profile | null)
       setStages((stagesRes.data || []) as Stage[])
@@ -592,6 +598,9 @@ function App() {
       setActivities((actsRes.data || []) as ActivityRow[])
       setHistory((histRes.data || []) as HistoryRow[])
       setAuditLogs((auditRes.data || []) as AuditLog[])
+      setAutomationRules((automationRulesRes.data || []) as AutomationRule[])
+      setAutomationExecutions((automationExecutionsRes.data || []) as AutomationRuleExecution[])
+      setAutomationChanges((automationChangesRes.data || []) as AutomationRuleChange[])
       setDealLabels((labelRes.data || []) as DealLabel[])
       setDealLabelAssignments((labelAssignRes.data || []) as DealLabelAssignment[])
       setCustomFields((fieldsRes.data || []) as CustomField[])
@@ -993,6 +1002,7 @@ function App() {
     ['companies', <Building2 size={19}/>, 'Empresas'],
     ['activities', <Activity size={19}/>, 'Atividades'],
   ]
+  if (profile?.role === 'admin_vmarket') navItems.push(['automations', <Settings size={19}/>, 'Automações'])
   if (profile?.role === 'admin_vmarket') navItems.push(['audit', <ClipboardList size={19}/>, 'Log de Alterações'])
   if (profile?.role === 'admin_vmarket') {
     navItems.push(['fields', <Tags size={19}/>, 'Campos'])
@@ -1025,6 +1035,7 @@ function App() {
                 {activeView === 'contacts' && <ListView title="Contatos" icon={<Contact size={18}/>} rows={people.map((p) => ({ id: p.id, title: p.full_name, sub: `${p.role_title || 'Contato'} · ${p.email || 'sem email'}`, meta: p.phone || 'sem telefone' }))} canDelete={profile?.role === 'admin_vmarket'} onDelete={(id, label) => deleteOneRecord('person', id, label)} />}
                 {activeView === 'companies' && <ListView title="Empresas" icon={<Building2 size={18}/>} rows={organizations.map((o) => ({ id: o.id, title: o.name, sub: `${o.segment || 'Segmento não informado'} · ${o.city || ''} ${o.state || ''}`, meta: money(o.monthly_purchase) }))} canDelete={profile?.role === 'admin_vmarket'} onDelete={(id, label) => deleteOneRecord('organization', id, label)} />}
                 {activeView === 'activities' && <ActivitiesView activities={activities} deals={deals} completeActivity={completeActivity} updateActivity={updateActivity} canDelete={profile?.role === 'admin_vmarket'} deleteActivity={(id, label) => deleteOneRecord('activity', id, label)} />}
+                {activeView === 'automations' && profile?.role === 'admin_vmarket' && <AutomationsView rules={automationRules} executions={automationExecutions} changes={automationChanges} />}
                 {activeView === 'audit' && profile?.role === 'admin_vmarket' && <AuditLogView logs={auditLogs} />}
                 {activeView === 'fields' && profile?.role === 'admin_vmarket' && <FieldsConfigView fields={customFields} setError={setError} reload={loadAll} />}
                 {activeView === 'admin' && profile?.role === 'admin_vmarket' && <AdminUsersView users={crmUsers} companies={crmCompanies} dealsCount={deals.length} activitiesCount={activities.length} peopleCount={people.length} organizationsCount={organizations.length} reload={loadAll} setError={setError} />}
@@ -2014,6 +2025,137 @@ function formatAuditValue(value: unknown): string {
     return JSON.stringify(value)
   }
   return String(value)
+}
+
+function automationStatusTone(status: AutomationRuleExecution['status'] | AutomationRule['status']) {
+  if (status === 'success' || status === 'active') return 'bg-emerald-100 text-emerald-700'
+  if (status === 'error') return 'bg-rose-100 text-rose-700'
+  if (status === 'ignored' || status === 'paused') return 'bg-amber-100 text-amber-700'
+  return 'bg-slate-100 text-slate-700'
+}
+
+function jsonList(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : []
+}
+
+function AutomationJsonList({ items }: { items: unknown[] }) {
+  if (!items.length) return <p className="text-sm text-slate-400">Nenhum item registrado.</p>
+  return <div className="space-y-2">
+    {items.map((item, index) => {
+      if (typeof item === 'string') return <div key={index} className="rounded border border-slate-100 bg-white px-3 py-2 text-sm font-semibold text-slate-700">{item}</div>
+      const record = item && typeof item === 'object' ? item as Record<string, unknown> : { valor: item }
+      return <div key={index} className="rounded border border-slate-100 bg-white px-3 py-2 text-sm text-slate-700">
+        {Object.entries(record).map(([key, value]) => <p key={key} className="break-words"><b className="text-slate-900">{key}:</b> {formatAuditValue(value)}</p>)}
+      </div>
+    })}
+  </div>
+}
+
+function AutomationsView({ rules, executions, changes }: { rules: AutomationRule[]; executions: AutomationRuleExecution[]; changes: AutomationRuleChange[] }) {
+  const [selectedRuleId, setSelectedRuleId] = useState(() => rules[0]?.id || '')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const selectedRule = rules.find((rule) => rule.id === selectedRuleId) || rules[0]
+  const executionsForRule = executions.filter((execution) => !selectedRule || execution.rule_id === selectedRule.id)
+  const filteredExecutions = executionsForRule.filter((execution) => statusFilter === 'all' || execution.status === statusFilter)
+  const changesForRule = changes.filter((change) => !selectedRule || change.rule_id === selectedRule.id)
+  const totalSuccess = executions.filter((execution) => execution.status === 'success').length
+  const totalErrors = executions.filter((execution) => execution.status === 'error').length
+  const totalIgnored = executions.filter((execution) => execution.status === 'ignored').length
+
+  if (!rules.length) return <div className="h-full overflow-y-auto p-5"><Panel className="p-8 text-center text-slate-500">Nenhuma regra de automação registrada ainda.</Panel></div>
+
+  return <div className="h-full overflow-y-auto p-5">
+    <div className="mb-4 grid gap-3 md:grid-cols-4">
+      <Panel className="p-4"><p className="text-xs font-bold uppercase text-slate-400">Regras cadastradas</p><p className="mt-1 text-2xl font-black text-slate-900">{rules.length}</p></Panel>
+      <Panel className="p-4"><p className="text-xs font-bold uppercase text-slate-400">Execuções OK</p><p className="mt-1 text-2xl font-black text-emerald-600">{totalSuccess}</p></Panel>
+      <Panel className="p-4"><p className="text-xs font-bold uppercase text-slate-400">Ignoradas</p><p className="mt-1 text-2xl font-black text-amber-600">{totalIgnored}</p></Panel>
+      <Panel className="p-4"><p className="text-xs font-bold uppercase text-slate-400">Erros</p><p className="mt-1 text-2xl font-black text-rose-600">{totalErrors}</p></Panel>
+    </div>
+
+    <div className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
+      <Panel className="overflow-hidden">
+        <div className="border-b border-slate-200 bg-white p-4">
+          <div className="flex items-center gap-2"><Settings size={18} className="text-[#6f5cf6]"/><h2 className="text-lg font-bold">Automações</h2></div>
+          <p className="mt-2 text-sm text-slate-500">Catálogo das regras entre Pipedrive, CRM BPO e automações complementares. Novas regras devem ser registradas aqui.</p>
+        </div>
+        <div className="divide-y divide-slate-100">
+          {rules.map((rule) => {
+            const lastExecution = executions.find((execution) => execution.rule_id === rule.id)
+            return <button type="button" key={rule.id} onClick={() => setSelectedRuleId(rule.id)} className={cn('w-full p-4 text-left hover:bg-blue-50', selectedRule?.id === rule.id ? 'bg-blue-50 ring-1 ring-inset ring-blue-200' : '')}>
+              <div className="flex items-start justify-between gap-3">
+                <b className="text-sm text-slate-900">{rule.name}</b>
+                <Badge tone={automationStatusTone(rule.status)}>{rule.status}</Badge>
+              </div>
+              <p className="mt-2 text-xs text-slate-500">{rule.source_system} → {rule.target_system}</p>
+              <p className="mt-1 text-xs text-slate-400">Última execução: {lastExecution ? formatDateTime(lastExecution.started_at) : 'sem histórico'}</p>
+            </button>
+          })}
+        </div>
+      </Panel>
+
+      {selectedRule && <div className="space-y-4">
+        <Panel className="overflow-hidden">
+          <div className="border-b border-slate-200 bg-white p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-xl font-black tracking-[-0.03em] text-slate-950">{selectedRule.name}</h2>
+                <p className="mt-2 max-w-4xl text-sm text-slate-600">{selectedRule.description}</p>
+              </div>
+              <Badge tone={automationStatusTone(selectedRule.status)}>{selectedRule.status}</Badge>
+            </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-4">
+              <div><p className="text-[11px] font-bold uppercase text-slate-400">Gatilho</p><p className="text-sm font-semibold text-slate-800">{selectedRule.trigger_system}<br/><span className="font-normal text-slate-500">{selectedRule.trigger_type}</span></p></div>
+              <div><p className="text-[11px] font-bold uppercase text-slate-400">Origem</p><p className="text-sm font-semibold text-slate-800">{selectedRule.source_system}</p></div>
+              <div><p className="text-[11px] font-bold uppercase text-slate-400">Destino</p><p className="text-sm font-semibold text-slate-800">{selectedRule.target_system}</p></div>
+              <div><p className="text-[11px] font-bold uppercase text-slate-400">Criada/alterada</p><p className="text-sm font-semibold text-slate-800">{formatDateTime(selectedRule.created_at)}<br/><span className="font-normal text-slate-500">Alterada: {formatDateTime(selectedRule.updated_at)}</span></p></div>
+            </div>
+          </div>
+          <div className="grid gap-4 p-5 lg:grid-cols-2">
+            <section><h3 className="mb-2 text-sm font-black uppercase text-slate-500">Gatilhos</h3><AutomationJsonList items={jsonList(selectedRule.triggers)} /></section>
+            <section><h3 className="mb-2 text-sm font-black uppercase text-slate-500">Filtros</h3><AutomationJsonList items={jsonList(selectedRule.filters)} /></section>
+            <section><h3 className="mb-2 text-sm font-black uppercase text-slate-500">Ações</h3><AutomationJsonList items={jsonList(selectedRule.actions)} /></section>
+            <section><h3 className="mb-2 text-sm font-black uppercase text-slate-500">Implementação</h3><AutomationJsonList items={jsonList(selectedRule.implementation_refs)} /></section>
+            <section className="lg:col-span-2"><h3 className="mb-2 text-sm font-black uppercase text-slate-500">Campos envolvidos</h3><div className="flex flex-wrap gap-2">{jsonList(selectedRule.fields_involved).map((field, index) => <Badge key={index}>{formatAuditValue(field)}</Badge>)}</div></section>
+          </div>
+        </Panel>
+
+        <Panel className="overflow-hidden">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white p-4">
+            <div><h3 className="font-bold text-slate-900">Histórico de execuções</h3><p className="mt-1 text-sm text-slate-500">Horário, status, campos alterados, filtros, ações e erro quando houver.</p></div>
+            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="rounded border border-slate-300 bg-white px-3 py-2 text-sm font-semibold"><option value="all">Todos status</option><option value="success">Sucesso</option><option value="ignored">Ignorado</option><option value="error">Erro</option><option value="processing">Processando</option></select>
+          </div>
+          <div className="divide-y divide-slate-100">
+            {filteredExecutions.map((execution) => <div key={execution.id} className="p-4 text-sm">
+              <div className="flex flex-wrap items-center gap-3">
+                <Badge tone={automationStatusTone(execution.status)}>{execution.status}</Badge>
+                <b>{formatDateTime(execution.started_at)}</b>
+                <span className="text-slate-500">Fim: {formatDateTime(execution.finished_at)}</span>
+                <span className="text-slate-400">{execution.record_entity || 'registro'} · {execution.external_id || execution.internal_id || '-'}</span>
+              </div>
+              <div className="mt-3 grid gap-3 lg:grid-cols-3">
+                <div><p className="mb-1 text-[11px] font-bold uppercase text-slate-400">Campos alterados</p><AutomationJsonList items={jsonList(execution.changed_fields)} /></div>
+                <div><p className="mb-1 text-[11px] font-bold uppercase text-slate-400">Filtros avaliados</p><AutomationJsonList items={jsonList(execution.filters_evaluated)} /></div>
+                <div><p className="mb-1 text-[11px] font-bold uppercase text-slate-400">Ações executadas</p><AutomationJsonList items={jsonList(execution.actions_performed)} /></div>
+              </div>
+              {execution.error_message && <p className="mt-3 rounded border border-rose-200 bg-rose-50 p-2 text-rose-700"><b>Erro:</b> {execution.error_message}</p>}
+            </div>)}
+            {!filteredExecutions.length && <div className="p-8 text-center text-slate-400">Nenhuma execução encontrada para esta regra.</div>}
+          </div>
+        </Panel>
+
+        <Panel className="overflow-hidden">
+          <div className="border-b border-slate-200 bg-white p-4"><h3 className="font-bold text-slate-900">Registro de criação e alterações</h3></div>
+          <div className="divide-y divide-slate-100">
+            {changesForRule.map((change) => <div key={change.id} className="p-4 text-sm">
+              <div className="flex flex-wrap items-center gap-3"><Badge>{change.change_type}</Badge><b>{formatDateTime(change.created_at)}</b><span className="text-slate-500">por {change.changed_by}</span></div>
+              <p className="mt-2 text-slate-700">{change.summary}</p>
+            </div>)}
+            {!changesForRule.length && <div className="p-6 text-center text-slate-400">Sem alterações registradas.</div>}
+          </div>
+        </Panel>
+      </div>}
+    </div>
+  </div>
 }
 
 function AuditLogView({ logs }: { logs: AuditLog[] }) {
