@@ -136,9 +136,17 @@ async function handlePipedriveWebhook(payload: JsonRecord) {
   }
 
   const crmDeal = await upsertCrmDealFromPipedrive(integration.id, pipedriveDeal)
+  const notesSynced = await syncPipedriveNotesToHistory(crmDeal.id, dealId).catch(async (error) => {
+    await logEvent({ event_id: event.id, level: 'warning', message: 'Pipedrive notes sync skipped', details: { external_id: dealId, error: errorMessage(error) } }).catch(() => null)
+    return 0
+  })
+  const activitiesSynced = await syncPipedriveActivitiesToCrm(integration.id, crmDeal, dealId).catch(async (error) => {
+    await logEvent({ event_id: event.id, level: 'warning', message: 'Pipedrive activities sync skipped', details: { external_id: dealId, error: errorMessage(error) } }).catch(() => null)
+    return 0
+  })
   await updateEvent(event.id, { status: 'success', internal_id: crmDeal.id, processed_at: new Date().toISOString() })
-  await logEvent({ event_id: event.id, message: 'Pipedrive deal synced inbound', details: { external_id: dealId, internal_id: crmDeal.id } })
-  return { ok: true, deal_id: crmDeal.id, pipedrive_deal_id: dealId }
+  await logEvent({ event_id: event.id, message: 'Pipedrive deal synced inbound', details: { external_id: dealId, internal_id: crmDeal.id, notes_synced: notesSynced, activities_synced: activitiesSynced } })
+  return { ok: true, deal_id: crmDeal.id, pipedrive_deal_id: dealId, notes_synced: notesSynced, activities_synced: activitiesSynced }
 }
 
 async function syncDealToPipedrive(dealId: string, userId: string | null) {
@@ -288,7 +296,9 @@ async function upsertCrmDealFromPipedrive(integrationId: string, pdDeal: JsonRec
   const organization = pdOrg ? await upsertCrmOrganizationFromPipedrive(integrationId, pdOrg) : null
   const person = pdPerson ? await upsertCrmPersonFromPipedrive(integrationId, pdPerson, organization?.id || null) : null
   const stageId = await stageIdFromPipedrive(pdDeal.stage_id) || await firstStageId()
-  const payload = {
+  const inheritedOwnerId = stringOrNull((person as JsonRecord | null)?.owner_id) || stringOrNull((organization as JsonRecord | null)?.owner_id)
+  const inheritedBpoId = stringOrNull((person as JsonRecord | null)?.bpo_id) || stringOrNull((organization as JsonRecord | null)?.bpo_id)
+  const payload: JsonRecord = {
     title: String(pdDeal.title || `Negócio Pipedrive ${externalId}`),
     value: Number(pdDeal.value || 0),
     expected_close_date: stringOrNull(pdDeal.expected_close_date),
@@ -298,6 +308,8 @@ async function upsertCrmDealFromPipedrive(integrationId: string, pdDeal: JsonRec
     organization_id: organization?.id || null,
     person_id: person?.id || null,
   }
+  if (!existing?.internal_id && inheritedOwnerId) payload.owner_id = inheritedOwnerId
+  if (!existing?.internal_id && inheritedBpoId) payload.bpo_id = inheritedBpoId
 
   let deal
   if (existing?.internal_id) {
@@ -363,6 +375,78 @@ async function upsertCrmPersonFromPipedrive(integrationId: string, pdPerson: Jso
   }
   await upsertExternalRecord(integrationId, 'person', person.id, externalId, pdPerson)
   return person
+}
+
+async function syncPipedriveNotesToHistory(dealId: string, pipedriveDealId: string) {
+  const response = await pipedrive(`/deals/${pipedriveDealId}/notes`, { query: { limit: '100' } }) as JsonRecord
+  const notes = ((response.data || []) as JsonRecord[]).filter(Boolean)
+  let synced = 0
+  for (const note of notes) {
+    const noteId = String(note.id || '')
+    if (!noteId) continue
+    const marker = `Pipedrive note ID ${noteId}`
+    const { data: existing, error: existingError } = await supabase
+      .from('deal_history')
+      .select('id')
+      .eq('deal_id', dealId)
+      .eq('event_type', 'Nota Pipedrive')
+      .ilike('description', `${marker}%`)
+      .maybeSingle()
+    if (existingError) throw existingError
+    const payload = {
+      deal_id: dealId,
+      event_type: 'Nota Pipedrive',
+      title: nestedString(note.user, 'name') || stringOrNull(note.user_name) || 'Nota do Pipedrive',
+      description: `${marker}\n\n${stripHtml(String(note.content || ''))}`.trim(),
+      created_at: stringOrNull(note.add_time) || new Date().toISOString(),
+    }
+    if (existing?.id) {
+      const { error } = await supabase.from('deal_history').update(payload).eq('id', existing.id)
+      if (error) throw error
+    } else {
+      const { error } = await supabase.from('deal_history').insert(payload)
+      if (error) throw error
+    }
+    synced += 1
+  }
+  return synced
+}
+
+async function syncPipedriveActivitiesToCrm(integrationId: string, deal: JsonRecord, pipedriveDealId: string) {
+  const response = await pipedrive(`/deals/${pipedriveDealId}/activities`, { query: { limit: '100' } }) as JsonRecord
+  const activities = ((response.data || []) as JsonRecord[]).filter(Boolean)
+  let synced = 0
+  for (const activity of activities) {
+    const externalId = String(activity.id || '')
+    if (!externalId) continue
+    const existing = await findExternalRecordByExternal('activity', externalId)
+    const dueAt = activity.due_date ? `${activity.due_date}T${String(activity.due_time || '09:00').slice(0, 5)}:00` : null
+    const payload = {
+      title: String(activity.subject || activity.type || `Atividade Pipedrive ${externalId}`),
+      activity_type: String(activity.type || 'task'),
+      due_at: dueAt,
+      status: activity.done ? 'done' : 'open',
+      note: stripHtml(String(activity.note || activity.public_description || '')) || null,
+      deal_id: String(deal.id),
+      organization_id: stringOrNull(deal.organization_id),
+      person_id: stringOrNull(deal.person_id),
+      owner_id: stringOrNull(deal.owner_id),
+      bpo_id: stringOrNull(deal.bpo_id),
+    }
+    let internalId = existing?.internal_id
+    if (internalId) {
+      const { data, error } = await supabase.from('activities').update(payload).eq('id', internalId).select('id').single()
+      if (error) throw error
+      internalId = data.id
+    } else {
+      const { data, error } = await supabase.from('activities').insert(payload).select('id').single()
+      if (error) throw error
+      internalId = data.id
+    }
+    await upsertExternalRecord(integrationId, 'activity', String(internalId), externalId, activity)
+    synced += 1
+  }
+  return synced
 }
 
 async function syncCustomFieldsFromPipedrive(entityId: string, entity: string, payload: JsonRecord) {
@@ -515,6 +599,26 @@ async function logEvent(payload: { event_id?: string; level?: string; message: s
 
 function stringOrNull(value: unknown) {
   return value === null || value === undefined || value === '' ? null : String(value)
+}
+
+function nestedString(value: unknown, key: string) {
+  if (!value || typeof value !== 'object') return null
+  return stringOrNull((value as JsonRecord)[key])
+}
+
+function stripHtml(value: string) {
+  return value
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
 }
 
 function mapPipedriveStatusToCrm(status: string | null) {
