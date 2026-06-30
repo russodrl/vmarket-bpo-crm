@@ -381,6 +381,7 @@ async function upsertCrmDealFromPipedrive(integrationId: string, pdDeal: JsonRec
     value: Number(pdDeal.value || 0),
     expected_close_date: stringOrNull(pdDeal.expected_close_date),
     status: mapPipedriveStatusToCrm(stringOrNull(pdDeal.status)),
+    lost_reason: stringOrNull(pdDeal.status) === 'lost' ? (stringOrNull(pdDeal.lost_reason) || stringOrNull(pdDeal.lost_message) || 'Perdido no Pipedrive') : null,
     source: 'Pipedrive API',
     stage_id: stageId,
     organization_id: organization?.id || null,
@@ -717,7 +718,7 @@ function stripHtml(value: string) {
 function mapPipedriveStatusToCrm(status: string | null) {
   if (status === 'won') return 'ganho'
   if (status === 'lost') return 'perdido'
-  return 'morno'
+  return 'aberto'
 }
 
 function mapCrmStatusToPipedrive(status: string | null) {

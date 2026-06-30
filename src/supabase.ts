@@ -134,7 +134,8 @@ export type Deal = {
   monthly_purchase: number | null
   estimated_savings: number | null
   probability: number | null
-  status: 'quente' | 'morno' | 'risco' | 'ganho' | 'perdido' | null
+  status: 'aberto' | 'ganho' | 'perdido' | 'quente' | 'morno' | 'risco' | null
+  lost_reason: string | null
   source: string | null
   plan: string | null
   pipedrive_owner_name: string | null

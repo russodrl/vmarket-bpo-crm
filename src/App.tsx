@@ -178,6 +178,10 @@ function matchesFilterRule(deal: Deal, rule: FilterRule, fields: FilterField[], 
   if (rule.operator === 'equals') return value === expected
   return value.includes(expected)
 }
+
+function filterIncludesDealStatus(savedFilter?: SavedDealFilter) {
+  return Boolean(savedFilter?.rules.some((rule) => rule.fieldId === 'deal:status'))
+}
 function filterDealsBySavedFilter(deals: Deal[], savedFilter: SavedDealFilter | undefined, fields: FilterField[], context: FilterContext) {
   if (!savedFilter || !savedFilter.rules.length) return deals
   const allRules = savedFilter.rules.filter((rule) => rule.group === 'all' && rule.fieldId)
@@ -226,7 +230,6 @@ function buildFilterFields(customFields: CustomField[]): FilterField[] {
     { id: 'organization:state', entity: 'organization', key: 'state', label: 'Estado da empresa', type: 'text' },
     { id: 'organization:cnpjs', entity: 'organization', key: 'cnpjs', label: 'CNPJs', type: 'number' },
     { id: 'organization:monthly_purchase', entity: 'organization', key: 'monthly_purchase', label: 'Compra mensal', type: 'number' },
-    { id: 'organization:supplier_count', entity: 'organization', key: 'supplier_count', label: 'Qtd. fornecedores', type: 'number' },
     { id: 'activity:title', entity: 'activity', key: 'title', label: 'Título da atividade', type: 'text' },
     { id: 'activity:activity_type', entity: 'activity', key: 'activity_type', label: 'Tipo de atividade', type: 'option' },
     { id: 'activity:display_status', entity: 'activity', key: 'display_status', label: 'Status da atividade', type: 'option' },
@@ -280,7 +283,7 @@ type DealForm = {
   organization_city: string
   organization_state: string
   organization_cnpjs: string
-  organization_supplier_count: string
+  lost_reason: string
   person_name: string
   person_role: string
   person_email: string
@@ -309,7 +312,7 @@ function dayLabel(days: number) {
   return `${days} ${days === 1 ? 'dia' : 'dias'}`
 }
 
-const statusLabel: Record<string, string> = { quente: 'Quente', morno: 'Morno', risco: 'Risco', ganho: 'Ganho', perdido: 'Perdido' }
+const statusLabel: Record<string, string> = { aberto: 'Aberto', ganho: 'Ganho', perdido: 'Perdido' }
 
 function cn(...classes: Array<string | false | undefined | null>) { return classes.filter(Boolean).join(' ') }
 function errorMessage(error: unknown) {
@@ -531,9 +534,12 @@ function App() {
   const filterContext = useMemo(() => ({ stages, activities, customFields, customFieldValues }), [stages, activities, customFields, customFieldValues])
   const visibleDeals = useMemo(() => {
     const visibleStageIds = new Set(visibleStages.map((stage) => stage.id))
+    const activeSavedFilter = savedDealFilters.find((filter) => filter.id === activeDealFilterId)
+    const canShowLostDeals = filterIncludesDealStatus(activeSavedFilter)
     const pipelineDeals = visibleStageIds.size ? deals.filter((deal) => deal.stage_id && visibleStageIds.has(deal.stage_id)) : deals
-    const ownerDeals = activeOwnerFilterId ? pipelineDeals.filter((deal) => deal.owner_id === activeOwnerFilterId) : pipelineDeals
-    return filterDealsBySavedFilter(ownerDeals, savedDealFilters.find((filter) => filter.id === activeDealFilterId), filterFields, filterContext)
+    const openPipelineDeals = canShowLostDeals ? pipelineDeals : pipelineDeals.filter((deal) => deal.status !== 'perdido')
+    const ownerDeals = activeOwnerFilterId ? openPipelineDeals.filter((deal) => deal.owner_id === activeOwnerFilterId) : openPipelineDeals
+    return filterDealsBySavedFilter(ownerDeals, activeSavedFilter, filterFields, filterContext)
   }, [deals, visibleStages, activeOwnerFilterId, savedDealFilters, activeDealFilterId, filterFields, filterContext])
 
   const detailDeal = useMemo(() => deals.find((d) => d.id === detailDealId), [deals, detailDealId])
@@ -659,7 +665,7 @@ function App() {
         monthly_purchase: numberOrNull(newDeal.monthly_purchase),
         estimated_savings: null,
         probability: null,
-        status: null,
+        status: 'aberto',
         source: null,
         expected_close_date: null,
         score: null,
@@ -936,6 +942,7 @@ function App() {
         stage_id: form.stage_id || null,
         owner_id: form.owner_id || session?.user.id || null,
         status: form.status as Deal['status'],
+        lost_reason: form.status === 'perdido' ? (form.lost_reason.trim() || null) : null,
         value: numberOrNull(form.value),
         monthly_purchase: numberOrNull(form.monthly_purchase),
         source: form.source || null,
@@ -951,7 +958,6 @@ function App() {
           city: form.organization_city || null,
           state: form.organization_state || null,
           cnpjs: numberOrNull(form.organization_cnpjs),
-          supplier_count: numberOrNull(form.organization_supplier_count),
           monthly_purchase: numberOrNull(form.monthly_purchase),
           owner_id: form.owner_id || session?.user.id || null,
         }).eq('id', detailDeal.organization_id)
@@ -1029,7 +1035,7 @@ function App() {
 
           <section className="min-h-0 flex-1 overflow-auto md:overflow-hidden">
             {error && <div className="m-4 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><b>Erro:</b> {error}</div>}
-            {loading ? <div className="m-4 rounded bg-white p-4 text-sm shadow-sm">Carregando dados do Supabase...</div> : (
+            {loading ? <LoadingBpo /> : (
               <>
                 {activeView === 'pipeline' && <PipelineView stages={visibleStages} salesStages={salesStages} deals={visibleDeals} allDeals={deals} activities={activities} crmUsers={crmUsers} dealLabelAssignments={dealLabelAssignments} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} setDraggingId={setDraggingId} handleDrop={handleDrop} newDeal={newDeal} setNewDeal={setNewDeal} createDeal={createDeal} creating={creating} canAssignOwner={profile?.role === 'admin_vmarket'} activePipeline={activePipeline} setActivePipeline={setActivePipeline} pipelineNames={pipelineNames} pipelineView={pipelineView} setPipelineView={setPipelineView} savedDealFilters={savedDealFilters} activeDealFilterId={activeDealFilterId} setActiveDealFilterId={setActiveDealFilterId} activeOwnerFilterId={activeOwnerFilterId} setActiveOwnerFilterId={setActiveOwnerFilterId} filterFields={filterFields} filterContext={filterContext} saveDealFilter={saveDealFilter} deleteDealFilter={deleteDealFilter} />}
                 {activeView === 'contacts' && <ListView title="Contatos" icon={<Contact size={18}/>} rows={people.map((p) => ({ id: p.id, title: p.full_name, sub: `${p.role_title || 'Contato'} · ${p.email || 'sem email'}`, meta: p.phone || 'sem telefone' }))} canDelete={profile?.role === 'admin_vmarket'} onDelete={(id, label) => deleteOneRecord('person', id, label)} />}
@@ -1175,7 +1181,8 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
               {stageDeals.map((deal) => {
                 const indicator = activityIndicator(deal)
                 const labels = labelsForDeal(deal.id)
-                return <div key={deal.id} draggable onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', deal.id); setDraggingId(deal.id) }} onDragEnd={() => setDraggingId(null)} onClick={() => openDealPage(deal.id)} role="button" tabIndex={0} className={cn('group w-full cursor-grab rounded border bg-white p-2 text-left shadow-sm transition hover:border-blue-200 hover:shadow-md active:cursor-grabbing', selectedId === deal.id ? 'border-blue-300 ring-2 ring-blue-200/70' : 'border-slate-200')}>
+                return <div key={deal.id} draggable onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', deal.id); setDraggingId(deal.id) }} onDragEnd={() => setDraggingId(null)} onClick={() => openDealPage(deal.id)} role="button" tabIndex={0} className={cn('group relative w-full cursor-grab rounded border p-2 text-left shadow-sm transition hover:border-blue-200 hover:shadow-md active:cursor-grabbing', deal.status === 'perdido' ? 'bg-slate-100' : 'bg-white', selectedId === deal.id ? 'border-blue-300 ring-2 ring-blue-200/70' : 'border-slate-200')}>
+                  {deal.status === 'perdido' && <span className="absolute right-2 top-2 rounded-full bg-slate-200 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wide text-slate-600">Perdido</span>}
                   <DealLabelPills labels={labels} compact />
                   <p className="line-clamp-2 text-sm font-bold leading-snug text-slate-900">{deal.title}</p>
                   <p className="mt-1 truncate text-xs text-slate-600">{deal.organizations?.name || 'Sem empresa'}</p>
@@ -1407,6 +1414,66 @@ function CreateDealModal({ salesStages, crmUsers, canAssignOwner, newDeal, setNe
   </div>
 }
 
+function LoadingBpo() {
+  return <div className="m-4 flex items-center gap-3 rounded bg-white p-4 text-sm font-semibold text-slate-700 shadow-sm">
+    <div className="grid h-10 w-10 place-items-center rounded-xl bg-[#211746] p-1.5"><img src="/brand/vmarket-logo-branca.png" alt="VMarket" className="max-h-full max-w-full object-contain" /></div>
+    <div>
+      <p>Carregando dados do BPO</p>
+      <p className="text-xs font-normal text-slate-500">VMarket CRM</p>
+    </div>
+  </div>
+}
+
+function CollapsibleSection({ title, children, defaultOpen = true, className }: { title: string; children: ReactNode; defaultOpen?: boolean; className?: string }) {
+  const [open, setOpen] = useState(defaultOpen)
+  return <Panel className={cn('overflow-hidden', className)}>
+    <button type="button" onClick={() => setOpen((current) => !current)} className="flex w-full items-center justify-between border-b border-slate-200 bg-white p-4 text-left">
+      <h2 className="text-base font-bold text-slate-900">{title}</h2>
+      <span className="grid h-7 w-7 place-items-center rounded-full border border-slate-200 text-lg font-bold text-slate-600">{open ? '-' : '+'}</span>
+    </button>
+    {open && children}
+  </Panel>
+}
+
+function LostReasonModal({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: (reason: string) => Promise<void> }) {
+  const [reason, setReason] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  async function submit(e: FormEvent) {
+    e.preventDefault()
+    const clean = reason.trim()
+    if (!clean) {
+      setError('Informe o motivo da perda para marcar como perdido.')
+      return
+    }
+    setSaving(true)
+    setError('')
+    try {
+      await onConfirm(clean)
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setSaving(false)
+    }
+  }
+  return <div className="fixed inset-0 z-[90] grid place-items-center bg-slate-950/50 p-4 backdrop-blur-sm" onClick={onCancel}>
+    <form onSubmit={submit} onClick={(e) => e.stopPropagation()} className="w-full max-w-md overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+      <div className="border-b border-slate-200 p-5">
+        <h2 className="text-lg font-black text-slate-950">Motivo da perda</h2>
+        <p className="mt-1 text-sm text-slate-500">Esse campo é obrigatório para marcar o negócio como perdido.</p>
+      </div>
+      <div className="p-5">
+        {error && <p className="mb-3 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</p>}
+        <textarea autoFocus value={reason} onChange={(e) => setReason(e.target.value)} rows={5} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" placeholder="Explique por que o negócio foi perdido" />
+      </div>
+      <div className="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-4">
+        <button type="button" onClick={onCancel} className="rounded border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">Cancelar</button>
+        <button disabled={saving || !reason.trim()} className="rounded bg-rose-600 px-5 py-2 text-sm font-bold text-white disabled:opacity-60">{saving ? 'Salvando...' : 'Marcar perdido'}</button>
+      </div>
+    </form>
+  </div>
+}
+
 function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canViewCustomFields, activities, history, customFields, customFieldValues, dealLabels, assignedLabels, closeDealPage, saveDeal, createActivity, createNote, deleteDeal, deleteActivity, completeActivity, updateActivity, createLabel, deleteLabel, updateDealLabels }: {
   deal?: Deal
   loading: boolean
@@ -1442,19 +1509,37 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
   const [composerMode, setComposerMode] = useState<'note' | 'activity'>('note')
   const [showLabelPicker, setShowLabelPicker] = useState(false)
   const [editingActivity, setEditingActivity] = useState<ActivityRow | null>(null)
+  const [showCustomFields, setShowCustomFields] = useState(false)
+  const [showLostReason, setShowLostReason] = useState(false)
   const [form, setForm] = useState<DealForm>(() => dealToForm(deal))
   const [customDrafts, setCustomDrafts] = useState<Record<string, string>>(() => customValuesToDrafts(customFields, customFieldValues))
 
   async function submit(e: FormEvent) {
     e.preventDefault()
+    await saveCurrent()
+  }
+
+  async function saveCurrent(nextForm = form) {
     setSaving(true)
     setSaved(false)
     try {
-      await saveDeal(form, customDrafts)
+      await saveDeal(nextForm, customDrafts)
+      setForm(nextForm)
       setSaved(true)
     } finally {
       setSaving(false)
     }
+  }
+
+  async function markWon() {
+    const next = { ...form, status: 'ganho', lost_reason: '' }
+    await saveCurrent(next)
+  }
+
+  async function markLost(reason: string) {
+    const next = { ...form, status: 'perdido', lost_reason: reason }
+    await saveCurrent(next)
+    setShowLostReason(false)
   }
 
   async function submitActivity() {
@@ -1481,7 +1566,7 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
     }
   }
 
-  if (loading) return <main className="min-h-screen bg-[#f4f5f7] p-5 text-slate-900"><div className="rounded bg-white p-4 shadow-sm">Carregando ficha do negócio...</div></main>
+  if (loading) return <main className="min-h-screen bg-[#f4f5f7] p-5 text-slate-900"><LoadingBpo /></main>
   if (!deal) return <main className="min-h-screen bg-[#f4f5f7] p-5 text-slate-900"><div className="rounded bg-white p-6 shadow-sm"><h1 className="text-xl font-bold">Negócio não encontrado</h1><button onClick={closeDealPage} className="mt-4 rounded bg-[#238847] px-4 py-2 text-sm font-bold text-white">Voltar ao funil</button></div></main>
 
   const update = (key: keyof DealForm, value: string) => setForm((current) => ({ ...current, [key]: value }))
@@ -1499,43 +1584,55 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
     ...history.map((row) => ({ id: `history-${row.id}`, kind: row.event_type, title: row.title, description: row.description, date: row.created_at, status: '' })),
   ] as Array<{ id: string; kind: string; title: string; description: string | null; date: string | null; status: string; activity?: ActivityRow }>).sort((a, b) => new Date(b.date || '1900-01-01').getTime() - new Date(a.date || '1900-01-01').getTime())
 
-  return <main className="min-h-screen bg-[#f4f5f7] text-slate-900">
-    <header className="sticky top-0 z-30 border-b border-slate-200 bg-white shadow-sm">
-      <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-3 px-4 py-3">
-        <button onClick={closeDealPage} className="rounded border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">← Voltar ao funil</button>
-        <div className="min-w-0 flex-1">
+  return <main className="min-h-screen w-full overflow-x-hidden bg-[#f4f5f7] text-slate-900">
+    <header className="sticky top-0 z-30 w-full overflow-x-hidden border-b border-slate-200 bg-white shadow-sm">
+      <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-3 px-3 py-3 sm:px-4 md:flex-row md:flex-wrap md:items-center">
+        <div className="flex min-w-0 items-center gap-2">
+          <button onClick={closeDealPage} className="shrink-0 rounded border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">← Voltar</button>
+          <div className="min-w-0 flex-1 md:hidden">
+            <h1 className="truncate text-lg font-semibold tracking-[-0.03em] text-slate-950">{deal.title}</h1>
+            <p className="mt-1 truncate text-xs font-semibold text-blue-600">{currentPipeline} › {currentStage?.name || 'Sem etapa'}</p>
+          </div>
+        </div>
+        <div className="hidden min-w-0 flex-1 md:block">
           <h1 className="truncate text-2xl font-semibold tracking-[-0.03em] text-slate-950">{deal.title}</h1>
           <p className="mt-1 text-xs font-semibold text-blue-600">{currentPipeline} › {currentStage?.name || 'Sem etapa'}</p>
         </div>
-        <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700">
-          <span className="grid h-6 w-6 place-items-center rounded-full bg-slate-200 text-[10px] font-black">{ownerName.slice(0,1).toUpperCase()}</span>
-          <span>{ownerName}</span>
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <div className="flex max-w-full items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700">
+            <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-slate-200 text-[10px] font-black">{ownerName.slice(0,1).toUpperCase()}</span>
+            <span className="truncate">{ownerName}</span>
+          </div>
+          <Badge tone={form.status === 'perdido' ? 'bg-slate-200 text-slate-700' : form.status === 'ganho' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}>{statusLabel[form.status] || 'Aberto'}</Badge>
+          {saved && <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700">Salvo</span>}
         </div>
-        {saved && <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700">Salvo</span>}
-        {canEditOwner && <button type="button" onClick={() => deleteDeal(deal.id, deal.title)} className="rounded border border-rose-200 px-4 py-2 text-sm font-bold text-rose-600 hover:bg-rose-50">Apagar negócio</button>}
-        <button form="deal-edit-form" disabled={saving} className="rounded bg-[#238847] px-5 py-2 text-sm font-bold text-white shadow-sm hover:bg-[#1f7a40] disabled:opacity-60">{saving ? 'Salvando...' : 'Salvar alterações'}</button>
+        <div className="flex w-full flex-wrap gap-2 md:w-auto">
+          <button type="button" disabled={saving || form.status === 'ganho'} onClick={() => void markWon()} className="flex-1 rounded bg-[#238847] px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-[#1f7a40] disabled:opacity-60 md:flex-none">Ganho</button>
+          <button type="button" disabled={saving || form.status === 'perdido'} onClick={() => setShowLostReason(true)} className="flex-1 rounded bg-rose-600 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-rose-700 disabled:opacity-60 md:flex-none">Perdido</button>
+          {canEditOwner && <button type="button" onClick={() => deleteDeal(deal.id, deal.title)} className="flex-1 rounded border border-rose-200 px-4 py-2 text-sm font-bold text-rose-600 hover:bg-rose-50 md:flex-none">Apagar</button>}
+        </div>
       </div>
-      <div className="border-t border-slate-100 px-4 pb-3">
-        <div className="mx-auto max-w-[1600px]">
-          <div className="flex h-9 overflow-hidden rounded-sm border border-slate-200 bg-[#eef1f5]">
+      <div className="w-full overflow-x-hidden border-t border-slate-100 px-3 pb-3 sm:px-4">
+        <div className="mx-auto max-w-[1600px] overflow-x-auto">
+          <div className="flex h-9 min-w-max overflow-hidden rounded-sm border border-slate-200 bg-[#eef1f5] md:min-w-0">
             {currentPipelineStages.map((stage, index) => {
               const isCurrent = stage.id === (form.stage_id || deal.stage_id)
               const totalStages = currentPipelineStages.length || 1
               const isFirst = index === 0
               const isLast = index === totalStages - 1
               const clipPath = `polygon(${isFirst ? '0' : '14px'} 0, ${isLast ? '100%' : 'calc(100% - 12px)'} 0, 100% 50%, ${isLast ? '100%' : 'calc(100% - 12px)'} 100%, ${isFirst ? '0' : '14px'} 100%, 0 50%)`
-              return <button key={stage.id} type="button" onClick={() => update('stage_id', stage.id)} title={stage.name} style={{ clipPath }} className={cn('relative flex min-w-[118px] flex-1 items-center justify-center px-5 text-center text-xs font-semibold transition first:ml-0 -ml-3', isCurrent ? 'z-20 bg-[#0abf75] text-white' : 'bg-[#edf1f7] text-slate-500 hover:bg-slate-200')}>{dayLabel(isCurrent ? currentStageDays : 0)}</button>
+              return <button key={stage.id} type="button" onClick={() => update('stage_id', stage.id)} title={stage.name} style={{ clipPath }} className={cn('relative flex min-w-[105px] flex-1 items-center justify-center px-4 text-center text-xs font-semibold transition first:ml-0 -ml-3 md:min-w-[118px] md:px-5', isCurrent ? 'z-20 bg-[#0abf75] text-white' : 'bg-[#edf1f7] text-slate-500 hover:bg-slate-200')}>{dayLabel(isCurrent ? currentStageDays : 0)}</button>
             })}
           </div>
-          <p className="mt-1 text-xs text-slate-500">{currentPipeline} · {currentStage?.name || 'Sem etapa'}</p>
+          <p className="mt-1 truncate text-xs text-slate-500">{currentPipeline} · {currentStage?.name || 'Sem etapa'}</p>
         </div>
       </div>
     </header>
 
-    <form id="deal-edit-form" onSubmit={submit} className="mx-auto grid max-w-[1600px] gap-4 p-4 xl:grid-cols-[360px_minmax(0,1fr)]">
+    <form id="deal-edit-form" onSubmit={submit} className="mx-auto grid w-full max-w-[1600px] min-w-0 gap-4 p-3 sm:p-4 xl:grid-cols-[360px_minmax(0,1fr)]">
       {error && <div className="xl:col-span-2 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><b>Erro:</b> {error}</div>}
 
-      <aside className="space-y-4 xl:sticky xl:top-32 xl:max-h-[calc(100vh-9rem)] xl:overflow-y-auto">
+      <aside className="min-w-0 space-y-4 xl:sticky xl:top-32 xl:max-h-[calc(100vh-9rem)] xl:overflow-y-auto">
         <Panel className="overflow-hidden">
           <div className="border-b border-slate-200 bg-white p-4">
             <h2 className="text-base font-bold">Campos do negócio</h2>
@@ -1544,7 +1641,8 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
           <div className="divide-y divide-slate-100">
             <InlineField label="Título do negócio" value={form.title} onChange={(v) => update('title', v)} />
             <InlineSelect label="Etapa" value={form.stage_id} onChange={(v) => update('stage_id', v)} options={currentPipelineStages.map((s) => [s.id, s.name])} />
-            <InlineSelect label="Status" value={form.status} onChange={(v) => update('status', v)} options={Object.entries(statusLabel)} />
+            <InlineSelect label="Status" value={form.status} onChange={(v) => v === 'perdido' ? setShowLostReason(true) : update('status', v)} options={Object.entries(statusLabel)} />
+            {form.status === 'perdido' && <ReadOnlyField label="Motivo da perda" value={form.lost_reason || deal.lost_reason || 'Sem motivo informado'} />}
             <InlineField label="Valor do negócio" value={form.value} onChange={(v) => update('value', v)} type="number" displayValue={money(Number(form.value || 0))} />
             <InlineField label="GMV mensal" value={form.monthly_purchase} onChange={(v) => update('monthly_purchase', v)} type="number" displayValue={money(Number(form.monthly_purchase || 0))} />
             <InlineField label="Fonte" value={form.source} onChange={(v) => update('source', v)} />
@@ -1556,30 +1654,35 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
           </div>
         </Panel>
 
-        <Panel className="overflow-hidden">
-          <div className="border-b border-slate-200 bg-white p-4"><h2 className="text-base font-bold">Empresa e contato</h2></div>
+        <CollapsibleSection title="Empresa" defaultOpen>
           <div className="divide-y divide-slate-100">
             <InlineField label="Empresa" value={form.organization_name} onChange={(v) => update('organization_name', v)} />
             <InlineField label="Segmento" value={form.organization_segment} onChange={(v) => update('organization_segment', v)} />
             <InlineField label="Cidade" value={form.organization_city} onChange={(v) => update('organization_city', v)} />
             <InlineField label="Estado" value={form.organization_state} onChange={(v) => update('organization_state', v)} />
             <InlineField label="Quantidade de CNPJs" value={form.organization_cnpjs} onChange={(v) => update('organization_cnpjs', v)} type="number" />
-            <InlineField label="Quantidade de fornecedores" value={form.organization_supplier_count} onChange={(v) => update('organization_supplier_count', v)} type="number" />
+          </div>
+        </CollapsibleSection>
+
+        <CollapsibleSection title="Contato" defaultOpen>
+          <div className="divide-y divide-slate-100">
             <InlineField label="Pessoa" value={form.person_name} onChange={(v) => update('person_name', v)} />
             <InlineField label="Cargo" value={form.person_role} onChange={(v) => update('person_role', v)} />
             <InlineField label="Email" value={form.person_email} onChange={(v) => update('person_email', v)} type="email" />
             <InlineField label="Telefone" value={form.person_phone} onChange={(v) => update('person_phone', v)} />
           </div>
-        </Panel>
+        </CollapsibleSection>
 
         {canViewCustomFields && <Panel className="overflow-hidden">
-          <div className="border-b border-slate-200 bg-white p-4"><h2 className="text-base font-bold">Campos configuráveis</h2></div>
-          <div className="grid gap-4 p-4">
+          <button type="button" onClick={() => setShowCustomFields((current) => !current)} className="flex w-full items-center justify-between border-b border-slate-200 bg-white p-4 text-left">
+            <h2 className="text-base font-bold text-slate-900">Campos configuráveis</h2>
+            <span className="grid h-7 w-7 place-items-center rounded-full border border-slate-200 text-lg font-bold text-slate-600">{showCustomFields ? '-' : '+'}</span>
+          </button>
+          {showCustomFields && <div className="grid gap-4 p-4">
             {customFields.length ? customFields.map((field) => <CustomFieldInput key={field.id} field={field} value={customDrafts[field.id] || ''} onChange={(value) => setCustomDrafts((current) => ({ ...current, [field.id]: value }))} />) : <p className="text-sm text-slate-500">Nenhum campo customizado de negócio configurado.</p>}
-          </div>
+          </div>}
         </Panel>}
       </aside>
-
       <section className="space-y-4">
         <Panel className="overflow-hidden">
           <div className="border-b border-slate-200 bg-white">
@@ -1631,7 +1734,10 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
             <div className="border-b border-slate-200 bg-white p-4"><h2 className="font-bold">Foco</h2></div>
             <div className="p-4">
               <textarea value={form.focus_items} onChange={(e) => update('focus_items', e.target.value)} rows={10} className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" placeholder="Um item de foco por linha" />
-              <p className="mt-2 text-xs text-slate-500">Os itens de foco continuam salvos no negócio.</p>
+              <div className="mt-3 flex items-center justify-between gap-2">
+                <p className="text-xs text-slate-500">Os itens de foco continuam salvos no negócio.</p>
+                <button type="button" disabled={saving} onClick={() => void saveCurrent()} className="rounded bg-[#238847] px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-[#1f7a40] disabled:opacity-60">{saving ? 'Salvando...' : 'Salvar'}</button>
+              </div>
             </div>
           </Panel>
         </div>
@@ -1639,6 +1745,7 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
     </form>
 
     {editingActivity && <ActivityEditorModal activity={editingActivity} onClose={() => setEditingActivity(null)} onSave={async (draft) => { await updateActivity(editingActivity.id, draft); setEditingActivity(null) }} />}
+    {showLostReason && <LostReasonModal onCancel={() => setShowLostReason(false)} onConfirm={markLost} />}
     {showLabelPicker && <LabelPickerModal deal={deal} labels={dealLabels} assignedLabelIds={assignedLabels.map((assignment) => assignment.label_id)} onClose={() => setShowLabelPicker(false)} onCreateLabel={createLabel} onDeleteLabel={deleteLabel} onSave={async (labelIds) => { await updateDealLabels(deal.id, labelIds); setShowLabelPicker(false) }} />}
   </main>
 }
@@ -1648,18 +1755,18 @@ function dealToForm(deal?: Deal): DealForm {
     title: deal?.title || '',
     stage_id: deal?.stage_id || '',
     owner_id: deal?.owner_id || '',
-    status: deal?.status || 'morno',
+    status: deal?.status && statusLabel[deal.status] ? deal.status : 'aberto',
     value: String(deal?.value ?? ''),
     monthly_purchase: String(deal?.monthly_purchase ?? ''),
     source: deal?.source || '',
     expected_close_date: deal?.expected_close_date || '',
+    lost_reason: deal?.lost_reason || '',
     focus_items: (deal?.focus_items || []).join('\n'),
     organization_name: deal?.organizations?.name || '',
     organization_segment: deal?.organizations?.segment || '',
     organization_city: deal?.organizations?.city || '',
     organization_state: deal?.organizations?.state || '',
     organization_cnpjs: String(deal?.organizations?.cnpjs ?? ''),
-    organization_supplier_count: String(deal?.organizations?.supplier_count ?? ''),
     person_name: deal?.people?.full_name || '',
     person_role: deal?.people?.role_title || '',
     person_email: deal?.people?.email || '',
@@ -2490,7 +2597,7 @@ function ListViewDeals({ deals, stages, dealLabelAssignments, selectedId, setSel
           <td className="px-4 py-3 text-slate-600">{deal.people?.full_name || '-'}</td>
           <td className="px-4 py-3"><span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-700">{stageName(deal.stage_id || '') || '-'}</span></td>
           <td className="px-4 py-3 font-semibold text-slate-800">{money(deal.value)}</td>
-          <td className="px-4 py-3"><span className={cn('rounded-full px-2 py-0.5 text-[10px] font-bold uppercase', deal.status === 'ganho' ? 'bg-green-100 text-green-700' : deal.status === 'perdido' ? 'bg-red-100 text-red-700' : deal.status === 'quente' ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-600')}>{statusLabel[deal.status || 'morno']}</span></td>
+          <td className="px-4 py-3"><span className={cn('rounded-full px-2 py-0.5 text-[10px] font-bold uppercase', deal.status === 'ganho' ? 'bg-green-100 text-green-700' : deal.status === 'perdido' ? 'bg-slate-200 text-slate-700' : 'bg-blue-100 text-blue-700')}>{statusLabel[deal.status || 'aberto'] || 'Aberto'}</span></td>
           <td className="px-4 py-3 text-slate-500">{deal.expected_close_date ? new Date(deal.expected_close_date).toLocaleDateString('pt-BR') : '-'}</td>
           {canDelete && <td className="px-4 py-3"><button type="button" onClick={(e) => { e.stopPropagation(); deleteDeal?.(deal.id, deal.title) }} className="rounded border border-rose-200 px-3 py-1.5 text-xs font-bold text-rose-600 hover:bg-rose-50">Apagar</button></td>}
         </tr>)}
@@ -2545,7 +2652,7 @@ function ForecastView({ deals, stages, selectedId, setSelectedId, openDealPage }
               <td className="px-5 py-2 text-slate-600">{deal.organizations?.name || '-'}</td>
               <td className="px-5 py-2"><span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-700">{stageName(deal.stage_id || '') || '-'}</span></td>
               <td className="px-5 py-2 font-semibold text-slate-800">{money(deal.value)}</td>
-              <td className="px-5 py-2"><span className={cn('rounded-full px-2 py-0.5 text-[10px] font-bold uppercase', deal.status === 'ganho' ? 'bg-green-100 text-green-700' : deal.status === 'perdido' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700')}>{statusLabel[deal.status || 'morno']}</span></td>
+              <td className="px-5 py-2"><span className={cn('rounded-full px-2 py-0.5 text-[10px] font-bold uppercase', deal.status === 'ganho' ? 'bg-green-100 text-green-700' : deal.status === 'perdido' ? 'bg-slate-200 text-slate-700' : 'bg-blue-100 text-blue-700')}>{statusLabel[deal.status || 'aberto'] || 'Aberto'}</span></td>
             </tr>)}
           </tbody>
         </table>
