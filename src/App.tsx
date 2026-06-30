@@ -15,6 +15,7 @@ import {
   MessageSquare,
   PhoneCall,
   FileText,
+  ClipboardList,
   CheckSquare,
   Users,
   Pencil,
@@ -23,10 +24,10 @@ import {
   Settings,
   Tags,
 } from 'lucide-react'
-import { supabase, supabaseConfigured, type ActivityRow, type CrmCompany, type CrmUser, type CustomField, type CustomFieldValue, type Deal, type DealLabel, type DealLabelAssignment, type HistoryRow, type Organization, type Person, type Profile, type Stage } from './supabase'
+import { supabase, supabaseConfigured, type ActivityRow, type AuditLog, type CrmCompany, type CrmUser, type CustomField, type CustomFieldValue, type Deal, type DealLabel, type DealLabelAssignment, type HistoryRow, type Organization, type Person, type Profile, type Stage } from './supabase'
 import './App.css'
 
-type View = 'pipeline' | 'contacts' | 'companies' | 'activities' | 'fields' | 'admin'
+type View = 'pipeline' | 'contacts' | 'companies' | 'activities' | 'audit' | 'fields' | 'admin'
 type NewDeal = {
   title: string
   organization_name: string
@@ -301,6 +302,7 @@ function App() {
   const [deals, setDeals] = useState<Deal[]>([])
   const [activities, setActivities] = useState<ActivityRow[]>([])
   const [history, setHistory] = useState<HistoryRow[]>([])
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([])
   const [dealLabels, setDealLabels] = useState<DealLabel[]>([])
   const [dealLabelAssignments, setDealLabelAssignments] = useState<DealLabelAssignment[]>([])
   const [customFields, setCustomFields] = useState<CustomField[]>([])
@@ -361,7 +363,7 @@ function App() {
     setLoading(true)
     setError('')
     try {
-      const [profileRes, stagesRes, crmUsersRes, crmCompaniesRes, orgRes, peopleRes, dealsRes, actsRes, histRes, labelRes, labelAssignRes, fieldsRes, valuesRes] = await Promise.all([
+      const [profileRes, stagesRes, crmUsersRes, crmCompaniesRes, orgRes, peopleRes, dealsRes, actsRes, histRes, auditRes, labelRes, labelAssignRes, fieldsRes, valuesRes] = await Promise.all([
         supabase.from('profiles').select('*').eq('id', session!.user.id).maybeSingle(),
         supabase.from('pipeline_stages').select('*').order('sort_order'),
         supabase.from('crm_users').select('*, crm_companies(*)').order('full_name'),
@@ -371,12 +373,13 @@ function App() {
         supabase.from('deals').select('*, organizations(*), people(*), bpo_partners(*), pipeline_stages(*)').order('created_at', { ascending: false }),
         supabase.from('activities').select('*').order('due_at', { ascending: true }),
         supabase.from('deal_history').select('*').order('created_at', { ascending: false }),
+        supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(1000),
         supabase.from('deal_labels').select('*').order('name'),
         supabase.from('deal_label_assignments').select('*, deal_labels(*)'),
         supabase.from('custom_fields').select('*').order('sort_order'),
         supabase.from('custom_field_values').select('*'),
       ])
-      const firstError = [profileRes, stagesRes, crmUsersRes, crmCompaniesRes, orgRes, peopleRes, dealsRes, actsRes, histRes, labelRes, labelAssignRes, fieldsRes, valuesRes].find((r) => r.error)?.error
+      const firstError = [profileRes, stagesRes, crmUsersRes, crmCompaniesRes, orgRes, peopleRes, dealsRes, actsRes, histRes, auditRes, labelRes, labelAssignRes, fieldsRes, valuesRes].find((r) => r.error)?.error
       if (firstError) throw firstError
       setProfile(profileRes.data as Profile | null)
       setStages((stagesRes.data || []) as Stage[])
@@ -390,6 +393,7 @@ function App() {
       setDeals((dealsRes.data || []) as Deal[])
       setActivities((actsRes.data || []) as ActivityRow[])
       setHistory((histRes.data || []) as HistoryRow[])
+      setAuditLogs((auditRes.data || []) as AuditLog[])
       setDealLabels((labelRes.data || []) as DealLabel[])
       setDealLabelAssignments((labelAssignRes.data || []) as DealLabelAssignment[])
       setCustomFields((fieldsRes.data || []) as CustomField[])
@@ -762,6 +766,7 @@ function App() {
     ['companies', <Building2 size={19}/>, 'Empresas'],
     ['activities', <Activity size={19}/>, 'Atividades'],
   ]
+  if (profile?.role === 'admin_vmarket') navItems.push(['audit', <ClipboardList size={19}/>, 'Log de Alterações'])
   if (profile?.role === 'admin_vmarket') {
     navItems.push(['fields', <Tags size={19}/>, 'Campos'])
     navItems.push(['admin', <Settings size={19}/>, 'Admin'])
@@ -793,6 +798,7 @@ function App() {
                 {activeView === 'contacts' && <ListView title="Contatos" icon={<Contact size={18}/>} rows={people.map((p) => ({ id: p.id, title: p.full_name, sub: `${p.role_title || 'Contato'} · ${p.email || 'sem email'}`, meta: p.phone || 'sem telefone' }))} canDelete={profile?.role === 'admin_vmarket'} onDelete={(id, label) => deleteOneRecord('person', id, label)} />}
                 {activeView === 'companies' && <ListView title="Empresas" icon={<Building2 size={18}/>} rows={organizations.map((o) => ({ id: o.id, title: o.name, sub: `${o.segment || 'Segmento não informado'} · ${o.city || ''} ${o.state || ''}`, meta: money(o.monthly_purchase) }))} canDelete={profile?.role === 'admin_vmarket'} onDelete={(id, label) => deleteOneRecord('organization', id, label)} />}
                 {activeView === 'activities' && <ActivitiesView activities={activities} deals={deals} completeActivity={completeActivity} updateActivity={updateActivity} canDelete={profile?.role === 'admin_vmarket'} deleteActivity={(id, label) => deleteOneRecord('activity', id, label)} />}
+                {activeView === 'audit' && profile?.role === 'admin_vmarket' && <AuditLogView logs={auditLogs} />}
                 {activeView === 'fields' && profile?.role === 'admin_vmarket' && <FieldsConfigView fields={customFields} setError={setError} reload={loadAll} />}
                 {activeView === 'admin' && profile?.role === 'admin_vmarket' && <AdminUsersView users={crmUsers} companies={crmCompanies} dealsCount={deals.length} activitiesCount={activities.length} peopleCount={people.length} organizationsCount={organizations.length} reload={loadAll} setError={setError} />}
               </>
@@ -1525,6 +1531,129 @@ function ActivitiesView({ activities, deals, completeActivity, updateActivity, c
       </div>
     </Panel>
     {editingActivity && <ActivityEditorModal activity={editingActivity} onClose={() => setEditingActivity(null)} onSave={async (draft) => { await updateActivity(editingActivity.id, draft); setEditingActivity(null) }} />}
+  </div>
+}
+
+const tableLabels: Record<string, string> = {
+  deals: 'Negócio',
+  organizations: 'Empresa',
+  people: 'Contato',
+  activities: 'Atividade',
+  deal_labels: 'Etiqueta',
+  deal_label_assignments: 'Etiqueta do negócio',
+  custom_field_values: 'Campo customizado',
+  crm_users: 'Usuário CRM',
+  crm_companies: 'Empresa CRM',
+  deal_history: 'Histórico legado',
+}
+
+const fieldLabels: Record<string, string> = {
+  title: 'Título',
+  name: 'Nome',
+  full_name: 'Nome completo',
+  email: 'Email',
+  phone: 'Telefone',
+  stage_id: 'Etapa',
+  owner_id: 'Proprietário',
+  value: 'Valor',
+  monthly_purchase: 'GMV mensal',
+  expected_close_date: 'Data esperada de Fechamento',
+  pipedrive_deal_created_at: 'Criação do Negócio',
+  pipedrive_owner_name: 'Proprietário Pipedrive',
+  status: 'Status',
+  note: 'Observação',
+  due_at: 'Vencimento',
+  completed_at: 'Concluída em',
+  activity_type: 'Tipo de atividade',
+  color: 'Cor',
+  value_json: 'Valor',
+}
+
+function operationLabel(operation: AuditLog['operation']) {
+  if (operation === 'insert') return 'Criação'
+  if (operation === 'delete') return 'Exclusão'
+  return 'Alteração'
+}
+
+function actorTypeLabel(type: AuditLog['actor_type']) {
+  if (type === 'api') return 'API'
+  if (type === 'admin') return 'Administrador'
+  return 'Usuário'
+}
+
+function formatAuditValue(value: unknown): string {
+  if (value === null || value === undefined) return '-'
+  if (typeof value === 'string') return value || '-'
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (Array.isArray(value)) return value.length ? value.map(formatAuditValue).join(', ') : '-'
+  if (typeof value === 'object') {
+    const record = value as Record<string, unknown>
+    if (typeof record.title === 'string') return record.title
+    if (typeof record.name === 'string') return record.name
+    if (typeof record.full_name === 'string') return record.full_name
+    if (typeof record.description === 'string' && record.description) return record.description
+    return JSON.stringify(value)
+  }
+  return String(value)
+}
+
+function AuditLogView({ logs }: { logs: AuditLog[] }) {
+  const [actorFilter, setActorFilter] = useState('all')
+  const [typeFilter, setTypeFilter] = useState('all')
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
+  const actorOptions = [...new Set(logs.map((log) => log.actor_name || actorTypeLabel(log.actor_type)))].sort((a, b) => a.localeCompare(b))
+  const typeOptions = [...new Set(logs.map((log) => `${log.operation}:${log.table_name}:${log.field_name || '*'}`))]
+  const filtered = logs.filter((log) => {
+    const actor = log.actor_name || actorTypeLabel(log.actor_type)
+    const typeKey = `${log.operation}:${log.table_name}:${log.field_name || '*'}`
+    const time = new Date(log.created_at).getTime()
+    if (actorFilter !== 'all' && actor !== actorFilter) return false
+    if (typeFilter !== 'all' && typeKey !== typeFilter) return false
+    if (startDate && time < new Date(`${startDate}T00:00:00`).getTime()) return false
+    if (endDate && time > new Date(`${endDate}T23:59:59`).getTime()) return false
+    return true
+  })
+  const typeLabel = (key: string) => {
+    const [operation, table, field] = key.split(':')
+    return `${operationLabel(operation as AuditLog['operation'])} · ${tableLabels[table] || table}${field && field !== '*' ? ` · ${fieldLabels[field] || field}` : ''}`
+  }
+  return <div className="h-full overflow-y-auto p-5">
+    <Panel className="overflow-hidden">
+      <div className="border-b border-slate-200 bg-white p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2"><ClipboardList size={18} className="text-[#6f5cf6]"/><h2 className="text-lg font-bold">Log de Alterações</h2></div>
+          <Badge tone="bg-blue-100 text-blue-700">{filtered.length} registros</Badge>
+        </div>
+        <p className="mt-2 text-sm text-slate-500">Alterações feitas por API, usuários e administradores, com campo alterado, valor anterior, valor atual, autor, data e hora.</p>
+      </div>
+      <div className="grid gap-3 border-b border-slate-200 bg-slate-50 p-4 md:grid-cols-[1fr_1.4fr_160px_160px_auto]">
+        <label className="block text-sm"><span className="mb-1 block font-semibold text-slate-700">Quem fez</span><select value={actorFilter} onChange={(e) => setActorFilter(e.target.value)} className="w-full rounded border border-slate-300 bg-white px-3 py-2"><option value="all">Todos</option>{actorOptions.map((actor) => <option key={actor} value={actor}>{actor}</option>)}</select></label>
+        <label className="block text-sm"><span className="mb-1 block font-semibold text-slate-700">Tipo de alteração</span><select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="w-full rounded border border-slate-300 bg-white px-3 py-2"><option value="all">Todos</option>{typeOptions.map((type) => <option key={type} value={type}>{typeLabel(type)}</option>)}</select></label>
+        <label className="block text-sm"><span className="mb-1 block font-semibold text-slate-700">Data inicial</span><input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full rounded border border-slate-300 bg-white px-3 py-2" /></label>
+        <label className="block text-sm"><span className="mb-1 block font-semibold text-slate-700">Data final</span><input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-full rounded border border-slate-300 bg-white px-3 py-2" /></label>
+        <button type="button" onClick={() => { setActorFilter('all'); setTypeFilter('all'); setStartDate(''); setEndDate('') }} className="self-end rounded border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">Limpar</button>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-white text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">
+            <tr><th className="px-4 py-3">Data e hora</th><th className="px-4 py-3">Quem fez</th><th className="px-4 py-3">Tipo</th><th className="px-4 py-3">Registro</th><th className="px-4 py-3">Campo</th><th className="px-4 py-3">Valor anterior</th><th className="px-4 py-3">Valor atual</th></tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {filtered.map((log) => <tr key={log.id} className="align-top hover:bg-slate-50">
+              <td className="whitespace-nowrap px-4 py-3 text-slate-600">{formatDateTime(log.created_at)}</td>
+              <td className="px-4 py-3"><b className="text-slate-900">{log.actor_name || actorTypeLabel(log.actor_type)}</b><p className="mt-1 text-xs text-slate-500">{actorTypeLabel(log.actor_type)}</p></td>
+              <td className="px-4 py-3"><Badge tone={log.operation === 'delete' ? 'bg-rose-100 text-rose-700' : log.operation === 'insert' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}>{operationLabel(log.operation)}</Badge></td>
+              <td className="px-4 py-3 text-slate-700"><b>{tableLabels[log.table_name] || log.table_name}</b><p className="mt-1 max-w-[180px] truncate text-xs text-slate-400">{log.entity_id || '-'}</p></td>
+              <td className="px-4 py-3 font-semibold text-slate-800">{log.field_name ? (fieldLabels[log.field_name] || log.field_name) : 'Registro completo'}</td>
+              <td className="max-w-[260px] px-4 py-3 text-slate-600"><span className="line-clamp-3 break-words">{formatAuditValue(log.old_value)}</span></td>
+              <td className="max-w-[260px] px-4 py-3 text-slate-900"><span className="line-clamp-3 break-words">{formatAuditValue(log.new_value)}</span></td>
+            </tr>)}
+          </tbody>
+        </table>
+        {!filtered.length && <div className="p-8 text-center text-slate-400">Nenhuma alteração encontrada para os filtros selecionados.</div>}
+      </div>
+    </Panel>
   </div>
 }
 

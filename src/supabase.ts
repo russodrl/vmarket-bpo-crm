@@ -193,6 +193,21 @@ export type HistoryRow = {
   created_at: string
 }
 
+export type AuditLog = {
+  id: string
+  table_name: string
+  entity_id: string | null
+  operation: 'insert' | 'update' | 'delete'
+  field_name: string | null
+  old_value: unknown
+  new_value: unknown
+  actor_id: string | null
+  actor_name: string
+  actor_type: 'api' | 'admin' | 'user'
+  change_source: string
+  created_at: string
+}
+
 export type CustomField = {
   id: string
   entity: 'deal' | 'organization' | 'person' | 'activity'
