@@ -307,6 +307,7 @@ async function upsertCrmDealFromPipedrive(integrationId: string, pdDeal: JsonRec
     stage_id: stageId,
     organization_id: organization?.id || null,
     person_id: person?.id || null,
+    pipedrive_owner_name: pipedriveOwnerName(pdDeal.user_id),
   }
   if (!existing?.internal_id && inheritedOwnerId) payload.owner_id = inheritedOwnerId
   if (!existing?.internal_id && inheritedBpoId) payload.bpo_id = inheritedBpoId
@@ -638,6 +639,11 @@ function pipedriveUserId(value: unknown) {
   if (typeof value === 'string') return Number(value)
   if (typeof value === 'object' && value) return Number((value as JsonRecord).id || (value as JsonRecord).value)
   return 0
+}
+
+function pipedriveOwnerName(value: unknown) {
+  if (!value || typeof value !== 'object') return null
+  return stringOrNull((value as JsonRecord).name)
 }
 
 function firstContactValue(value: unknown) {

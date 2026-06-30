@@ -12,12 +12,14 @@ import {
   LockKeyhole,
   LogOut,
   Mail,
+  MessageSquare,
+  Pencil,
   RefreshCw,
   Search,
   Settings,
   Tags,
 } from 'lucide-react'
-import { supabase, supabaseConfigured, type ActivityRow, type CrmCompany, type CrmUser, type CustomField, type CustomFieldValue, type Deal, type HistoryRow, type Organization, type Person, type Profile, type Stage } from './supabase'
+import { supabase, supabaseConfigured, type ActivityRow, type CrmCompany, type CrmUser, type CustomField, type CustomFieldValue, type Deal, type DealLabel, type DealLabelAssignment, type HistoryRow, type Organization, type Person, type Profile, type Stage } from './supabase'
 import './App.css'
 
 type View = 'pipeline' | 'contacts' | 'companies' | 'activities' | 'fields' | 'admin'
@@ -29,7 +31,6 @@ type NewDeal = {
   contact_phone: string
   value: string
   monthly_purchase: string
-  plan: string
   stage_id: string
   owner_id: string
 }
@@ -52,7 +53,6 @@ const blankNewDeal = (): NewDeal => ({
   contact_phone: '',
   value: '',
   monthly_purchase: '',
-  plan: '',
   stage_id: '',
   owner_id: '',
 })
@@ -76,7 +76,6 @@ type DealForm = {
   probability: string
   score: string
   source: string
-  plan: string
   expected_close_date: string
   focus_items: string
   organization_name: string
@@ -278,6 +277,8 @@ function App() {
   const [deals, setDeals] = useState<Deal[]>([])
   const [activities, setActivities] = useState<ActivityRow[]>([])
   const [history, setHistory] = useState<HistoryRow[]>([])
+  const [dealLabels, setDealLabels] = useState<DealLabel[]>([])
+  const [dealLabelAssignments, setDealLabelAssignments] = useState<DealLabelAssignment[]>([])
   const [customFields, setCustomFields] = useState<CustomField[]>([])
   const [customFieldValues, setCustomFieldValues] = useState<CustomFieldValue[]>([])
   const [organizations, setOrganizations] = useState<Organization[]>([])
@@ -336,7 +337,7 @@ function App() {
     setLoading(true)
     setError('')
     try {
-      const [profileRes, stagesRes, crmUsersRes, crmCompaniesRes, orgRes, peopleRes, dealsRes, actsRes, histRes, fieldsRes, valuesRes] = await Promise.all([
+      const [profileRes, stagesRes, crmUsersRes, crmCompaniesRes, orgRes, peopleRes, dealsRes, actsRes, histRes, labelRes, labelAssignRes, fieldsRes, valuesRes] = await Promise.all([
         supabase.from('profiles').select('*').eq('id', session!.user.id).maybeSingle(),
         supabase.from('pipeline_stages').select('*').order('sort_order'),
         supabase.from('crm_users').select('*, crm_companies(*)').order('full_name'),
@@ -346,10 +347,12 @@ function App() {
         supabase.from('deals').select('*, organizations(*), people(*), bpo_partners(*), pipeline_stages(*)').order('created_at', { ascending: false }),
         supabase.from('activities').select('*').order('due_at', { ascending: true }),
         supabase.from('deal_history').select('*').order('created_at', { ascending: false }),
+        supabase.from('deal_labels').select('*').order('name'),
+        supabase.from('deal_label_assignments').select('*, deal_labels(*)'),
         supabase.from('custom_fields').select('*').order('sort_order'),
         supabase.from('custom_field_values').select('*'),
       ])
-      const firstError = [profileRes, stagesRes, crmUsersRes, crmCompaniesRes, orgRes, peopleRes, dealsRes, actsRes, histRes, fieldsRes, valuesRes].find((r) => r.error)?.error
+      const firstError = [profileRes, stagesRes, crmUsersRes, crmCompaniesRes, orgRes, peopleRes, dealsRes, actsRes, histRes, labelRes, labelAssignRes, fieldsRes, valuesRes].find((r) => r.error)?.error
       if (firstError) throw firstError
       setProfile(profileRes.data as Profile | null)
       setStages((stagesRes.data || []) as Stage[])
@@ -363,6 +366,8 @@ function App() {
       setDeals((dealsRes.data || []) as Deal[])
       setActivities((actsRes.data || []) as ActivityRow[])
       setHistory((histRes.data || []) as HistoryRow[])
+      setDealLabels((labelRes.data || []) as DealLabel[])
+      setDealLabelAssignments((labelAssignRes.data || []) as DealLabelAssignment[])
       setCustomFields((fieldsRes.data || []) as CustomField[])
       setCustomFieldValues((valuesRes.data || []) as CustomFieldValue[])
       if (!selectedId && dealsRes.data?.[0]) setSelectedId(dealsRes.data[0].id)
@@ -421,7 +426,6 @@ function App() {
         probability: null,
         status: null,
         source: null,
-        plan: newDeal.plan || null,
         expected_close_date: null,
         score: null,
         focus_items: [],
@@ -524,6 +528,56 @@ function App() {
     }
   }
 
+  async function createNoteForDeal(note: string) {
+    if (!detailDeal) return
+    const text = note.trim()
+    if (!text) throw new Error('Escreva uma anotação.')
+    setError('')
+    try {
+      const { error: noteErr } = await supabase.from('deal_history').insert({
+        deal_id: detailDeal.id,
+        event_type: 'Anotação',
+        title: 'Anotação adicionada',
+        description: text,
+      })
+      if (noteErr) throw noteErr
+      await loadAll()
+    } catch (e) {
+      setError(errorMessage(e))
+      throw e
+    }
+  }
+
+  async function createDealLabel(name: string, color: string) {
+    const cleanName = name.trim()
+    if (!cleanName) throw new Error('Informe o nome da etiqueta.')
+    setError('')
+    const { data, error } = await supabase.from('deal_labels').insert({ name: cleanName, color, created_by: session?.user.id || null }).select('*').single()
+    if (error) {
+      setError(errorMessage(error))
+      throw error
+    }
+    await loadAll()
+    return data as DealLabel
+  }
+
+  async function updateDealLabels(dealId: string, labelIds: string[]) {
+    setError('')
+    try {
+      const { error: deleteErr } = await supabase.from('deal_label_assignments').delete().eq('deal_id', dealId)
+      if (deleteErr) throw deleteErr
+      const rows = [...new Set(labelIds)].map((labelId) => ({ deal_id: dealId, label_id: labelId, created_by: session?.user.id || null }))
+      if (rows.length) {
+        const { error: insertErr } = await supabase.from('deal_label_assignments').insert(rows)
+        if (insertErr) throw insertErr
+      }
+      await loadAll()
+    } catch (e) {
+      setError(errorMessage(e))
+      throw e
+    }
+  }
+
   async function deleteOneRecord(target: DeleteTarget, id: string, label: string) {
     if (profile?.role !== 'admin_vmarket') return
     const confirmed = window.confirm(`Apagar ${label}? Essa ação não pode ser desfeita.`)
@@ -583,7 +637,6 @@ function App() {
         probability: numberOrNull(form.probability),
         score: numberOrNull(form.score),
         source: form.source || null,
-        plan: form.plan || null,
         expected_close_date: form.expected_close_date || null,
         focus_items: form.focus_items.split('\n').map((item) => item.trim()).filter(Boolean),
       }).eq('id', detailDeal.id)
@@ -638,7 +691,7 @@ function App() {
 
   if (detailDealId) {
     const isAdmin = profile?.role === 'admin_vmarket'
-    return <DealPage key={detailDealId} deal={detailDeal} loading={loading} error={error} stages={salesStages} crmUsers={crmUsers} canEditOwner={isAdmin} canViewCustomFields={isAdmin} activities={activities.filter((a) => a.deal_id === detailDealId)} history={history.filter((h) => h.deal_id === detailDealId)} activePipeline="Pipeline de Vendas" closeDealPage={closeDealPage} saveDeal={saveDeal} createActivity={createActivityForDeal} deleteDeal={(id, label) => deleteOneRecord('deal', id, label)} deleteActivity={(id, label) => deleteOneRecord('activity', id, label)} customFields={isAdmin ? customFields.filter((field) => field.entity === 'deal') : []} customFieldValues={isAdmin ? customFieldValues.filter((value) => value.entity_id === detailDealId) : []} completeActivity={completeActivity} />
+    return <DealPage key={detailDealId} deal={detailDeal} loading={loading} error={error} stages={stages} crmUsers={crmUsers} canEditOwner={isAdmin} canViewCustomFields={isAdmin} activities={activities.filter((a) => a.deal_id === detailDealId)} history={history.filter((h) => h.deal_id === detailDealId)} dealLabels={dealLabels} assignedLabels={dealLabelAssignments.filter((assignment) => assignment.deal_id === detailDealId)} closeDealPage={closeDealPage} saveDeal={saveDeal} createActivity={createActivityForDeal} createNote={createNoteForDeal} deleteDeal={(id, label) => deleteOneRecord('deal', id, label)} deleteActivity={(id, label) => deleteOneRecord('activity', id, label)} customFields={isAdmin ? customFields.filter((field) => field.entity === 'deal') : []} customFieldValues={isAdmin ? customFieldValues.filter((value) => value.entity_id === detailDealId) : []} completeActivity={completeActivity} createLabel={createDealLabel} updateDealLabels={updateDealLabels} />
   }
 
   const navItems: Array<[View, ReactNode, string]> = [
@@ -674,7 +727,7 @@ function App() {
             {error && <div className="m-4 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><b>Erro:</b> {error}</div>}
             {loading ? <div className="m-4 rounded bg-white p-4 text-sm shadow-sm">Carregando dados do Supabase...</div> : (
               <>
-                {activeView === 'pipeline' && <PipelineView stages={visibleStages} salesStages={salesStages} deals={visibleDeals} activities={activities} crmUsers={crmUsers} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} setDraggingId={setDraggingId} handleDrop={handleDrop} newDeal={newDeal} setNewDeal={setNewDeal} createDeal={createDeal} creating={creating} canAssignOwner={profile?.role === 'admin_vmarket'} activePipeline={activePipeline} setActivePipeline={setActivePipeline} pipelineNames={pipelineNames} pipelineView={pipelineView} setPipelineView={setPipelineView} />}
+                {activeView === 'pipeline' && <PipelineView stages={visibleStages} salesStages={salesStages} deals={visibleDeals} activities={activities} crmUsers={crmUsers} dealLabelAssignments={dealLabelAssignments} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} setDraggingId={setDraggingId} handleDrop={handleDrop} newDeal={newDeal} setNewDeal={setNewDeal} createDeal={createDeal} creating={creating} canAssignOwner={profile?.role === 'admin_vmarket'} activePipeline={activePipeline} setActivePipeline={setActivePipeline} pipelineNames={pipelineNames} pipelineView={pipelineView} setPipelineView={setPipelineView} />}
                 {activeView === 'contacts' && <ListView title="Contatos" icon={<Contact size={18}/>} rows={people.map((p) => ({ id: p.id, title: p.full_name, sub: `${p.role_title || 'Contato'} · ${p.email || 'sem email'}`, meta: p.phone || 'sem telefone' }))} canDelete={profile?.role === 'admin_vmarket'} onDelete={(id, label) => deleteOneRecord('person', id, label)} />}
                 {activeView === 'companies' && <ListView title="Empresas" icon={<Building2 size={18}/>} rows={organizations.map((o) => ({ id: o.id, title: o.name, sub: `${o.segment || 'Segmento não informado'} · ${o.city || ''} ${o.state || ''}`, meta: money(o.monthly_purchase) }))} canDelete={profile?.role === 'admin_vmarket'} onDelete={(id, label) => deleteOneRecord('organization', id, label)} />}
                 {activeView === 'activities' && <ActivitiesView activities={activities} deals={deals} completeActivity={completeActivity} canDelete={profile?.role === 'admin_vmarket'} deleteActivity={(id, label) => deleteOneRecord('activity', id, label)} />}
@@ -689,12 +742,13 @@ function App() {
   )
 }
 
-function PipelineView({ stages, salesStages, deals, activities, crmUsers, selectedId, setSelectedId, openDealPage, setDraggingId, handleDrop, newDeal, setNewDeal, createDeal, creating, canAssignOwner, activePipeline, setActivePipeline, pipelineNames, pipelineView, setPipelineView }: {
+function PipelineView({ stages, salesStages, deals, activities, crmUsers, dealLabelAssignments, selectedId, setSelectedId, openDealPage, setDraggingId, handleDrop, newDeal, setNewDeal, createDeal, creating, canAssignOwner, activePipeline, setActivePipeline, pipelineNames, pipelineView, setPipelineView }: {
   stages: Stage[]
   salesStages: Stage[]
   deals: Deal[]
   activities: ActivityRow[]
   crmUsers: CrmUser[]
+  dealLabelAssignments: DealLabelAssignment[]
   selectedId?: string
   setSelectedId: (id: string) => void
   openDealPage: (id: string) => void
@@ -743,6 +797,10 @@ function PipelineView({ stages, salesStages, deals, activities, crmUsers, select
     return { label: '', className: 'bg-white ring-1 ring-slate-300', title: 'Atividade planejada' }
   }
 
+  const labelsForDeal = (dealId: string) => dealLabelAssignments
+    .filter((assignment) => assignment.deal_id === dealId && assignment.deal_labels)
+    .map((assignment) => assignment.deal_labels as DealLabel)
+
   return <div className="flex min-h-[calc(100vh-7.5rem)] flex-col md:h-full md:min-h-0">
     <div className="border-b border-slate-200 bg-white">
       <div className="flex flex-wrap items-center gap-2 px-3 py-2 md:h-12 md:flex-nowrap md:px-4 md:py-0">
@@ -777,11 +835,9 @@ function PipelineView({ stages, salesStages, deals, activities, crmUsers, select
             <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-1.5">
               {stageDeals.map((deal) => {
                 const indicator = activityIndicator(deal)
+                const labels = labelsForDeal(deal.id)
                 return <div key={deal.id} draggable onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', deal.id); setDraggingId(deal.id) }} onDragEnd={() => setDraggingId(null)} onClick={() => openDealPage(deal.id)} role="button" tabIndex={0} className={cn('group w-full cursor-grab rounded border bg-white p-2 text-left shadow-sm transition hover:border-blue-200 hover:shadow-md active:cursor-grabbing', selectedId === deal.id ? 'border-blue-300 ring-2 ring-blue-200/70' : 'border-slate-200')}>
-                  <div className="mb-1.5 flex items-center gap-1">
-                    <span className="h-1 w-8 rounded-full bg-[#5c7cfa]" />
-                    <span className="h-1 w-8 rounded-full bg-[#e6509c]" />
-                  </div>
+                  <DealLabelPills labels={labels} compact />
                   <p className="line-clamp-2 text-sm font-bold leading-snug text-slate-900">{deal.title}</p>
                   <p className="mt-1 truncate text-xs text-slate-600">{deal.organizations?.name || 'Sem empresa'}</p>
                   <p className="truncate text-xs text-slate-500">{deal.people?.full_name || 'Sem contato'}</p>
@@ -797,7 +853,7 @@ function PipelineView({ stages, salesStages, deals, activities, crmUsers, select
           </div>
         })}
       </div>
-    </div> : pipelineView === 'list' ? <ListViewDeals deals={deals} stages={stages} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} /> : <ForecastView deals={deals} stages={stages} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} />}
+    </div> : pipelineView === 'list' ? <ListViewDeals deals={deals} stages={stages} dealLabelAssignments={dealLabelAssignments} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} /> : <ForecastView deals={deals} stages={stages} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} />}
 
     {showCreateDeal && <CreateDealModal salesStages={salesStages} crmUsers={crmUsers} canAssignOwner={canAssignOwner} newDeal={newDeal} setNewDeal={setNewDeal} createDeal={submitCreateDeal} creating={creating} close={() => { setShowCreateDeal(false); setNewDeal(blankNewDeal()) }} />}
   </div>
@@ -830,7 +886,6 @@ function CreateDealModal({ salesStages, crmUsers, canAssignOwner, newDeal, setNe
         <EditInput label="Telefone" value={newDeal.contact_phone} onChange={(v) => setNewDeal({ ...newDeal, contact_phone: v })} />
         <EditInput label="Valor do negócio" value={newDeal.value} onChange={(v) => setNewDeal({ ...newDeal, value: v })} type="number" />
         <EditInput label="GMV mensal" value={newDeal.monthly_purchase} onChange={(v) => setNewDeal({ ...newDeal, monthly_purchase: v })} type="number" />
-        <EditInput label="Plano recomendado" value={newDeal.plan} onChange={(v) => setNewDeal({ ...newDeal, plan: v })} />
         <label className="block text-sm">
           <span className="mb-1.5 block font-semibold text-slate-700">Etapa</span>
           <select className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" value={newDeal.stage_id} onChange={(e) => setNewDeal({ ...newDeal, stage_id: e.target.value })}>
@@ -854,7 +909,7 @@ function CreateDealModal({ salesStages, crmUsers, canAssignOwner, newDeal, setNe
   </div>
 }
 
-function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canViewCustomFields, activities, history, customFields, customFieldValues, activePipeline, closeDealPage, saveDeal, createActivity, deleteDeal, deleteActivity, completeActivity }: {
+function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canViewCustomFields, activities, history, customFields, customFieldValues, dealLabels, assignedLabels, closeDealPage, saveDeal, createActivity, createNote, deleteDeal, deleteActivity, completeActivity, createLabel, updateDealLabels }: {
   deal?: Deal
   loading: boolean
   error: string
@@ -866,18 +921,26 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
   history: HistoryRow[]
   customFields: CustomField[]
   customFieldValues: CustomFieldValue[]
-  activePipeline: string
+  dealLabels: DealLabel[]
+  assignedLabels: DealLabelAssignment[]
   closeDealPage: () => void
   saveDeal: (form: DealForm, customValues: Record<string, string>) => Promise<void>
   createActivity: (activity: NewActivity) => Promise<void>
+  createNote: (note: string) => Promise<void>
   deleteDeal: (id: string, label: string) => void
   deleteActivity: (id: string, label: string) => void
   completeActivity: (id: string) => Promise<void>
+  createLabel: (name: string, color: string) => Promise<DealLabel>
+  updateDealLabels: (dealId: string, labelIds: string[]) => Promise<void>
 }) {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [creatingActivity, setCreatingActivity] = useState(false)
+  const [creatingNote, setCreatingNote] = useState(false)
   const [activityDraft, setActivityDraft] = useState<NewActivity>(() => blankNewActivity())
+  const [noteDraft, setNoteDraft] = useState('')
+  const [composerMode, setComposerMode] = useState<'note' | 'activity'>('note')
+  const [showLabelPicker, setShowLabelPicker] = useState(false)
   const [form, setForm] = useState<DealForm>(() => dealToForm(deal))
   const [customDrafts, setCustomDrafts] = useState<Record<string, string>>(() => customValuesToDrafts(customFields, customFieldValues))
 
@@ -905,129 +968,174 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
     }
   }
 
+  async function submitNote() {
+    setCreatingNote(true)
+    try {
+      await createNote(noteDraft)
+      setNoteDraft('')
+    } catch {
+      // O erro já é exibido pelo estado global da página.
+    } finally {
+      setCreatingNote(false)
+    }
+  }
+
   if (loading) return <main className="min-h-screen bg-[#f4f5f7] p-5 text-slate-900"><div className="rounded bg-white p-4 shadow-sm">Carregando ficha do negócio...</div></main>
   if (!deal) return <main className="min-h-screen bg-[#f4f5f7] p-5 text-slate-900"><div className="rounded bg-white p-6 shadow-sm"><h1 className="text-xl font-bold">Negócio não encontrado</h1><button onClick={closeDealPage} className="mt-4 rounded bg-[#238847] px-4 py-2 text-sm font-bold text-white">Voltar ao funil</button></div></main>
 
   const update = (key: keyof DealForm, value: string) => setForm((current) => ({ ...current, [key]: value }))
+  const currentStage = stages.find((s) => s.id === form.stage_id) || stages.find((s) => s.id === deal.stage_id)
+  const currentPipeline = currentStage?.pipeline_name || deal.pipeline_stages?.pipeline_name || 'Sem funil'
+  const pipelineStages = stages.filter((stage) => (stage.pipeline_name || 'Sem funil') === currentPipeline)
+  const stageIndex = Math.max(0, pipelineStages.findIndex((stage) => stage.id === (form.stage_id || deal.stage_id)))
+  const ownerName = crmUsers.find((user) => user.auth_user_id && user.auth_user_id === form.owner_id)?.full_name || 'Sem proprietário CRM'
+  const selectedLabels = assignedLabels.map((assignment) => assignment.deal_labels).filter((label): label is DealLabel => Boolean(label))
+  const openActivities = activities.filter((activity) => activity.status === 'open')
+  const notes = history.filter((row) => row.event_type.toLowerCase().includes('nota') || row.event_type.toLowerCase().includes('anot'))
+  const timeline = ([
+    ...activities.map((activity) => ({ id: `activity-${activity.id}`, kind: 'Atividade', title: activity.title, description: activity.note, date: activity.due_at, status: activity.status, activity })),
+    ...history.map((row) => ({ id: `history-${row.id}`, kind: row.event_type, title: row.title, description: row.description, date: row.created_at, status: '' })),
+  ] as Array<{ id: string; kind: string; title: string; description: string | null; date: string | null; status: string; activity?: ActivityRow }>).sort((a, b) => new Date(b.date || '1900-01-01').getTime() - new Date(a.date || '1900-01-01').getTime())
 
   return <main className="min-h-screen bg-[#f4f5f7] text-slate-900">
-    <header className="sticky top-0 z-30 border-b border-slate-200 bg-white px-4 py-3 shadow-sm">
-      <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-3">
+    <header className="sticky top-0 z-30 border-b border-slate-200 bg-white shadow-sm">
+      <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-3 px-4 py-3">
         <button onClick={closeDealPage} className="rounded border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">← Voltar ao funil</button>
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-semibold text-blue-600">{activePipeline} → {stages.find((s) => s.id === deal.stage_id)?.name || 'Sem etapa'}</p>
           <h1 className="truncate text-2xl font-semibold tracking-[-0.03em] text-slate-950">{deal.title}</h1>
+          <p className="mt-1 text-xs font-semibold text-blue-600">{currentPipeline} › {currentStage?.name || 'Sem etapa'}</p>
+        </div>
+        <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700">
+          <span className="grid h-6 w-6 place-items-center rounded-full bg-slate-200 text-[10px] font-black">{ownerName.slice(0,1).toUpperCase()}</span>
+          <span>{ownerName}</span>
         </div>
         {saved && <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700">Salvo</span>}
         {canEditOwner && <button type="button" onClick={() => deleteDeal(deal.id, deal.title)} className="rounded border border-rose-200 px-4 py-2 text-sm font-bold text-rose-600 hover:bg-rose-50">Apagar negócio</button>}
         <button form="deal-edit-form" disabled={saving} className="rounded bg-[#238847] px-5 py-2 text-sm font-bold text-white shadow-sm hover:bg-[#1f7a40] disabled:opacity-60">{saving ? 'Salvando...' : 'Salvar alterações'}</button>
       </div>
+      <div className="border-t border-slate-100 px-4 pb-3">
+        <div className="mx-auto max-w-[1600px]">
+          <div className="flex overflow-hidden rounded-sm border border-slate-200 bg-white">
+            {(pipelineStages.length ? pipelineStages : [currentStage].filter(Boolean) as Stage[]).map((stage, index) => {
+              const isCurrent = stage.id === (form.stage_id || deal.stage_id)
+              const isDone = index < stageIndex
+              return <button key={stage.id} type="button" onClick={() => update('stage_id', stage.id)} className={cn('relative min-w-[110px] flex-1 px-3 py-2 text-center text-[11px] font-bold transition after:absolute after:right-[-9px] after:top-0 after:z-10 after:h-full after:w-[18px] after:skew-x-[-20deg] after:border-r after:border-slate-200', isCurrent ? 'bg-emerald-500 text-white after:bg-emerald-500' : isDone ? 'bg-emerald-100 text-emerald-700 after:bg-emerald-100' : 'bg-slate-100 text-slate-500 after:bg-slate-100')}>{stage.name}</button>
+            })}
+          </div>
+          <p className="mt-1 text-xs text-slate-500">{currentPipeline} · {currentStage?.name || 'Sem etapa'}</p>
+        </div>
+      </div>
     </header>
 
-    <form id="deal-edit-form" onSubmit={submit} className="mx-auto grid max-w-7xl gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_420px]">
+    <form id="deal-edit-form" onSubmit={submit} className="mx-auto grid max-w-[1600px] gap-4 p-4 xl:grid-cols-[360px_minmax(0,1fr)]">
       {error && <div className="xl:col-span-2 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><b>Erro:</b> {error}</div>}
 
-      <section className="space-y-4">
+      <aside className="space-y-4 xl:sticky xl:top-32 xl:max-h-[calc(100vh-9rem)] xl:overflow-y-auto">
         <Panel className="overflow-hidden">
           <div className="border-b border-slate-200 bg-white p-4">
-            <h2 className="text-lg font-bold">Dados principais do negócio</h2>
-            <p className="mt-1 text-sm text-slate-500">Todos os campos da ficha lateral agora ficam em uma URL própria e editável.</p>
+            <h2 className="text-base font-bold">Campos do negócio</h2>
+            <p className="mt-1 text-xs text-slate-500">Clique no lápis para editar o valor.</p>
           </div>
-          <div className="grid gap-4 p-4 md:grid-cols-2">
-            <EditInput label="Título do negócio" value={form.title} onChange={(v) => update('title', v)} className="md:col-span-2" />
-            <EditSelect label="Etapa" value={form.stage_id} onChange={(v) => update('stage_id', v)} options={stages.map((s) => [s.id, s.name])} />
-            <EditSelect label="Status" value={form.status} onChange={(v) => update('status', v)} options={Object.entries(statusLabel)} />
-            <EditInput label="Valor do negócio" value={form.value} onChange={(v) => update('value', v)} type="number" />
-            <EditInput label="GMV mensal" value={form.monthly_purchase} onChange={(v) => update('monthly_purchase', v)} type="number" />
-            <EditInput label="Data esperada de fechamento" value={form.expected_close_date} onChange={(v) => update('expected_close_date', v)} type="date" />
-            <EditInput label="Fonte" value={form.source} onChange={(v) => update('source', v)} />
-            <EditInput label="Plano recomendado" value={form.plan} onChange={(v) => update('plan', v)} />
-            {canEditOwner && <EditSelect label="Proprietário do negócio" value={form.owner_id} onChange={(v) => update('owner_id', v)} options={[[deal.owner_id || '', deal.owner_id ? 'Proprietário atual' : 'Sem proprietário'], ...crmUsers.filter((u) => u.auth_user_id).map((u) => [u.auth_user_id || '', `${u.full_name} · ${u.crm_companies?.name || 'sem empresa'}`] as [string, string])]} />}
-          </div>
-        </Panel>
-
-        <Panel className="overflow-hidden">
-          <div className="border-b border-slate-200 bg-white p-4"><h2 className="text-lg font-bold">Empresa e contato</h2></div>
-          <div className="grid gap-4 p-4 md:grid-cols-2">
-            <EditInput label="Empresa" value={form.organization_name} onChange={(v) => update('organization_name', v)} />
-            <EditInput label="Segmento" value={form.organization_segment} onChange={(v) => update('organization_segment', v)} />
-            <EditInput label="Cidade" value={form.organization_city} onChange={(v) => update('organization_city', v)} />
-            <EditInput label="Estado" value={form.organization_state} onChange={(v) => update('organization_state', v)} />
-            <EditInput label="Quantidade de CNPJs" value={form.organization_cnpjs} onChange={(v) => update('organization_cnpjs', v)} type="number" />
-            <EditInput label="Quantidade de fornecedores" value={form.organization_supplier_count} onChange={(v) => update('organization_supplier_count', v)} type="number" />
-            <EditInput label="Pessoa" value={form.person_name} onChange={(v) => update('person_name', v)} />
-            <EditInput label="Cargo" value={form.person_role} onChange={(v) => update('person_role', v)} />
-            <EditInput label="Email" value={form.person_email} onChange={(v) => update('person_email', v)} type="email" />
-            <EditInput label="Telefone" value={form.person_phone} onChange={(v) => update('person_phone', v)} />
+          <div className="divide-y divide-slate-100">
+            <InlineField label="Título do negócio" value={form.title} onChange={(v) => update('title', v)} />
+            <InlineSelect label="Etapa" value={form.stage_id} onChange={(v) => update('stage_id', v)} options={stages.map((s) => [s.id, `${s.pipeline_name || 'Funil'} · ${s.name}`])} />
+            <InlineSelect label="Status" value={form.status} onChange={(v) => update('status', v)} options={Object.entries(statusLabel)} />
+            <InlineField label="Valor do negócio" value={form.value} onChange={(v) => update('value', v)} type="number" displayValue={money(Number(form.value || 0))} />
+            <InlineField label="GMV mensal" value={form.monthly_purchase} onChange={(v) => update('monthly_purchase', v)} type="number" displayValue={money(Number(form.monthly_purchase || 0))} />
+            <InlineField label="Economia estimada" value={form.estimated_savings} onChange={(v) => update('estimated_savings', v)} type="number" displayValue={money(Number(form.estimated_savings || 0))} />
+            <InlineField label="Probabilidade" value={form.probability} onChange={(v) => update('probability', v)} type="number" displayValue={form.probability ? `${form.probability}%` : 'Não informado'} />
+            <InlineField label="Score" value={form.score} onChange={(v) => update('score', v)} type="number" />
+            <InlineField label="Fonte" value={form.source} onChange={(v) => update('source', v)} />
+            <InlineField label="Data esperada" value={form.expected_close_date} onChange={(v) => update('expected_close_date', v)} type="date" />
+            <ReadOnlyField label="Proprietário do negócio no Pipedrive" value={deal.pipedrive_owner_name || 'Não sincronizado'} />
+            <ReadOnlyField label="Etiquetas" value={selectedLabels.length ? selectedLabels.map((label) => label.name).join(', ') : 'Sem etiqueta'} action={<button type="button" onClick={() => setShowLabelPicker(true)} className="text-xs font-bold text-blue-600 hover:text-blue-700">Adicionar etiqueta</button>} />
+            {canEditOwner && <InlineSelect label="Proprietário CRM" value={form.owner_id} onChange={(v) => update('owner_id', v)} options={[[deal.owner_id || '', deal.owner_id ? 'Proprietário atual' : 'Sem proprietário'], ...crmUsers.filter((u) => u.auth_user_id).map((u) => [u.auth_user_id || '', `${u.full_name} · ${u.crm_companies?.name || 'sem empresa'}`] as [string, string])]} />}
           </div>
         </Panel>
 
         <Panel className="overflow-hidden">
-          <div className="border-b border-slate-200 bg-white p-4"><h2 className="text-lg font-bold">Focus e notas do negócio</h2></div>
-          <div className="p-4">
-            <label className="block text-sm font-semibold text-slate-700">Itens de foco, um por linha</label>
-            <textarea value={form.focus_items} onChange={(e) => update('focus_items', e.target.value)} rows={7} className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" placeholder="Diagnóstico gratuito&#10;Enviar proposta&#10;Follow-up" />
+          <div className="border-b border-slate-200 bg-white p-4"><h2 className="text-base font-bold">Empresa e contato</h2></div>
+          <div className="divide-y divide-slate-100">
+            <InlineField label="Empresa" value={form.organization_name} onChange={(v) => update('organization_name', v)} />
+            <InlineField label="Segmento" value={form.organization_segment} onChange={(v) => update('organization_segment', v)} />
+            <InlineField label="Cidade" value={form.organization_city} onChange={(v) => update('organization_city', v)} />
+            <InlineField label="Estado" value={form.organization_state} onChange={(v) => update('organization_state', v)} />
+            <InlineField label="Quantidade de CNPJs" value={form.organization_cnpjs} onChange={(v) => update('organization_cnpjs', v)} type="number" />
+            <InlineField label="Quantidade de fornecedores" value={form.organization_supplier_count} onChange={(v) => update('organization_supplier_count', v)} type="number" />
+            <InlineField label="Pessoa" value={form.person_name} onChange={(v) => update('person_name', v)} />
+            <InlineField label="Cargo" value={form.person_role} onChange={(v) => update('person_role', v)} />
+            <InlineField label="Email" value={form.person_email} onChange={(v) => update('person_email', v)} type="email" />
+            <InlineField label="Telefone" value={form.person_phone} onChange={(v) => update('person_phone', v)} />
           </div>
         </Panel>
 
         {canViewCustomFields && <Panel className="overflow-hidden">
-          <div className="border-b border-slate-200 bg-white p-4">
-            <h2 className="text-lg font-bold">Campos configuráveis do negócio</h2>
-            <p className="mt-1 text-sm text-slate-500">Esses campos vêm da tabela custom_fields e os valores são gravados em custom_field_values por ID do negócio.</p>
-          </div>
-          <div className="grid gap-4 p-4 md:grid-cols-2">
-            {customFields.length ? customFields.map((field) => <CustomFieldInput key={field.id} field={field} value={customDrafts[field.id] || ''} onChange={(value) => setCustomDrafts((current) => ({ ...current, [field.id]: value }))} />) : <p className="text-sm text-slate-500 md:col-span-2">Nenhum campo customizado de negócio configurado ainda. Use a aba Campos para criar.</p>}
+          <div className="border-b border-slate-200 bg-white p-4"><h2 className="text-base font-bold">Campos configuráveis</h2></div>
+          <div className="grid gap-4 p-4">
+            {customFields.length ? customFields.map((field) => <CustomFieldInput key={field.id} field={field} value={customDrafts[field.id] || ''} onChange={(value) => setCustomDrafts((current) => ({ ...current, [field.id]: value }))} />) : <p className="text-sm text-slate-500">Nenhum campo customizado de negócio configurado.</p>}
           </div>
         </Panel>}
-      </section>
-
-      <aside className="space-y-4">
-        <Panel className="overflow-hidden">
-          <div className="grid gap-3 p-4 text-sm">
-            <FieldLine label="Pessoa" value={form.person_name || 'Sem contato'} blue />
-            <FieldLine label="Empresa" value={form.organization_name || 'Sem empresa'} blue />
-            <FieldLine label="Valor" value={money(Number(form.value || 0))} />
-            <FieldLine label="Status" value={statusLabel[form.status] || form.status || 'Sem status'} />
-            <FieldLine label="Data esperada" value={form.expected_close_date || 'Sem data'} />
-          </div>
-        </Panel>
-
-        <Panel className="overflow-hidden">
-          <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-white p-4">
-            <div className="flex items-center gap-2"><CalendarClock size={17}/><h2 className="font-bold">Atividades</h2></div>
-            <Badge tone="bg-blue-100 text-blue-700">{activities.length} registradas</Badge>
-          </div>
-          <div className="space-y-3 p-4">
-            <div className="rounded-lg border border-emerald-100 bg-emerald-50/70 p-3">
-              <div className="grid gap-2">
-                <input value={activityDraft.title} onChange={(e) => setActivityDraft((current) => ({ ...current, title: e.target.value }))} className="rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" placeholder="Título da atividade" />
-                <div className="grid gap-2 sm:grid-cols-[1fr_1fr_1fr]">
-                  <select value={activityDraft.activity_type} onChange={(e) => setActivityDraft((current) => ({ ...current, activity_type: e.target.value }))} className="rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100">
-                    <option value="task">Tarefa</option>
-                    <option value="call">Ligação</option>
-                    <option value="meeting">Reunião</option>
-                    <option value="email">Email</option>
-                    <option value="whatsapp">WhatsApp</option>
-                  </select>
-                  <input type="date" value={activityDraft.due_date} onChange={(e) => setActivityDraft((current) => ({ ...current, due_date: e.target.value }))} className="rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" />
-                  <input type="time" value={activityDraft.due_time} onChange={(e) => setActivityDraft((current) => ({ ...current, due_time: e.target.value }))} className="rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" />
-                </div>
-                <textarea value={activityDraft.note} onChange={(e) => setActivityDraft((current) => ({ ...current, note: e.target.value }))} rows={3} className="rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" placeholder="Observação, próximo passo ou combinado" />
-                <button type="button" disabled={creatingActivity || !activityDraft.title.trim()} onClick={() => void submitActivity()} className="rounded bg-[#238847] px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-[#1f7a40] disabled:opacity-60">{creatingActivity ? 'Criando...' : 'Criar atividade'}</button>
-              </div>
-            </div>
-            {activities.length ? activities.map((a) => <div key={a.id} className="rounded border border-slate-200 bg-white p-3 text-sm shadow-sm"><div className="flex items-start gap-3"><button type="button" onClick={() => void completeActivity(a.id)} className="mt-1 h-5 w-5 shrink-0 rounded-full border-2 border-slate-300 hover:border-emerald-500"/><div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-2"><b>{a.title}</b>{canEditOwner && <button type="button" onClick={() => deleteActivity(a.id, a.title)} className="rounded border border-rose-200 px-2 py-1 text-[10px] font-bold text-rose-600 hover:bg-rose-50">Apagar</button>}</div><p className="mt-1 text-xs text-slate-500">{a.due_at ? new Date(a.due_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : 'sem data'} · {a.status}</p>{a.note && <p className="mt-2 text-slate-600">{a.note}</p>}</div></div></div>) : <p className="text-sm text-slate-500">Nenhuma atividade planejada.</p>}
-          </div>
-        </Panel>
-
-        <Panel className="overflow-hidden">
-          <div className="border-b border-slate-200 bg-white p-4"><h2 className="font-bold">Histórico</h2></div>
-          <div className="max-h-[360px] space-y-2 overflow-y-auto p-4">
-            {history.length ? history.map((h) => <div key={h.id} className="rounded border border-slate-200 bg-slate-50 p-3 text-sm"><b>{h.event_type}: {h.title}</b><p className="text-xs text-slate-500">{h.description}</p></div>) : <p className="text-sm text-slate-500">Sem histórico.</p>}
-          </div>
-        </Panel>
       </aside>
+
+      <section className="space-y-4">
+        <Panel className="overflow-hidden">
+          <div className="border-b border-slate-200 bg-white">
+            <div className="flex flex-wrap items-center gap-1 px-4 pt-3 text-sm font-semibold text-slate-600">
+              <button type="button" onClick={() => setComposerMode('note')} className={cn('flex items-center gap-2 rounded-t border border-b-0 px-3 py-2', composerMode === 'note' ? 'border-slate-200 bg-blue-50 text-blue-700' : 'border-transparent hover:bg-slate-50')}><MessageSquare size={15}/>Anotações</button>
+              <button type="button" onClick={() => setComposerMode('activity')} className={cn('flex items-center gap-2 rounded-t border border-b-0 px-3 py-2', composerMode === 'activity' ? 'border-slate-200 bg-blue-50 text-blue-700' : 'border-transparent hover:bg-slate-50')}><CalendarClock size={15}/>Atividade</button>
+            </div>
+          </div>
+          <div className="p-4">
+            {composerMode === 'note' ? <div className="grid gap-3">
+              <textarea value={noteDraft} onChange={(e) => setNoteDraft(e.target.value)} rows={4} className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" placeholder="Escreva uma anotação. Ela aparecerá no histórico central." />
+              <div className="flex justify-end"><button type="button" disabled={creatingNote || !noteDraft.trim()} onClick={() => void submitNote()} className="rounded bg-[#238847] px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-[#1f7a40] disabled:opacity-60">{creatingNote ? 'Salvando...' : 'Adicionar anotação'}</button></div>
+            </div> : <div className="grid gap-3">
+              <input value={activityDraft.title} onChange={(e) => setActivityDraft((current) => ({ ...current, title: e.target.value }))} className="rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" placeholder="Título da atividade" />
+              <div className="grid gap-2 md:grid-cols-[1fr_150px_130px]">
+                <select value={activityDraft.activity_type} onChange={(e) => setActivityDraft((current) => ({ ...current, activity_type: e.target.value }))} className="rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100">
+                  <option value="task">Tarefa</option><option value="call">Ligação</option><option value="meeting">Reunião</option><option value="email">Email</option><option value="whatsapp">WhatsApp</option>
+                </select>
+                <input type="date" value={activityDraft.due_date} onChange={(e) => setActivityDraft((current) => ({ ...current, due_date: e.target.value }))} className="rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" />
+                <input type="time" value={activityDraft.due_time} onChange={(e) => setActivityDraft((current) => ({ ...current, due_time: e.target.value }))} className="rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" />
+              </div>
+              <textarea value={activityDraft.note} onChange={(e) => setActivityDraft((current) => ({ ...current, note: e.target.value }))} rows={3} className="rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" placeholder="Observação, próximo passo ou combinado" />
+              <div className="flex justify-end"><button type="button" disabled={creatingActivity || !activityDraft.title.trim()} onClick={() => void submitActivity()} className="rounded bg-[#238847] px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-[#1f7a40] disabled:opacity-60">{creatingActivity ? 'Criando...' : 'Agendar atividade'}</button></div>
+            </div>}
+          </div>
+        </Panel>
+
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
+          <Panel className="overflow-hidden">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white p-4">
+              <div><h2 className="text-lg font-bold">Histórico</h2><p className="mt-1 text-xs text-slate-500">Notas, atividades agendadas e eventos sincronizados do Pipedrive ficam aqui no centro.</p></div>
+              <div className="flex flex-wrap gap-2"><Badge tone="bg-blue-100 text-blue-700">{notes.length} anotações</Badge><Badge tone="bg-amber-100 text-amber-700">{openActivities.length} atividades abertas</Badge><Badge tone="bg-slate-100 text-slate-700">{history.length} eventos</Badge></div>
+            </div>
+            <div className="min-h-[420px] space-y-0 p-4">
+              {timeline.length ? timeline.map((item) => <div key={item.id} className="grid grid-cols-[22px_1fr] gap-3 pb-5 text-sm last:pb-0">
+                <div className="relative flex justify-center"><span className={cn('mt-1 h-3 w-3 rounded-full ring-4', item.kind === 'Atividade' ? 'bg-amber-400 ring-amber-100' : item.kind.toLowerCase().includes('nota') || item.kind.toLowerCase().includes('anot') ? 'bg-blue-500 ring-blue-100' : 'bg-slate-400 ring-slate-100')} /><span className="absolute top-5 h-full w-px bg-slate-200" /></div>
+                <div className="rounded border border-slate-200 bg-white p-3 shadow-sm">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{item.kind}</p><b className="text-slate-900">{item.title}</b></div>
+                    <div className="flex items-center gap-2">{item.date && <span className="text-xs text-slate-500">{new Date(item.date).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</span>}{item.activity?.status === 'open' && <button type="button" onClick={() => item.activity && void completeActivity(item.activity.id)} className="rounded border border-emerald-200 px-2 py-1 text-[10px] font-bold text-emerald-700 hover:bg-emerald-50">Concluir</button>}{item.activity && canEditOwner && <button type="button" onClick={() => item.activity && deleteActivity(item.activity.id, item.activity.title)} className="rounded border border-rose-200 px-2 py-1 text-[10px] font-bold text-rose-600 hover:bg-rose-50">Apagar</button>}</div>
+                  </div>
+                  {item.description && <p className="mt-2 whitespace-pre-wrap text-slate-600">{item.description}</p>}
+                </div>
+              </div>) : <p className="rounded border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">Sem histórico ainda.</p>}
+            </div>
+          </Panel>
+
+          <Panel className="overflow-hidden">
+            <div className="border-b border-slate-200 bg-white p-4"><h2 className="font-bold">Foco</h2></div>
+            <div className="p-4">
+              <textarea value={form.focus_items} onChange={(e) => update('focus_items', e.target.value)} rows={10} className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" placeholder="Um item de foco por linha" />
+              <p className="mt-2 text-xs text-slate-500">Os itens de foco continuam salvos no negócio.</p>
+            </div>
+          </Panel>
+        </div>
+      </section>
     </form>
+
+    {showLabelPicker && <LabelPickerModal deal={deal} labels={dealLabels} assignedLabelIds={assignedLabels.map((assignment) => assignment.label_id)} onClose={() => setShowLabelPicker(false)} onCreateLabel={createLabel} onSave={async (labelIds) => { await updateDealLabels(deal.id, labelIds); setShowLabelPicker(false) }} />}
   </main>
 }
 
@@ -1043,7 +1151,6 @@ function dealToForm(deal?: Deal): DealForm {
     probability: String(deal?.probability ?? ''),
     score: String(deal?.score ?? ''),
     source: deal?.source || '',
-    plan: deal?.plan || '',
     expected_close_date: deal?.expected_close_date || '',
     focus_items: (deal?.focus_items || []).join('\n'),
     organization_name: deal?.organizations?.name || '',
@@ -1072,6 +1179,70 @@ function customValuesToDrafts(fields: CustomField[], values: CustomFieldValue[])
 
 function apiSlug(field: CustomField) {
   return field.name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || field.id
+}
+
+
+function DealLabelPills({ labels, compact = false }: { labels: DealLabel[]; compact?: boolean }) {
+  if (!labels.length) return null
+  return <div className={cn('mb-1.5 flex flex-wrap gap-1', compact && 'min-h-[10px]')}>{labels.slice(0, compact ? 3 : 8).map((label) => <span key={label.id} className={cn('inline-flex max-w-full items-center rounded px-1.5 py-0.5 text-[10px] font-black uppercase leading-none text-white shadow-sm', compact ? 'h-2 min-w-8 overflow-hidden text-[0px]' : '')} style={{ backgroundColor: label.color }} title={label.name}>{label.name}</span>)}</div>
+}
+
+function InlineField({ label, value, onChange, type = 'text', displayValue }: { label: string; value: string; onChange: (value: string) => void; type?: string; displayValue?: string }) {
+  const [editing, setEditing] = useState(false)
+  return <div className="grid grid-cols-[1fr_28px] gap-2 p-3 text-sm">
+    <label className="min-w-0"><span className="block text-[11px] font-semibold text-slate-500">{label}</span>{editing ? <input autoFocus type={type} value={value} onChange={(e) => onChange(e.target.value)} onBlur={() => setEditing(false)} onKeyDown={(e) => { if (e.key === 'Enter') setEditing(false) }} className="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none focus:border-[#238847] focus:ring-2 focus:ring-emerald-100" /> : <span className="mt-0.5 block break-words font-semibold text-slate-800">{displayValue || value || '-'}</span>}</label>
+    <button type="button" onClick={() => setEditing((current) => !current)} className="mt-2 grid h-7 w-7 place-items-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label={`Editar ${label}`}><Pencil size={14}/></button>
+  </div>
+}
+
+function InlineSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: Array<[string, string]> }) {
+  const [editing, setEditing] = useState(false)
+  const selected = options.find(([id]) => id === value)?.[1] || '-'
+  return <div className="grid grid-cols-[1fr_28px] gap-2 p-3 text-sm">
+    <label className="min-w-0"><span className="block text-[11px] font-semibold text-slate-500">{label}</span>{editing ? <select autoFocus value={value} onChange={(e) => onChange(e.target.value)} onBlur={() => setEditing(false)} className="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none focus:border-[#238847] focus:ring-2 focus:ring-emerald-100">{options.map(([id, optionLabel]) => <option key={id || 'empty'} value={id}>{optionLabel}</option>)}</select> : <span className="mt-0.5 block break-words font-semibold text-slate-800">{selected}</span>}</label>
+    <button type="button" onClick={() => setEditing((current) => !current)} className="mt-2 grid h-7 w-7 place-items-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label={`Editar ${label}`}><Pencil size={14}/></button>
+  </div>
+}
+
+function ReadOnlyField({ label, value, action }: { label: string; value: string; action?: ReactNode }) {
+  return <div className="p-3 text-sm"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><span className="block text-[11px] font-semibold text-slate-500">{label}</span><span className="mt-0.5 block break-words font-semibold text-slate-800">{value || '-'}</span></div>{action}</div></div>
+}
+
+function LabelPickerModal({ deal, labels, assignedLabelIds, onClose, onCreateLabel, onSave }: { deal: Deal; labels: DealLabel[]; assignedLabelIds: string[]; onClose: () => void; onCreateLabel: (name: string, color: string) => Promise<DealLabel>; onSave: (labelIds: string[]) => Promise<void> }) {
+  const colors = ['#3b82f6', '#5eead4', '#fde047', '#dc2626', '#a855f7', '#e5e7eb', '#92400e', '#fb923c', '#4b5563', '#f472b6']
+  const [query, setQuery] = useState('')
+  const [selected, setSelected] = useState<string[]>(assignedLabelIds)
+  const [creating, setCreating] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [newColor, setNewColor] = useState(colors[0])
+  const filtered = labels.filter((label) => label.name.toLowerCase().includes(query.toLowerCase()))
+  const toggle = (id: string) => setSelected((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])
+  async function addNewLabel() {
+    const created = await onCreateLabel(newName, newColor)
+    setSelected((current) => [...current, created.id])
+    setNewName('')
+    setNewColor(colors[0])
+    setCreating(false)
+  }
+  return <div className="fixed inset-0 z-[70] grid place-items-center bg-slate-950/40 p-4 backdrop-blur-sm" onClick={onClose}>
+    <div className="w-full max-w-md overflow-hidden rounded border border-slate-300 bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+      {creating ? <>
+        <div className="border-b border-slate-200 px-4 py-3"><h2 className="font-bold">Nova etiqueta</h2></div>
+        <div className="space-y-4 p-4">
+          <label className="block text-sm"><span className="mb-1.5 block font-semibold text-slate-700">Nome da etiqueta</span><input value={newName} onChange={(e) => setNewName(e.target.value)} className="w-full rounded border border-slate-400 px-3 py-2 outline-none focus:border-blue-500" placeholder="Nome da etiqueta" /></label>
+          <div><p className="mb-2 text-sm font-semibold text-slate-700">Cor da etiqueta</p><div className="flex flex-wrap gap-2">{colors.map((color) => <button key={color} type="button" onClick={() => setNewColor(color)} className={cn('grid h-7 w-7 place-items-center rounded-full ring-2', newColor === color ? 'ring-blue-500' : 'ring-transparent')} style={{ backgroundColor: color }}>{newColor === color ? <span className="text-sm font-black text-white">✓</span> : null}</button>)}</div></div>
+        </div>
+        <div className="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-4 py-3"><button type="button" onClick={() => setCreating(false)} className="rounded border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700">Cancelar</button><button type="button" onClick={() => void addNewLabel()} disabled={!newName.trim()} className="rounded bg-[#238847] px-4 py-2 text-sm font-bold text-white disabled:opacity-60">Salvar</button></div>
+      </> : <>
+        <div className="p-3"><input value={query} onChange={(e) => setQuery(e.target.value)} className="w-full rounded border border-slate-400 px-3 py-2 text-sm outline-none focus:border-blue-500" placeholder="Buscar etiquetas" /></div>
+        <div className="max-h-64 space-y-2 overflow-y-auto border-y border-slate-200 p-3">{filtered.map((label) => <button key={label.id} type="button" onClick={() => toggle(label.id)} className="block text-left"><span className={cn('inline-flex rounded px-2 py-1 text-[11px] font-black uppercase text-white ring-offset-2', selected.includes(label.id) && 'ring-2 ring-blue-500')} style={{ backgroundColor: label.color }}>{label.name}</span></button>)}{!filtered.length && <p className="text-sm text-slate-400">Nenhuma etiqueta encontrada.</p>}</div>
+        <button type="button" onClick={() => setCreating(true)} className="flex w-full items-center gap-2 border-b border-slate-200 px-4 py-3 text-left text-sm font-semibold text-blue-600 hover:bg-blue-50">+ Adicionar etiqueta</button>
+        <div className="flex justify-end gap-2 bg-slate-50 px-4 py-3"><button type="button" onClick={onClose} className="rounded border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700">Cancelar</button><button type="button" disabled={saving} onClick={() => { setSaving(true); void onSave(selected).finally(() => setSaving(false)) }} className="rounded bg-[#238847] px-4 py-2 text-sm font-bold text-white disabled:opacity-60">{saving ? 'Salvando...' : 'Salvar'}</button></div>
+      </>}
+      <p className="sr-only">Editando etiquetas do negócio {deal.title}</p>
+    </div>
+  </div>
 }
 
 function CustomFieldInput({ field, value, onChange }: { field: CustomField; value: string; onChange: (value: string) => void }) {
@@ -1176,14 +1347,6 @@ function FieldsConfigView({ fields, setError, reload }: { fields: CustomField[];
 
 function EditInput({ label, value, onChange, type = 'text', className }: { label: string; value: string; onChange: (value: string) => void; type?: string; className?: string }) {
   return <label className={cn('block', className)}><span className="mb-1.5 block text-sm font-semibold text-slate-700">{label}</span><input type={type} value={value} onChange={(e) => onChange(e.target.value)} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" /></label>
-}
-
-function EditSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: Array<[string, string]> }) {
-  return <label className="block"><span className="mb-1.5 block text-sm font-semibold text-slate-700">{label}</span><select value={value} onChange={(e) => onChange(e.target.value)} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-[#238847] focus:ring-4 focus:ring-emerald-100">{options.map(([id, label]) => <option key={id || 'empty'} value={id}>{label}</option>)}</select></label>
-}
-
-function FieldLine({ label, value, blue }: { label: string; value: string; blue?: boolean }) {
-  return <div className="grid grid-cols-[18px_1fr] gap-2 text-sm"><span className="mt-0.5 text-slate-400">▣</span><div><p className="text-[11px] font-semibold text-slate-500">{label}</p><p className={cn('font-semibold', blue ? 'text-blue-600' : 'text-slate-800')}>{value}</p></div></div>
 }
 
 
@@ -1441,14 +1604,16 @@ function AdminUsersView({ users, companies, dealsCount, activitiesCount, peopleC
   </div>
 }
 
-function ListViewDeals({ deals, stages, selectedId, setSelectedId, openDealPage, canDelete = false, deleteDeal }: { deals: Deal[]; stages: Stage[]; selectedId?: string; setSelectedId: (id: string) => void; openDealPage: (id: string) => void; canDelete?: boolean; deleteDeal?: (id: string, label: string) => void }) {
+function ListViewDeals({ deals, stages, dealLabelAssignments, selectedId, setSelectedId, openDealPage, canDelete = false, deleteDeal }: { deals: Deal[]; stages: Stage[]; dealLabelAssignments: DealLabelAssignment[]; selectedId?: string; setSelectedId: (id: string) => void; openDealPage: (id: string) => void; canDelete?: boolean; deleteDeal?: (id: string, label: string) => void }) {
   const stageName = (id: string) => stages.find((s) => s.id === id)?.name || ''
+  const labelsForDeal = (dealId: string) => dealLabelAssignments.filter((assignment) => assignment.deal_id === dealId && assignment.deal_labels).map((assignment) => assignment.deal_labels as DealLabel)
   return <div className="min-h-0 flex-1 overflow-auto">
     <table className="w-full text-sm">
       <thead className="sticky top-0 bg-white">
         <tr className="border-b border-slate-200 text-left text-[11px] font-semibold uppercase text-slate-500">
           <th className="px-4 py-3">Negócio</th>
           <th className="px-4 py-3">Empresa</th>
+          <th className="px-4 py-3">Etiquetas</th>
           <th className="px-4 py-3">Contato</th>
           <th className="px-4 py-3">Etapa</th>
           <th className="px-4 py-3">Valor</th>
@@ -1461,6 +1626,7 @@ function ListViewDeals({ deals, stages, selectedId, setSelectedId, openDealPage,
         {deals.map((deal) => <tr key={deal.id} onClick={() => { setSelectedId(deal.id); openDealPage(deal.id) }} className={cn('cursor-pointer transition hover:bg-blue-50', selectedId === deal.id ? 'bg-blue-50 ring-1 ring-inset ring-blue-200' : '')}>
           <td className="px-4 py-3 font-semibold text-slate-900">{deal.title}</td>
           <td className="px-4 py-3 text-slate-600">{deal.organizations?.name || '-'}</td>
+          <td className="px-4 py-3"><DealLabelPills labels={labelsForDeal(deal.id)} /></td>
           <td className="px-4 py-3 text-slate-600">{deal.people?.full_name || '-'}</td>
           <td className="px-4 py-3"><span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-700">{stageName(deal.stage_id || '') || '-'}</span></td>
           <td className="px-4 py-3 font-semibold text-slate-800">{money(deal.value)}</td>

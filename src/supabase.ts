@@ -137,6 +137,7 @@ export type Deal = {
   status: 'quente' | 'morno' | 'risco' | 'ganho' | 'perdido' | null
   source: string | null
   plan: string | null
+  pipedrive_owner_name: string | null
   expected_close_date: string | null
   score: number | null
   focus_items: string[] | null
@@ -144,6 +145,23 @@ export type Deal = {
   people?: Person | null
   bpo_partners?: BpoPartner | null
   pipeline_stages?: Stage | null
+}
+
+export type DealLabel = {
+  id: string
+  name: string
+  color: string
+  created_by: string | null
+  created_at?: string
+  updated_at?: string
+}
+
+export type DealLabelAssignment = {
+  deal_id: string
+  label_id: string
+  created_by: string | null
+  created_at?: string
+  deal_labels?: DealLabel | null
 }
 
 export type ActivityRow = {
