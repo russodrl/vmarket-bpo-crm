@@ -209,14 +209,73 @@ async function updateCrmUserDetails(body: Record<string, unknown>) {
   const crmUserId = String(body.crm_user_id || '')
   if (!crmUserId) throw new Error('crm_user_id_required')
 
+  const { data: currentUser, error: currentError } = await admin
+    .from('crm_users')
+    .select('*, crm_companies(*)')
+    .eq('id', crmUserId)
+    .maybeSingle()
+  if (currentError) throw currentError
+  if (!currentUser) throw new Error('crm_user_not_found')
+
+  let companyId = currentUser.company_id as string | null
+  const companyName = cleanText(body.company_name)
+  if (companyName) {
+    const { data: company, error: companyError } = await admin
+      .from('crm_companies')
+      .upsert({ name: companyName }, { onConflict: 'name' })
+      .select('*')
+      .single()
+    if (companyError) throw companyError
+    companyId = company.id
+  }
+
+  const detailPayload = crmUserDetailsPayload(body)
+  const detailKeys = Object.keys(detailPayload)
+  const payload: Record<string, unknown> = {}
+  detailKeys.forEach((key) => {
+    if (Object.prototype.hasOwnProperty.call(body, key)) payload[key] = detailPayload[key as keyof typeof detailPayload]
+  })
+  if (body.full_name !== undefined) payload.full_name = cleanText(body.full_name)
+  if (body.email !== undefined) payload.email = cleanEmail(body.email)
+  if (body.permission !== undefined) payload.permission = cleanPermission(body.permission)
+  if (body.status !== undefined) {
+    const status = String(body.status || '').trim()
+    if (!['pending', 'invited', 'active', 'disabled', 'deleted'].includes(status)) throw new Error('invalid_status')
+    payload.status = status
+  }
+  if (companyId) payload.company_id = companyId
+
+  Object.keys(payload).forEach((key) => {
+    if (payload[key] === undefined) delete payload[key]
+  })
+
   const { data: crmUser, error } = await admin
     .from('crm_users')
-    .update(crmUserDetailsPayload(body))
+    .update(payload)
     .eq('id', crmUserId)
     .select('*, crm_companies(*)')
     .maybeSingle()
   if (error) throw error
   if (!crmUser) throw new Error('crm_user_not_found')
+
+  if (crmUser.auth_user_id) {
+    const metadata = { full_name: crmUser.full_name, company_name: crmUser.crm_companies?.name || '', crm_user_id: crmUser.id }
+    const updateAuthPayload: Record<string, unknown> = { user_metadata: metadata }
+    if (body.email !== undefined) updateAuthPayload.email = cleanEmail(body.email)
+    const { error: authError } = await admin.auth.admin.updateUserById(crmUser.auth_user_id, updateAuthPayload)
+    if (authError) throw authError
+    const { error: profileError } = await admin
+      .from('profiles')
+      .upsert({
+        id: crmUser.auth_user_id,
+        full_name: crmUser.full_name,
+        role: profileRoleForPermission(crmUser.permission),
+        crm_user_id: crmUser.id,
+        crm_company_id: crmUser.company_id,
+      }, { onConflict: 'id' })
+    if (profileError) throw profileError
+  }
+
   return { user: crmUser }
 }
 
@@ -411,14 +470,16 @@ async function deleteOne(body: Record<string, unknown>) {
     if (userError) throw userError
     if (!crmUser) throw new Error('crm_user_not_found')
 
+    const nextStatus = String(body.status || 'deleted')
+    if (!['disabled', 'deleted'].includes(nextStatus)) throw new Error('invalid_user_action_status')
     const { count, error } = await admin
       .from('crm_users')
-      .update({ status: 'deleted' }, { count: 'exact' })
+      .update({ status: nextStatus }, { count: 'exact' })
       .eq('id', id)
     if (error) throw error
 
     const auth_deleted = 0
-    return { ok: true, target, id, deleted: count || 0, auth_deleted, mode: 'soft_deleted' }
+    return { ok: true, target, id, deleted: count || 0, auth_deleted, mode: nextStatus === 'disabled' ? 'disabled' : 'soft_deleted', status: nextStatus }
   }
 
   throw new Error('unknown_delete_target')

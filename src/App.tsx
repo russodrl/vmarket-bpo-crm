@@ -4220,8 +4220,9 @@ function WarningsView({ deals, people, organizations, activities, crmUsers, open
 }
 
 function LeadDistributionView({ users, deals }: { users: CrmUser[]; deals: Deal[] }) {
-  const activeUsers = users.filter((user) => user.status === 'active' && user.auth_user_id)
+  const activeUsers = users.filter((user) => user.status === 'active' && user.auth_user_id && !normalizeKey(`${user.full_name} ${user.email}`).includes('aspalamar'))
   const isDistributionOpenDeal = (deal: Deal) => (deal.status === 'aberto' || !deal.status || !statusLabel[deal.status]) && deal.pipeline_stages?.pipeline_name === 'Pipeline de Vendas'
+  const companyNameForUser = (user: CrmUser) => user.crm_companies?.name || 'Sem empresa'
   const statsForUser = (user: CrmUser) => {
     const userDeals = deals.filter((deal) => deal.owner_id && deal.owner_id === user.auth_user_id)
     return {
@@ -4231,55 +4232,62 @@ function LeadDistributionView({ users, deals }: { users: CrmUser[]; deals: Deal[
       lost: userDeals.filter((deal) => deal.status === 'perdido').length,
     }
   }
+  const companyStats = [...new Set(activeUsers.map(companyNameForUser))].map((company) => {
+    const companyUsers = activeUsers.filter((user) => companyNameForUser(user) === company)
+    const authIds = new Set(companyUsers.map((user) => user.auth_user_id))
+    const companyDeals = deals.filter((deal) => deal.owner_id && authIds.has(deal.owner_id))
+    return {
+      company,
+      users: companyUsers,
+      received: companyDeals.length,
+      open: companyDeals.filter(isDistributionOpenDeal).length,
+      won: companyDeals.filter((deal) => deal.status === 'ganho').length,
+      lost: companyDeals.filter((deal) => deal.status === 'perdido').length,
+    }
+  }).sort((a, b) => a.open - b.open || a.received - b.received || a.company.localeCompare(b.company, 'pt-BR'))
   const orderUsers = (list: CrmUser[]) => [...list].sort((a, b) => {
     const sa = statsForUser(a)
     const sb = statsForUser(b)
-    return sa.open - sb.open || sb.won - sa.won || sa.received - sb.received || a.full_name.localeCompare(b.full_name, 'pt-BR')
+    return sa.open - sb.open || sa.received - sb.received || a.full_name.localeCompare(b.full_name, 'pt-BR')
   })
-  const nextForDdd = (prefix?: string | null) => prefix ? orderUsers(activeUsers.filter((user) => user.ddd_prefix === prefix))[0] : undefined
-  const nextForState = (state?: string | null) => state ? orderUsers(activeUsers.filter((user) => user.ddd_state === state))[0] : undefined
-  const nextGeneral = orderUsers(activeUsers)[0]
-  const dddPrefixes = [...new Set([...activeUsers.map((user) => user.ddd_prefix), ...deals.map((deal) => deal.people?.ddd_prefix)].filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b, 'pt-BR'))
-  const states = [...new Set([...activeUsers.map((user) => user.ddd_state), ...deals.map((deal) => deal.people?.ddd_state)].filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b, 'pt-BR'))
-  const queueCard = (title: string, subtitle: string, next?: CrmUser) => {
+  const nextCompany = companyStats[0]
+  const nextUserInCompany = nextCompany ? orderUsers(nextCompany.users)[0] : undefined
+  const queueCard = (title: string, subtitle: string, next?: CrmUser, extra?: string) => {
     const stats = next ? statsForUser(next) : null
     return <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <p className="text-xs font-black uppercase tracking-wide text-slate-400">{title}</p>
       <h3 className="mt-1 text-base font-bold text-slate-950">{subtitle}</h3>
+      {extra && <p className="mt-1 text-xs text-slate-500">{extra}</p>}
       {next ? <div className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-900">
-        <p className="font-black">Próximo: {next.full_name}</p>
-        <p className="mt-1 text-xs">DDD {next.ddd_prefix || '-'} · {next.ddd_state || '-'} · {next.ddd_region || '-'}</p>
+        <p className="font-black">Próximo usuário: {next.full_name}</p>
+        <p className="mt-1 text-xs">Empresa {companyNameForUser(next)}</p>
         <p className="mt-1 text-xs">Abertos {stats?.open || 0} · Ganhos {stats?.won || 0} · Recebidos {stats?.received || 0}</p>
       </div> : <p className="mt-3 rounded-lg bg-slate-50 p-3 text-sm text-slate-500">Nenhum usuário ativo nessa fila.</p>}
     </div>
   }
-  const userRows = users.map((user) => ({ user, stats: statsForUser(user) })).sort((a, b) => a.user.full_name.localeCompare(b.user.full_name, 'pt-BR'))
+  const userRows = users.map((user) => ({ user, stats: statsForUser(user) })).sort((a, b) => companyNameForUser(a.user).localeCompare(companyNameForUser(b.user), 'pt-BR') || a.user.full_name.localeCompare(b.user.full_name, 'pt-BR'))
 
   return <div className="h-full overflow-auto p-4">
     <div className="mb-4">
       <h2 className="text-2xl font-black tracking-[-0.04em] text-slate-950">Distribuição de Leads</h2>
-      <p className="mt-1 text-sm text-slate-500">Ordem de distribuição: mesmo DDD, mesmo estado, fila geral. Dentro da fila ganha quem tem menos leads abertos no Pipeline de Vendas. Em empate, quem tem mais negócios ganhos.</p>
+      <p className="mt-1 text-sm text-slate-500">Ordem de distribuição: primeiro escolhe a empresa com menor carga na fila. Depois entrega para o próximo usuário ativo dentro dessa empresa. A fila exclui usuários de teste, desativados e deletados.</p>
     </div>
-    <div className="grid gap-4 xl:grid-cols-3">
+    <div className="grid gap-4 xl:grid-cols-[1fr_2fr]">
       <Panel className="overflow-hidden">
-        <div className="border-b border-slate-200 p-4"><h3 className="font-black">1. Fila por DDD</h3><p className="text-xs text-slate-500">Usada quando existe usuário com o mesmo prefixo do lead.</p></div>
-        <div className="grid gap-3 p-4">{dddPrefixes.length ? dddPrefixes.map((prefix) => queueCard(`DDD ${prefix}`, `${activeUsers.filter((user) => user.ddd_prefix === prefix).length} usuário(s)`, nextForDdd(prefix))) : <p className="text-sm text-slate-500">Nenhum DDD mapeado.</p>}</div>
+        <div className="border-b border-slate-200 p-4"><h3 className="font-black">Próximo da fila por empresa</h3><p className="text-xs text-slate-500">Cada novo lead vai para a próxima empresa e, dentro dela, para o próximo usuário.</p></div>
+        <div className="p-4">{queueCard(nextCompany?.company || 'Fila de empresa', nextCompany ? `${nextCompany.open} leads abertos · ${nextCompany.users.length} usuário(s)` : 'Nenhuma empresa ativa', nextUserInCompany, nextCompany ? `Recebidos ${nextCompany.received} · Ganhos ${nextCompany.won} · Perdidos ${nextCompany.lost}` : undefined)}</div>
       </Panel>
       <Panel className="overflow-hidden">
-        <div className="border-b border-slate-200 p-4"><h3 className="font-black">2. Fila por Estado</h3><p className="text-xs text-slate-500">Usada quando não há usuário com o mesmo DDD, mas há usuário no mesmo estado.</p></div>
-        <div className="grid gap-3 p-4">{states.length ? states.map((state) => queueCard(state, `${activeUsers.filter((user) => user.ddd_state === state).length} usuário(s)`, nextForState(state))) : <p className="text-sm text-slate-500">Nenhum estado mapeado.</p>}</div>
-      </Panel>
-      <Panel className="overflow-hidden">
-        <div className="border-b border-slate-200 p-4"><h3 className="font-black">3. Fila Geral</h3><p className="text-xs text-slate-500">Usada quando não há correspondência de DDD nem estado.</p></div>
-        <div className="p-4">{queueCard('Geral', `${activeUsers.length} usuário(s) ativo(s)`, nextGeneral)}</div>
+        <div className="border-b border-slate-200 p-4"><h3 className="font-black">Fila das empresas</h3><p className="text-xs text-slate-500">Empresas com menos leads abertos aparecem primeiro.</p></div>
+        <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">{companyStats.length ? companyStats.map((company) => queueCard(company.company, `${company.open} abertos · ${company.received} recebidos`, orderUsers(company.users)[0], `${company.users.length} usuário(s) ativo(s)`)) : <p className="text-sm text-slate-500">Nenhuma empresa ativa mapeada.</p>}</div>
       </Panel>
     </div>
     <Panel className="mt-4 overflow-hidden">
-      <div className="border-b border-slate-200 p-4"><h3 className="font-black">Usuários e desempenho</h3><p className="text-xs text-slate-500">DDD do telefone de registro e contagem de negócios recebidos por proprietário.</p></div>
+      <div className="border-b border-slate-200 p-4"><h3 className="font-black">Usuários e desempenho</h3><p className="text-xs text-slate-500">Contagem por usuário, agrupada pela empresa de distribuição.</p></div>
       <div className="overflow-x-auto">
         <table className="min-w-full text-left text-sm">
-          <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-4 py-3">Usuário</th><th className="px-4 py-3">DDD</th><th className="px-4 py-3">Estado</th><th className="px-4 py-3">Região</th><th className="px-4 py-3">Recebidos</th><th className="px-4 py-3">Abertos</th><th className="px-4 py-3">Perdidos</th><th className="px-4 py-3">Ganhos</th></tr></thead>
-          <tbody className="divide-y divide-slate-100">{userRows.map(({ user, stats }) => <tr key={user.id} className="bg-white"><td className="px-4 py-3"><b>{user.full_name}</b><p className="text-xs text-slate-400">{user.email}</p></td><td className="px-4 py-3">{user.ddd_prefix || '-'}</td><td className="px-4 py-3">{user.ddd_state || '-'}</td><td className="px-4 py-3">{user.ddd_region || '-'}</td><td className="px-4 py-3 font-semibold">{stats.received}</td><td className="px-4 py-3 font-semibold text-blue-700">{stats.open}</td><td className="px-4 py-3 font-semibold text-rose-700">{stats.lost}</td><td className="px-4 py-3 font-semibold text-emerald-700">{stats.won}</td></tr>)}</tbody>
+          <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-4 py-3">Empresa</th><th className="px-4 py-3">Usuário</th><th className="px-4 py-3">DDD</th><th className="px-4 py-3">Estado</th><th className="px-4 py-3">Recebidos</th><th className="px-4 py-3">Abertos</th><th className="px-4 py-3">Perdidos</th><th className="px-4 py-3">Ganhos</th></tr></thead>
+          <tbody className="divide-y divide-slate-100">{userRows.map(({ user, stats }) => <tr key={user.id} className="bg-white"><td className="px-4 py-3 font-semibold text-slate-700">{companyNameForUser(user)}</td><td className="px-4 py-3"><b>{user.full_name}</b><p className="text-xs text-slate-400">{user.email}</p></td><td className="px-4 py-3">{user.ddd_prefix || '-'}</td><td className="px-4 py-3">{user.ddd_state || '-'}</td><td className="px-4 py-3 font-semibold">{stats.received}</td><td className="px-4 py-3 font-semibold text-blue-700">{stats.open}</td><td className="px-4 py-3 font-semibold text-rose-700">{stats.lost}</td><td className="px-4 py-3 font-semibold text-emerald-700">{stats.won}</td></tr>)}</tbody>
         </table>
       </div>
     </Panel>
@@ -4453,52 +4461,59 @@ function AuditLogView({ logs }: { logs: AuditLog[] }) {
   </div>
 }
 
-function UserDetailField({ label, value }: { label: string; value?: string | number | boolean | string[] | null }) {
-  const display = Array.isArray(value) ? value.join(', ') : typeof value === 'boolean' ? (value ? 'Sim' : 'Não') : value
-  return <div className="rounded-lg border border-slate-100 bg-white p-3">
-    <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">{label}</p>
-    <p className="mt-1 whitespace-pre-wrap text-sm font-semibold text-slate-800">{display === null || display === undefined || display === '' ? '-' : display}</p>
-  </div>
-}
-
-function CrmUserTallyDetails({ user }: { user: CrmUser }) {
+function CrmUserTallyDetails({ user, onUpdate }: { user: CrmUser; onUpdate: (updates: Record<string, unknown>) => Promise<void> }) {
   const contacts = (user.additional_contacts || []).filter((contact) => contact?.name || contact?.role || contact?.whatsapp)
+  const saveField = (field: string) => async (value: string) => onUpdate({ [field]: value })
   return <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
     <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-      <h3 className="text-sm font-black text-slate-900">Dados do cadastro Tally</h3>
+      <h3 className="text-sm font-black text-slate-900">Dados do cadastro do usuário</h3>
       {user.tally_submitted_at && <Badge tone="bg-purple-100 text-purple-700">Enviado em {new Date(user.tally_submitted_at).toLocaleDateString('pt-BR')}</Badge>}
     </div>
-    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-      <UserDetailField label="Razão social" value={user.legal_company_name} />
-      <UserDetailField label="CNPJ" value={user.cnpj} />
-      <UserDetailField label="Endereço completo da sede" value={user.headquarters_address} />
-      <UserDetailField label="Inscrição estadual/municipal" value={user.state_registration} />
-      <UserDetailField label="Representante legal" value={user.legal_representative_name} />
-      <UserDetailField label="Nacionalidade" value={user.nationality} />
-      <UserDetailField label="Estado civil" value={user.marital_status} />
-      <UserDetailField label="Profissão" value={user.profession} />
-      <UserDetailField label="RG e órgão emissor" value={user.rg_issuer} />
-      <UserDetailField label="CPF" value={user.cpf} />
-      <UserDetailField label="Cargo na empresa" value={user.company_role} />
-      <UserDetailField label="Email principal" value={user.primary_email} />
-      <UserDetailField label="Telefone/WhatsApp CRM" value={user.crm_phone} />
-      <UserDetailField label="DDD" value={user.ddd_prefix} />
-      <UserDetailField label="Estado do DDD" value={user.ddd_state} />
-      <UserDetailField label="Região do DDD" value={user.ddd_region} />
-      <UserDetailField label="Emite NF de serviço" value={user.issues_service_invoice} />
-      <UserDetailField label="Banco" value={user.bank_name} />
-      <UserDetailField label="Agência" value={user.bank_agency} />
-      <UserDetailField label="Conta e tipo" value={user.bank_account} />
-      <UserDetailField label="Chave PIX" value={user.pix_key} />
-      <UserDetailField label="Regiões de atuação" value={user.service_regions} />
-      <UserDetailField label="Tipos de operação" value={user.operation_types} />
-      <UserDetailField label="Clientes novos/mês" value={user.monthly_new_clients_capacity} />
-      <UserDetailField label="Experiência food service" value={user.food_service_experience} />
-      <UserDetailField label="Clientes atuais" value={user.current_clients_count} />
-      <UserDetailField label="Clientes em compras" value={user.current_purchasing_clients_count} />
-      <UserDetailField label="Ticket médio compras" value={user.purchasing_ticket_avg} />
-      <UserDetailField label="Serviços oferecidos" value={user.offered_services} />
-      <UserDetailField label="Autorização" value={user.data_authorization} />
+    <div className="grid gap-4 xl:grid-cols-2">
+      <div className="rounded-lg border border-slate-200 bg-white">
+        <div className="border-b border-slate-100 px-3 py-2 text-xs font-black uppercase text-slate-400">Acesso e empresa</div>
+        <AdminEditableField label="Nome do usuário" value={user.full_name} onSave={saveField('full_name')} />
+        <AdminEditableField label="Email de acesso" value={user.email} onSave={saveField('email')} type="email" />
+        <AdminEditableField label="Empresa" value={user.crm_companies?.name || ''} onSave={saveField('company_name')} />
+        <AdminEditableSelect label="Status" value={user.status} options={Object.entries(crmStatusLabel)} onSave={saveField('status')} />
+        <AdminEditableSelect label="Permissões" value={crmPermissionLabel(user)} options={crmPermissionOptions.map((permission) => [permission, permission])} onSave={saveField('permission')} />
+      </div>
+      <div className="rounded-lg border border-slate-200 bg-white">
+        <div className="border-b border-slate-100 px-3 py-2 text-xs font-black uppercase text-slate-400">Dados fiscais e representante</div>
+        <AdminEditableField label="Razão social" value={user.legal_company_name} onSave={saveField('legal_company_name')} />
+        <AdminEditableField label="CNPJ" value={user.cnpj} onSave={saveField('cnpj')} />
+        <AdminEditableField label="Endereço sede" value={user.headquarters_address} onSave={saveField('headquarters_address')} />
+        <AdminEditableField label="Inscrição estadual/municipal" value={user.state_registration} onSave={saveField('state_registration')} />
+        <AdminEditableField label="Representante legal" value={user.legal_representative_name} onSave={saveField('legal_representative_name')} />
+        <AdminEditableField label="CPF" value={user.cpf} onSave={saveField('cpf')} />
+        <AdminEditableField label="RG e órgão emissor" value={user.rg_issuer} onSave={saveField('rg_issuer')} />
+      </div>
+      <div className="rounded-lg border border-slate-200 bg-white">
+        <div className="border-b border-slate-100 px-3 py-2 text-xs font-black uppercase text-slate-400">Contato e atuação</div>
+        <AdminEditableField label="Cargo na empresa" value={user.company_role} onSave={saveField('company_role')} />
+        <AdminEditableField label="Email principal" value={user.primary_email} onSave={saveField('primary_email')} type="email" />
+        <AdminEditableField label="Telefone/WhatsApp CRM" value={user.crm_phone} onSave={saveField('crm_phone')} />
+        <AdminEditableField label="DDD" value={user.ddd_prefix} onSave={saveField('ddd_prefix')} />
+        <AdminEditableField label="Estado do DDD" value={user.ddd_state} onSave={saveField('ddd_state')} />
+        <AdminEditableField label="Região do DDD" value={user.ddd_region} onSave={saveField('ddd_region')} />
+        <AdminEditableField label="Regiões de atuação" value={user.service_regions} onSave={saveField('service_regions')} />
+        <AdminEditableField label="Tipos de operação" value={user.operation_types} onSave={saveField('operation_types')} />
+        <AdminEditableField label="Serviços oferecidos" value={user.offered_services} onSave={saveField('offered_services')} />
+      </div>
+      <div className="rounded-lg border border-slate-200 bg-white">
+        <div className="border-b border-slate-100 px-3 py-2 text-xs font-black uppercase text-slate-400">Comercial e financeiro</div>
+        <AdminEditableField label="Clientes novos/mês" value={user.monthly_new_clients_capacity} onSave={saveField('monthly_new_clients_capacity')} type="number" />
+        <AdminEditableField label="Clientes atuais" value={user.current_clients_count} onSave={saveField('current_clients_count')} type="number" />
+        <AdminEditableField label="Clientes em compras" value={user.current_purchasing_clients_count} onSave={saveField('current_purchasing_clients_count')} type="number" />
+        <AdminEditableField label="Ticket médio compras" value={user.purchasing_ticket_avg} onSave={saveField('purchasing_ticket_avg')} type="number" />
+        <AdminEditableField label="Experiência food service" value={user.food_service_experience} onSave={saveField('food_service_experience')} />
+        <AdminEditableField label="Emite NF de serviço" value={user.issues_service_invoice} onSave={saveField('issues_service_invoice')} />
+        <AdminEditableField label="Banco" value={user.bank_name} onSave={saveField('bank_name')} />
+        <AdminEditableField label="Agência" value={user.bank_agency} onSave={saveField('bank_agency')} />
+        <AdminEditableField label="Conta e tipo" value={user.bank_account} onSave={saveField('bank_account')} />
+        <AdminEditableField label="Chave PIX" value={user.pix_key} onSave={saveField('pix_key')} />
+        <AdminEditableField label="Autorização" value={user.data_authorization} onSave={saveField('data_authorization')} />
+      </div>
     </div>
     <div className="mt-4">
       <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Outras pessoas da empresa</p>
@@ -4518,6 +4533,48 @@ const crmPermissionOptions: CrmPermission[] = ['Admin', 'BPO', 'Vendas', 'Teste'
 const crmStatusLabel: Record<CrmUser['status'], string> = { active: 'Ativo', pending: 'Pendente', invited: 'Convidado', disabled: 'Desativado', deleted: 'Deletado' }
 const crmPermissionLabel = (user: CrmUser) => user.permission || (user.email?.toLowerCase().includes('teste') ? 'Teste' : 'BPO')
 
+function AdminUserActionMenu({ user, busyId, open, onToggle, onDelete, onDisable }: { user: CrmUser; busyId: string; open: boolean; onToggle: () => void; onDelete: () => void; onDisable: () => void }) {
+  const disabled = crmPermissionLabel(user) === 'Admin'
+  return <div className="relative">
+    <button type="button" onClick={onToggle} disabled={disabled || busyId === `deleted-${user.id}` || busyId === `disabled-${user.id}`} className="inline-flex items-center justify-center rounded border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-60"><MoreHorizontal size={16} className="mr-1"/>Ação</button>
+    {open && !disabled && <div className="absolute right-0 top-10 z-30 w-40 overflow-hidden rounded border border-slate-200 bg-white py-1 text-sm shadow-xl">
+      <button type="button" onClick={onDelete} className="block w-full px-4 py-2 text-left font-semibold text-rose-600 hover:bg-rose-600 hover:text-white">Apagar</button>
+      <button type="button" onClick={onDisable} className="block w-full px-4 py-2 text-left font-semibold text-slate-700 hover:bg-blue-600 hover:text-white">Desativar</button>
+    </div>}
+  </div>
+}
+
+function AdminEditableField({ label, value, onSave, type = 'text' }: { label: string; value?: string | number | boolean | string[] | null; onSave: (value: string) => Promise<void>; type?: string }) {
+  const display = Array.isArray(value) ? value.join(', ') : typeof value === 'boolean' ? (value ? 'Sim' : 'Não') : value
+  const initial = display === null || display === undefined ? '' : String(display)
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(initial)
+  const [busy, setBusy] = useState(false)
+  async function saveDraft() {
+    setBusy(true)
+    try { await onSave(draft); setEditing(false) } finally { setBusy(false) }
+  }
+  return <div className="group grid grid-cols-[150px_minmax(0,1fr)] items-start gap-3 px-3 py-2 text-sm transition hover:bg-slate-200/80">
+    <span className="pt-1 text-right text-[12px] font-semibold leading-tight text-slate-500">{label}</span>
+    {editing ? <div className="min-w-0 rounded-sm bg-slate-100 p-1.5">
+      <input autoFocus type={type} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void saveDraft(); if (e.key === 'Escape') setEditing(false) }} className="w-full rounded-sm border border-blue-400 bg-white px-2 py-1.5 text-sm text-slate-900 outline-none focus:ring-1 focus:ring-blue-400" />
+      <div className="mt-2 flex justify-end gap-1.5"><button type="button" onClick={() => { setDraft(initial); setEditing(false) }} disabled={busy} className="rounded-sm border border-slate-300 bg-white px-3 py-1.5 text-xs font-bold text-slate-700">Cancelar</button><button type="button" onClick={() => void saveDraft()} disabled={busy} className="rounded-sm bg-[#238847] px-3 py-1.5 text-xs font-bold text-white disabled:opacity-60">{busy ? 'Salvando...' : 'Salvar'}</button></div>
+    </div> : <div className="flex min-w-0 items-start gap-2"><div className="min-w-0 flex-1 rounded-sm px-2 py-1 transition group-hover:bg-slate-300/70"><span className="block break-words font-semibold text-slate-800">{initial || '-'}</span></div><button type="button" onClick={() => { setDraft(initial); setEditing(true) }} className="grid h-7 w-7 shrink-0 place-items-center rounded-sm text-slate-400 opacity-0 transition hover:bg-white hover:text-blue-600 group-hover:opacity-100" aria-label={`Editar ${label}`}><Pencil size={14}/></button></div>}
+  </div>
+}
+
+function AdminEditableSelect({ label, value, options, onSave }: { label: string; value: string; options: Array<[string, string]>; onSave: (value: string) => Promise<void> }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(value)
+  const [busy, setBusy] = useState(false)
+  async function saveDraft() { setBusy(true); try { await onSave(draft); setEditing(false) } finally { setBusy(false) } }
+  const labelValue = options.find(([id]) => id === value)?.[1] || value || '-'
+  return <div className="group grid grid-cols-[150px_minmax(0,1fr)] items-start gap-3 px-3 py-2 text-sm transition hover:bg-slate-200/80">
+    <span className="pt-1 text-right text-[12px] font-semibold leading-tight text-slate-500">{label}</span>
+    {editing ? <div className="min-w-0 rounded-sm bg-slate-100 p-1.5"><select autoFocus value={draft} onChange={(e) => setDraft(e.target.value)} className="w-full rounded-sm border border-blue-400 bg-white px-2 py-1.5 text-sm text-slate-900 outline-none focus:ring-1 focus:ring-blue-400">{options.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select><div className="mt-2 flex justify-end gap-1.5"><button type="button" onClick={() => { setDraft(value); setEditing(false) }} disabled={busy} className="rounded-sm border border-slate-300 bg-white px-3 py-1.5 text-xs font-bold text-slate-700">Cancelar</button><button type="button" onClick={() => void saveDraft()} disabled={busy} className="rounded-sm bg-[#238847] px-3 py-1.5 text-xs font-bold text-white disabled:opacity-60">{busy ? 'Salvando...' : 'Salvar'}</button></div></div> : <div className="flex min-w-0 items-start gap-2"><div className="min-w-0 flex-1 rounded-sm px-2 py-1 transition group-hover:bg-slate-300/70"><span className="block break-words font-semibold text-slate-800">{labelValue}</span></div><button type="button" onClick={() => { setDraft(value); setEditing(true) }} className="grid h-7 w-7 shrink-0 place-items-center rounded-sm text-slate-400 opacity-0 transition hover:bg-white hover:text-blue-600 group-hover:opacity-100" aria-label={`Editar ${label}`}><Pencil size={14}/></button></div>}
+  </div>
+}
+
 function AdminUsersView({ users, session, profile, reload, setError }: {
   users: CrmUser[]
   session: Session | null
@@ -4535,6 +4592,7 @@ function AdminUsersView({ users, session, profile, reload, setError }: {
   const [userStatusFilter, setUserStatusFilter] = useState<'all' | CrmUser['status']>('all')
   const [userCompanyFilter, setUserCompanyFilter] = useState('all')
   const [userDddStateFilter, setUserDddStateFilter] = useState('all')
+  const [actionMenuId, setActionMenuId] = useState('')
 
   async function callAdminFunction(body: Record<string, unknown>) {
     const { data, error } = await supabase.functions.invoke('admin-users', { body })
@@ -4596,15 +4654,33 @@ function AdminUsersView({ users, session, profile, reload, setError }: {
     }
   }
 
-  async function deleteUser(user: CrmUser) {
-    const confirmed = window.confirm(`Marcar usuário ${user.full_name} como deletado? Os negócios atribuídos continuarão com esse usuário, exibindo (deletado).`)
-    if (!confirmed) return
-    setBusyId(`delete-${user.id}`)
+  async function updateUser(user: CrmUser, updates: Record<string, unknown>) {
+    setBusyId(`update-${user.id}`)
     setMessage('')
     setError('')
     try {
-      const data = await callAdminFunction({ action: 'delete-one', target: 'user', id: user.id })
-      setMessage(`Usuário ${user.full_name} marcado como deletado.${data.auth_deleted ? ' Acesso Auth removido também.' : ''}`)
+      await callAdminFunction({ action: 'update-crm-user-details', crm_user_id: user.id, ...updates })
+      setMessage(`Dados de ${user.full_name} atualizados.`)
+      await reload()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+      throw e
+    } finally {
+      setBusyId('')
+    }
+  }
+
+  async function setUserStatus(user: CrmUser, status: 'disabled' | 'deleted') {
+    const label = status === 'disabled' ? 'desativado' : 'deletado'
+    const confirmed = window.confirm(`${status === 'disabled' ? 'Desativar' : 'Marcar como deletado'} o usuário ${user.full_name}? Os negócios atribuídos continuarão com esse usuário, exibindo (${label}).`)
+    if (!confirmed) return
+    setBusyId(`${status}-${user.id}`)
+    setActionMenuId('')
+    setMessage('')
+    setError('')
+    try {
+      await callAdminFunction({ action: 'delete-one', target: 'user', id: user.id, status })
+      setMessage(`Usuário ${user.full_name} marcado como ${label}.`)
       await reload()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -4684,7 +4760,7 @@ function AdminUsersView({ users, session, profile, reload, setError }: {
           </div>
         </div>
         <div className="p-4">
-          <CrmUserTallyDetails user={selectedTallyUser} />
+          <CrmUserTallyDetails user={selectedTallyUser} onUpdate={(updates) => updateUser(selectedTallyUser, updates)} />
         </div>
       </Panel>
     </div>
@@ -4752,7 +4828,7 @@ function AdminUsersView({ users, session, profile, reload, setError }: {
               <button onClick={() => void setInitialPassword(user)} disabled={busyId === `password-${user.id}` || crmPermissionLabel(user) === 'Admin' || !(passwordDrafts[user.id] || '').trim()} className="rounded border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-60">{busyId === `password-${user.id}` ? 'Salvando...' : 'Definir senha'}</button>
               <button onClick={() => void sendAccessEmail(user)} disabled={busyId === user.id || crmPermissionLabel(user) === 'Admin'} className="rounded border border-[#238847] px-3 py-2 text-sm font-bold text-[#238847] hover:bg-emerald-50 disabled:opacity-60">{busyId === user.id ? 'Enviando...' : user.auth_user_id ? 'Redefinir senha' : 'Enviar acesso'}</button>
               <div className="flex flex-wrap gap-1">{resetStatusBadge(user) || '-'}</div>
-              <button type="button" onClick={() => void deleteUser(user)} disabled={busyId === `delete-${user.id}` || crmPermissionLabel(user) === 'Admin'} className="rounded border border-rose-200 px-3 py-2 text-sm font-bold text-rose-600 hover:bg-rose-50 disabled:opacity-60">{busyId === `delete-${user.id}` ? 'Apagando...' : 'Apagar'}</button>
+              <AdminUserActionMenu user={user} busyId={busyId} open={actionMenuId === user.id} onToggle={() => setActionMenuId((current) => current === user.id ? '' : user.id)} onDelete={() => void setUserStatus(user, 'deleted')} onDisable={() => void setUserStatus(user, 'disabled')} />
             </div>
           </div>)}
           {!filteredUsers.length && <div className="p-8 text-center text-slate-400">Nenhum usuário encontrado.</div>}
@@ -4781,7 +4857,7 @@ function AdminUsersView({ users, session, profile, reload, setError }: {
                 <td className="px-4 py-3 text-slate-700">{user.primary_email || '-'}</td>
                 <td className="max-w-[240px] px-4 py-3 text-slate-700"><span className="line-clamp-2">{user.service_regions || '-'}</span></td>
                 <td className="max-w-[240px] px-4 py-3 text-slate-700"><span className="line-clamp-2">{(user.offered_services || []).join(', ') || '-'}</span></td>
-                <td className="px-4 py-3"><button type="button" onClick={() => void deleteUser(user)} disabled={busyId === `delete-${user.id}` || crmPermissionLabel(user) === 'Admin'} className="rounded border border-rose-200 px-3 py-1.5 text-xs font-bold text-rose-600 hover:bg-rose-50 disabled:opacity-60">Apagar</button></td>
+                <td className="px-4 py-3"><AdminUserActionMenu user={user} busyId={busyId} open={actionMenuId === `list-${user.id}`} onToggle={() => setActionMenuId((current) => current === `list-${user.id}` ? '' : `list-${user.id}`)} onDelete={() => void setUserStatus(user, 'deleted')} onDisable={() => void setUserStatus(user, 'disabled')} /></td>
               </tr>)}
             </tbody>
           </table>
