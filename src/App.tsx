@@ -6,6 +6,9 @@ import {
   AlertTriangle,
   Building2,
   CalendarClock,
+  ChevronDown,
+  ChevronsDown,
+  ChevronsUp,
   ChevronLeft,
   ChevronRight,
   Clock,
@@ -413,20 +416,6 @@ function activityDisplayStatus(activity: ActivityRow) {
   if (activity.status === 'cancelled') return 'cancelada'
   if (activity.due_at && new Date(activity.due_at).getTime() < Date.now()) return 'atrasada'
   return 'aberta'
-}
-function activityStatusLabel(activity: ActivityRow) {
-  const status = activityDisplayStatus(activity)
-  if (status === 'concluida') return 'CONCLUÍDA'
-  if (status === 'atrasada') return 'VENCIDO'
-  if (status === 'cancelada') return 'CANCELADA'
-  return 'ABERTA'
-}
-function activityStatusTone(activity: ActivityRow) {
-  const status = activityDisplayStatus(activity)
-  if (status === 'concluida') return 'bg-emerald-100 text-emerald-700'
-  if (status === 'atrasada') return 'bg-rose-100 text-rose-700'
-  if (status === 'cancelada') return 'bg-slate-200 text-slate-700'
-  return 'bg-blue-100 text-blue-700'
 }
 const activityTypeOptions = [
   { id: 'call', label: 'Ligar', icon: PhoneCall },
@@ -2486,6 +2475,7 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
   const [noteDraft, setNoteDraft] = useState('')
   const [composerMode, setComposerMode] = useState<'note' | 'activity' | 'attachment' | 'document'>('note')
   const [historyFilter, setHistoryFilter] = useState<'all' | 'notes' | 'activities' | 'emails' | 'attachments' | 'documents' | 'changes'>('all')
+  const [historyExpanded, setHistoryExpanded] = useState(true)
   const [uploadingAttachment, setUploadingAttachment] = useState(false)
   const [showLabelPicker, setShowLabelPicker] = useState(false)
   const [editingActivity, setEditingActivity] = useState<ActivityRow | null>(null)
@@ -2631,7 +2621,6 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
   const fillingSource = fillingSourceLabel[form.source] || form.source || 'Importação'
   const businessTypeLabel = businessTypeOptions.find(([id]) => id === form.organization_type)?.[1] || '-'
   const openActivities = activities.filter((activity) => activity.status === 'open')
-  const notes = history.filter((row) => row.event_type.toLowerCase().includes('nota') || row.event_type.toLowerCase().includes('anot'))
   type TimelineItem = { id: string; kind: string; title: string; description: string | null; date: string | null; status: string; activity?: ActivityRow }
   const timelineCategory = (item: TimelineItem): typeof historyFilter => {
     if (item.activity) return 'activities'
@@ -2859,12 +2848,19 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
           </div>
         </Panel>
 
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
-          <Panel className="overflow-hidden">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white p-4">
-              <div><h2 className="text-lg font-bold">Histórico</h2><p className="mt-1 text-xs text-slate-500">Notas, uploads, atividades, mudanças do negócio, empresa e contato vinculado ficam aqui no centro.</p></div>
-              <div className="flex flex-wrap gap-2"><Badge tone="bg-blue-100 text-blue-700">{notes.length} anotações</Badge><Badge tone="bg-amber-100 text-amber-700">{openActivities.length} atividades abertas</Badge><Badge tone="bg-slate-100 text-slate-700">{history.length} eventos</Badge></div>
-            </div>
+        <Panel className="overflow-hidden">
+          <div className="border-b border-slate-200 bg-white p-4"><h2 className="text-2xl font-bold tracking-[-0.03em] text-slate-950">Foco</h2></div>
+          <div className="space-y-3 p-4">
+            {openActivities.length ? openActivities.map((activity) => <ActivityInlineRow key={activity.id} activity={activity} deal={deal} ownerName={crmOwnerDisplay(crmUsers, activity.owner_id, deal.pipedrive_owner_name || 'Sem usuário')} onComplete={completeActivity} onMarkTodo={markActivityTodo} onEdit={setEditingActivity} onDelete={canEditOwner ? deleteActivity : undefined} />) : <p className="rounded border border-dashed border-slate-300 p-6 text-center text-sm text-slate-500">Nenhuma atividade aberta no foco.</p>}
+          </div>
+        </Panel>
+
+        <Panel className="overflow-hidden">
+          <button type="button" onClick={() => setHistoryExpanded((current) => !current)} className="flex w-full items-center justify-between gap-3 border-b border-slate-200 bg-white p-4 text-left" aria-expanded={historyExpanded}>
+            <h2 className="text-2xl font-bold tracking-[-0.03em] text-slate-950">Histórico</h2>
+            <span className={cn('grid h-8 w-8 place-items-center rounded-full border border-slate-200 text-slate-600 transition', !historyExpanded && '-rotate-90')}><ChevronDown size={18}/></span>
+          </button>
+          {historyExpanded && <>
             <div className="border-b border-slate-100 bg-slate-50 px-4 py-3">
               <div className="flex flex-wrap items-center gap-2 text-sm font-bold">
                 {historyFilterOptions.map((option) => <button key={option.id} type="button" onClick={() => setHistoryFilter(option.id)} className={cn('rounded px-3 py-1.5 transition', historyFilter === option.id ? 'bg-blue-100 text-blue-700' : 'bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-blue-50 hover:text-blue-700')}>{option.label}{option.id !== 'all' ? ` (${option.count})` : ''}</button>)}
@@ -2876,19 +2872,8 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
                 {item.activity ? <ActivityInlineRow activity={item.activity} deal={deal} ownerName={crmOwnerDisplay(crmUsers, item.activity.owner_id, deal.pipedrive_owner_name || 'Sem usuário')} onComplete={completeActivity} onMarkTodo={markActivityTodo} onEdit={setEditingActivity} onDelete={canEditOwner ? deleteActivity : undefined} /> : <div className="rounded border border-slate-200 bg-white p-3 shadow-sm"><div className="flex flex-wrap items-start justify-between gap-2"><div><b className="text-slate-900">{item.title}</b></div><div className="flex items-center gap-2">{item.date && <span className="text-xs text-slate-500">{formatDateTime(item.date)}</span>}</div></div>{item.description && <p className="mt-2 whitespace-pre-wrap text-slate-600">{item.description}</p>}</div>}
               </div>) : <p className="rounded border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">Sem histórico para este filtro.</p>}
             </div>
-          </Panel>
-
-          <Panel className="overflow-hidden">
-            <div className="border-b border-slate-200 bg-white p-4"><h2 className="font-bold">Foco</h2></div>
-            <div className="p-4">
-              <textarea value={form.focus_items} onChange={(e) => update('focus_items', e.target.value)} rows={10} className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" placeholder="Um item de foco por linha" />
-              <div className="mt-3 flex items-center justify-between gap-2">
-                <p className="text-xs text-slate-500">Os itens de foco continuam salvos no negócio.</p>
-                <button type="button" disabled={saving} onClick={() => void saveCurrent()} className="rounded bg-[#238847] px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-[#1f7a40] disabled:opacity-60">{saving ? 'Salvando...' : 'Salvar'}</button>
-              </div>
-            </div>
-          </Panel>
-        </div>
+          </>}
+        </Panel>
       </section>
     </form>
 
@@ -3068,6 +3053,7 @@ function TimelineIcon({ item }: { item: { kind: string; activity?: ActivityRow }
 
 function ActivityInlineRow({ activity, deal, ownerName, onComplete, onMarkTodo, onEdit, onDelete }: { activity: ActivityRow; deal?: Deal; ownerName?: string; onComplete?: (id: string) => Promise<void>; onMarkTodo?: (id: string) => Promise<void>; onEdit?: (activity: ActivityRow) => void; onDelete?: (id: string, label: string) => void }) {
   const [menuOpen, setMenuOpen] = useState(false)
+  const [descriptionExpanded, setDescriptionExpanded] = useState(false)
   const menuRef = useRef<HTMLDivElement | null>(null)
   const isDone = activity.status === 'done'
   const contactName = deal?.people?.full_name || 'Sem contato'
@@ -3086,20 +3072,22 @@ function ActivityInlineRow({ activity, deal, ownerName, onComplete, onMarkTodo, 
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-2">
-          <button type="button" title={isDone ? 'Marcar como por fazer' : 'Marcar como feito'} aria-label={isDone ? 'Marcar como por fazer' : 'Marcar como feito'} disabled={isDone ? !onMarkTodo : !onComplete} onClick={() => isDone ? onMarkTodo && void onMarkTodo(activity.id) : onComplete && void onComplete(activity.id)} className={cn('grid h-5 w-5 shrink-0 place-items-center rounded-full border-2 transition', isDone ? 'border-black bg-black text-white shadow-sm hover:bg-slate-800' : 'border-[#2fb344] bg-white text-transparent hover:bg-emerald-50 hover:text-[#2fb344] disabled:opacity-60')}>
+          <button type="button" title={isDone ? 'Marcar como por fazer' : 'Marcar como feito'} aria-label={isDone ? 'Marcar como por fazer' : 'Marcar como feito'} disabled={isDone ? !onMarkTodo : !onComplete} onClick={() => isDone ? onMarkTodo && void onMarkTodo(activity.id) : onComplete && void onComplete(activity.id)} className={cn('grid h-5 w-5 shrink-0 place-items-center rounded-full border transition', isDone ? 'border-[#2fb344] bg-[#2fb344] text-white shadow-sm hover:bg-[#27923a]' : 'border-slate-800 bg-white text-transparent hover:bg-slate-50 hover:text-slate-800 disabled:opacity-60')}>
             <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" aria-hidden="true"><path d="M3.2 8.1 6.5 11.4 12.9 4.6" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
           </button>
           <button type="button" onClick={() => onEdit?.(activity)} className={cn('truncate text-left text-base font-bold hover:text-blue-700 hover:underline', isDone ? 'text-slate-700' : 'text-slate-900')}>{activity.title}</button>
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
-          <span className={cn('rounded px-1.5 py-0.5 text-[10px] font-black leading-none', activityStatusTone(activity))}>{activityStatusLabel(activity)}</span>
           <span>{formatActivityDateTime(activity.due_at)}</span>
           <span>·</span>
           <span>{ownerName || 'Sem usuário'}</span>
           <span className="inline-flex items-center gap-1"><User size={12}/>{contactName}</span>
           <span className="inline-flex items-center gap-1"><Building2 size={12}/>{companyName}</span>
         </div>
-        {activity.note && <p className="mt-2 whitespace-pre-wrap text-sm text-slate-600">{activity.note}</p>}
+        {activity.note && <div className="mt-3 flex overflow-hidden rounded border border-amber-100 bg-amber-50 text-sm text-slate-700">
+          <p className={cn('min-w-0 flex-1 whitespace-pre-wrap px-3 py-2', !descriptionExpanded && 'max-h-16 overflow-hidden')}>{activity.note}</p>
+          <button type="button" onClick={() => setDescriptionExpanded((current) => !current)} className="grid w-10 shrink-0 place-items-center border-l border-amber-100 text-slate-500 hover:bg-amber-100" aria-label={descriptionExpanded ? 'Recolher descrição' : 'Expandir descrição'}>{descriptionExpanded ? <ChevronsUp size={16}/> : <ChevronsDown size={16}/>}</button>
+        </div>}
       </div>
       {hasMenu && <div ref={menuRef} className="relative flex shrink-0 items-center gap-1">
         <button type="button" aria-label="Menu da atividade" onClick={() => setMenuOpen((current) => !current)} className="grid h-8 w-8 place-items-center rounded text-slate-500 hover:bg-slate-100 hover:text-slate-800"><MoreHorizontal size={16}/></button>
