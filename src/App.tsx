@@ -109,6 +109,7 @@ type FilterDraft = {
   favorite: boolean
   rules: FilterRule[]
   columns?: string[]
+  saveColumns?: boolean
 }
 
 type ColumnEntity = 'deal' | 'person' | 'organization'
@@ -1391,7 +1392,7 @@ function App() {
       favorite: draft.favorite,
       visibility: 'private',
       rules,
-      columns: draft.columns,
+      columns: draft.saveColumns ? draft.columns : undefined,
       createdAt: new Date().toISOString(),
     }
     const next = savedDealFilters.some((filter) => filter.id === saved.id)
@@ -1876,8 +1877,8 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
               onSelectFilter={(id) => { const filter = savedDealFilters.find((item) => item.id === id); setActiveDealFilterId(id); setActiveOwnerFilterId(''); applyFilterColumns(filter); setShowFilters(false) }}
               onSelectOwner={(id) => { setActiveOwnerFilterId(id); setActiveDealFilterId(''); setShowFilters(false) }}
               onClear={() => { setActiveDealFilterId(''); setActiveOwnerFilterId(''); setShowFilters(false) }}
-              onCreate={() => { setEditingFilter({ ...emptyFilterDraft(), columns: visibleColumns }); setShowFilters(false) }}
-              onEdit={(filter) => { setEditingFilter({ id: filter.id, name: filter.name, favorite: filter.favorite, rules: filter.rules.length ? filter.rules : [newFilterRule('all')], columns: visibleColumns }); setShowFilters(false) }}
+              onCreate={() => { setEditingFilter({ ...emptyFilterDraft(), columns: visibleColumns, saveColumns: false }); setShowFilters(false) }}
+              onEdit={(filter) => { setEditingFilter({ id: filter.id, name: filter.name, favorite: filter.favorite, rules: filter.rules.length ? filter.rules : [newFilterRule('all')], columns: filter.columns?.length ? filter.columns : visibleColumns, saveColumns: Boolean(filter.columns?.length) }); setShowFilters(false) }}
               onToggleFavorite={toggleDealFilterFavorite}
               onDelete={deleteDealFilter}
             />}
@@ -2041,18 +2042,18 @@ function DealFilterBuilderModal({ draft, setDraft, fields, deals, context, onClo
         const values = valuesForRule(rule)
         return <div key={rule.id} className="rounded-lg border border-slate-200 bg-white p-3">
           {index > 0 && <div className="mb-2 text-center text-[11px] font-black uppercase text-slate-400">{group === 'all' ? 'E' : 'OU'}</div>}
-          <div className="grid gap-2 md:grid-cols-[140px_1fr_130px_1fr_38px]">
-            <select value={rule.entity} onChange={(e) => updateRule(rule.id, { entity: e.target.value as FilterEntity })} className="rounded border border-slate-300 bg-white px-2 py-2 text-sm outline-none">
+          <div className="grid gap-2 lg:grid-cols-[140px_minmax(0,1fr)_130px_minmax(0,1fr)_38px]">
+            <select value={rule.entity} onChange={(e) => updateRule(rule.id, { entity: e.target.value as FilterEntity })} className="w-full min-w-0 rounded border border-slate-300 bg-white px-2 py-2 text-sm outline-none">
               {(Object.keys(filterEntityLabel) as FilterEntity[]).map((entity) => <option key={entity} value={entity}>{filterEntityLabel[entity]}</option>)}
             </select>
-            <select value={rule.fieldId} onChange={(e) => updateRule(rule.id, { fieldId: e.target.value })} className="rounded border border-slate-300 bg-white px-2 py-2 text-sm outline-none">
+            <select value={rule.fieldId} onChange={(e) => updateRule(rule.id, { fieldId: e.target.value })} className="w-full min-w-0 rounded border border-slate-300 bg-white px-2 py-2 text-sm outline-none">
               <option value="">Selecione o campo</option>
               {fieldsForEntity(rule.entity).map((field) => <option key={field.id} value={field.id}>{field.label}</option>)}
             </select>
-            <select value={rule.operator} onChange={(e) => updateRule(rule.id, { operator: e.target.value as FilterOperator })} className="rounded border border-slate-300 bg-white px-2 py-2 text-sm outline-none">
+            <select value={rule.operator} onChange={(e) => updateRule(rule.id, { operator: e.target.value as FilterOperator })} className="w-full min-w-0 rounded border border-slate-300 bg-white px-2 py-2 text-sm outline-none">
               {(Object.keys(filterOperatorLabel) as FilterOperator[]).map((operator) => <option key={operator} value={operator}>{filterOperatorLabel[operator]}</option>)}
             </select>
-            <input list={`values-${rule.id}`} value={rule.value} onChange={(e) => updateRule(rule.id, { value: e.target.value })} disabled={rule.operator === 'is_empty' || rule.operator === 'is_not_empty'} placeholder="Digite ou selecione o valor" className="rounded border border-slate-300 px-2 py-2 text-sm outline-none disabled:bg-slate-100" />
+            <input list={`values-${rule.id}`} value={rule.value} onChange={(e) => updateRule(rule.id, { value: e.target.value })} disabled={rule.operator === 'is_empty' || rule.operator === 'is_not_empty'} placeholder="Digite ou selecione o valor" className="w-full min-w-0 rounded border border-slate-300 px-2 py-2 text-sm outline-none disabled:bg-slate-100" />
             <datalist id={`values-${rule.id}`}>{values.map((value) => <option key={value} value={value}/>)}</datalist>
             <button type="button" onClick={() => removeRule(rule.id)} className="rounded border border-slate-200 text-slate-400 hover:bg-rose-50 hover:text-rose-600">×</button>
           </div>
@@ -2062,28 +2063,35 @@ function DealFilterBuilderModal({ draft, setDraft, fields, deals, context, onClo
     </div>
   }
 
-  return <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 p-4 backdrop-blur-sm">
-    <div className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
-      <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-        <div>
+  return <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 p-2 backdrop-blur-sm sm:p-4">
+    <div className="flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-5xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl sm:max-h-[92vh] sm:w-full">
+      <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-3 py-3 sm:px-5 sm:py-4">
+        <div className="min-w-0">
           <h2 className="text-xl font-bold text-slate-950">Criar novo filtro</h2>
           <p className="mt-1 text-sm text-slate-500">Filtre negócios usando campos de negócios, pessoas, empresas e atividades.</p>
         </div>
-        <button onClick={onClose} className="grid h-9 w-9 place-items-center rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50" type="button">×</button>
+        <button onClick={onClose} className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50" type="button">×</button>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto p-5">
+      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-5">
         <div className="mb-4 flex items-center gap-2 rounded border border-slate-300 px-3 py-2 text-sm focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100">
           <Search size={16} className="text-slate-500"/>
           <input value={fieldSearch} onChange={(e) => setFieldSearch(e.target.value)} className="min-w-0 flex-1 bg-transparent outline-none" placeholder="Digite o nome do campo para filtrar" />
         </div>
-        <div className="rounded-xl bg-slate-50 p-4">
+        <div className="rounded-xl bg-slate-50 p-3 sm:p-4">
           <h3 className="mb-3 text-sm font-bold text-slate-800">Atender a TODAS estas condições</h3>
           {renderRules('all')}
         </div>
-        <div className="mt-4 rounded-xl bg-slate-50 p-4">
+        <div className="mt-4 rounded-xl bg-slate-50 p-3 sm:p-4">
           <h3 className="mb-3 text-sm font-bold text-slate-800">E atender a QUALQUER destas condições</h3>
           {renderRules('any')}
         </div>
+        <label className="mt-4 flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-700">
+          <input type="checkbox" className="mt-0.5" checked={Boolean(draft.saveColumns)} onChange={(e) => setDraft({ ...draft, saveColumns: e.target.checked })} />
+          <span>
+            <span className="block font-bold">Salvar colunas escolhidas com este filtro</span>
+            <span className="text-xs text-slate-500">Quando este filtro for aplicado na lista, ele também restaura as colunas visíveis atuais.</span>
+          </span>
+        </label>
         <div className="mt-5 grid gap-4 md:grid-cols-[1fr_180px_220px]">
           <EditInput label="Nome do filtro" value={draft.name} onChange={(value) => setDraft({ ...draft, name: value })} />
           <label className="block text-sm">
@@ -2096,9 +2104,9 @@ function DealFilterBuilderModal({ draft, setDraft, fields, deals, context, onClo
           </label>
         </div>
       </div>
-      <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-5 py-4">
+      <div className="flex flex-col items-stretch justify-between gap-3 border-t border-slate-200 px-3 py-3 sm:flex-row sm:items-center sm:px-5 sm:py-4">
         <span className="text-sm text-slate-500">Pré-visualização: <b className="text-slate-800">{previewCount}</b> negócios encontrados</span>
-        <div className="flex gap-2">
+        <div className="flex justify-end gap-2">
           <button type="button" onClick={onClose} className="rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Cancelar</button>
           <button type="button" onClick={() => onSave(draft)} className="rounded bg-[#238847] px-5 py-2 text-sm font-bold text-white shadow-sm hover:bg-[#1f7a40]">Salvar</button>
         </div>
@@ -3240,7 +3248,7 @@ function EntityListView({ title, icon, entity, rows, deals, people, organization
         <div className="flex items-center gap-2">
           <div className="relative">
             <button type="button" onClick={() => setShowFilters((current) => !current)} className={cn('inline-flex items-center gap-2 rounded border px-3 py-1.5 text-sm font-semibold shadow-sm', activeFilterId || activeOwnerId ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50')}><Filter size={15}/>{filterButtonLabel}</button>
-            {showFilters && <DealFilterDropdown filters={savedFilters} activeFilterId={activeFilterId} activeOwnerId={activeOwnerId} users={users} onSelectFilter={(id) => { const filter = savedFilters.find((item) => item.id === id); setActiveFilterId(id); setActiveOwnerId(''); applyFilterColumns(filter); setShowFilters(false) }} onSelectOwner={(id) => { setActiveOwnerId(id); setActiveFilterId(''); setShowFilters(false) }} onClear={() => { setActiveFilterId(''); setActiveOwnerId(''); setShowFilters(false) }} onCreate={() => { setEditingFilter({ ...emptyFilterDraft(), columns: visibleColumns }); setShowFilters(false) }} onEdit={(filter) => { setEditingFilter({ id: filter.id, name: filter.name, favorite: filter.favorite, rules: filter.rules.length ? filter.rules : [newFilterRule('all')], columns: visibleColumns }); setShowFilters(false) }} onToggleFavorite={onToggleFavoriteFilter} onDelete={onDeleteFilter} />}
+            {showFilters && <DealFilterDropdown filters={savedFilters} activeFilterId={activeFilterId} activeOwnerId={activeOwnerId} users={users} onSelectFilter={(id) => { const filter = savedFilters.find((item) => item.id === id); setActiveFilterId(id); setActiveOwnerId(''); applyFilterColumns(filter); setShowFilters(false) }} onSelectOwner={(id) => { setActiveOwnerId(id); setActiveFilterId(''); setShowFilters(false) }} onClear={() => { setActiveFilterId(''); setActiveOwnerId(''); setShowFilters(false) }} onCreate={() => { setEditingFilter({ ...emptyFilterDraft(), columns: visibleColumns, saveColumns: false }); setShowFilters(false) }} onEdit={(filter) => { setEditingFilter({ id: filter.id, name: filter.name, favorite: filter.favorite, rules: filter.rules.length ? filter.rules : [newFilterRule('all')], columns: filter.columns?.length ? filter.columns : visibleColumns, saveColumns: Boolean(filter.columns?.length) }); setShowFilters(false) }} onToggleFavorite={onToggleFavoriteFilter} onDelete={onDeleteFilter} />}
           </div>
           <button type="button" onClick={() => setShowColumns(true)} className="grid h-9 w-9 place-items-center rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-50" title="Campos da lista" aria-label="Campos da lista"><Settings size={16}/></button>
         </div>
