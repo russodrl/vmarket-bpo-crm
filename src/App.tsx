@@ -2626,7 +2626,7 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
   const totalValue = totalValueFromForm(form)
   const pipedriveDealId = externalIdFor(externalRecords, 'deal', deal.id)
   const companySummary = `CNPJs: ${form.organization_cnpjs || '-'} / GMV: ${money(Number(form.monthly_purchase || 0))} / UF: ${form.organization_state || '-'}`
-  const dealValueSummary = <>Valor total do negócio: {money(totalValue)} <span className="text-slate-300">|</span> VMarket: {money(vmarketValue)} <span className="text-slate-300">|</span> Serviços: {money(partnerValue)}</>
+  const dealValueSummary = <>Valor Total: {money(totalValue)} <span className="text-slate-300">|</span> VMarket: {money(vmarketValue)} <span className="text-slate-300">|</span> Serviços: {money(partnerValue)}</>
   const fillingSource = fillingSourceLabel[form.source] || form.source || 'Importação'
   const businessTypeLabel = businessTypeOptions.find(([id]) => id === form.organization_type)?.[1] || '-'
   const openActivities = activities.filter((activity) => activity.status === 'open')
@@ -2642,12 +2642,12 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
         <div className="flex min-w-0 items-center gap-2">
           <button onClick={closeDealPage} className="shrink-0 rounded border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">← Voltar</button>
           <div className="min-w-0 flex-1 md:hidden">
-            <input value={form.title} onChange={(e) => update('title', e.target.value)} className="w-full truncate bg-transparent text-lg font-semibold tracking-[-0.03em] text-slate-950 outline-none hover:bg-slate-50 focus:bg-slate-50 focus:ring-2 focus:ring-blue-100" aria-label="Título do negócio" />
+            <input value={form.title} onChange={(e) => update('title', e.target.value)} className="w-full truncate bg-transparent text-xl font-bold tracking-[-0.035em] text-slate-950 outline-none hover:bg-slate-50 focus:bg-slate-50 focus:ring-2 focus:ring-blue-100" aria-label="Título do negócio" />
             <p className="mt-1 truncate text-xs font-semibold text-slate-600">{companySummary}</p>
           </div>
         </div>
         <div className="hidden min-w-0 flex-1 md:block">
-          <input value={form.title} onChange={(e) => update('title', e.target.value)} className="w-full truncate bg-transparent text-2xl font-semibold tracking-[-0.03em] text-slate-950 outline-none hover:bg-slate-50 focus:bg-slate-50 focus:ring-2 focus:ring-blue-100" aria-label="Título do negócio" title="Clique para editar o título do negócio" />
+          <input value={form.title} onChange={(e) => update('title', e.target.value)} className="w-full truncate bg-transparent text-4xl font-bold tracking-[-0.04em] text-slate-950 outline-none hover:bg-slate-50 focus:bg-slate-50 focus:ring-2 focus:ring-blue-100" aria-label="Título do negócio" title="Clique para editar o título do negócio" />
           <p className="mt-1 truncate text-sm font-semibold text-slate-600">{companySummary}</p>
         </div>
         <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -2673,9 +2673,8 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
             {currentPipelineStages.map((stage, index) => {
               const isCurrent = stage.id === (form.stage_id || deal.stage_id)
               const totalStages = currentPipelineStages.length || 1
-              const isFirst = index === 0
               const isLast = index === totalStages - 1
-              const clipPath = `polygon(${isFirst ? '0' : '14px'} 0, ${isLast ? '100%' : 'calc(100% - 12px)'} 0, 100% 50%, ${isLast ? '100%' : 'calc(100% - 12px)'} 100%, ${isFirst ? '0' : '14px'} 100%, 0 50%)`
+              const clipPath = `polygon(0 0, ${isLast ? '100%' : 'calc(100% - 12px)'} 0, 100% 50%, ${isLast ? '100%' : 'calc(100% - 12px)'} 100%, 0 100%)`
               return <button key={stage.id} type="button" onClick={() => update('stage_id', stage.id)} title={stage.name} style={{ clipPath }} className={cn('relative flex min-w-[105px] flex-1 items-center justify-center px-4 text-center text-xs font-semibold transition first:ml-0 -ml-3 md:min-w-[118px] md:px-5', isCurrent ? 'z-20 bg-[#0abf75] text-white' : 'bg-[#edf1f7] text-slate-500 hover:bg-slate-200')}>{dayLabel(isCurrent ? currentStageDays : 0)}</button>
             })}
           </div>
