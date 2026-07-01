@@ -234,6 +234,19 @@ export type HistoryRow = {
   created_at: string
 }
 
+export type DealAttachment = {
+  id: string
+  deal_id: string
+  storage_bucket: string
+  storage_path: string
+  file_name: string
+  file_type: string | null
+  file_size: number | null
+  category: 'attachment' | 'document'
+  uploaded_by: string | null
+  created_at: string
+}
+
 export type AuditLog = {
   id: string
   table_name: string

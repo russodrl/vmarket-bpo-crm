@@ -16,6 +16,7 @@ import {
   MessageSquare,
   PhoneCall,
   FileText,
+  FileUp,
   Filter,
   Star,
   User,
@@ -29,7 +30,7 @@ import {
   Tags,
   Unlink,
 } from 'lucide-react'
-import { supabase, supabaseConfigured, type ActivityRow, type AuditLog, type AutomationRule, type AutomationRuleChange, type AutomationRuleExecution, type CrmCompany, type CrmUser, type CustomField, type CustomFieldValue, type Deal, type DealLabel, type DealLabelAssignment, type ExternalRecord, type HistoryRow, type Organization, type Person, type Profile, type Stage } from './supabase'
+import { supabase, supabaseConfigured, type ActivityRow, type AuditLog, type AutomationRule, type AutomationRuleChange, type AutomationRuleExecution, type CrmCompany, type CrmUser, type CustomField, type CustomFieldValue, type Deal, type DealAttachment, type DealLabel, type DealLabelAssignment, type ExternalRecord, type HistoryRow, type Organization, type Person, type Profile, type Stage } from './supabase'
 import { TomatinhoChat } from './TomatinhoChat'
 import './App.css'
 
@@ -907,6 +908,7 @@ function App() {
   const [deals, setDeals] = useState<Deal[]>([])
   const [activities, setActivities] = useState<ActivityRow[]>([])
   const [history, setHistory] = useState<HistoryRow[]>([])
+  const [dealAttachments, setDealAttachments] = useState<DealAttachment[]>([])
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([])
   const [automationRules, setAutomationRules] = useState<AutomationRule[]>([])
   const [automationExecutions, setAutomationExecutions] = useState<AutomationRuleExecution[]>([])
@@ -1008,7 +1010,7 @@ function App() {
     setLoading(true)
     setError('')
     try {
-      const [profileRes, stagesRes, crmUsersRes, crmCompaniesRes, orgRes, peopleRes, dealsRes, actsRes, histRes, auditRes, automationRulesRes, automationExecutionsRes, automationChangesRes, labelRes, labelAssignRes, fieldsRes, valuesRes] = await Promise.all([
+      const [profileRes, stagesRes, crmUsersRes, crmCompaniesRes, orgRes, peopleRes, dealsRes, actsRes, histRes, attachmentsRes, auditRes, automationRulesRes, automationExecutionsRes, automationChangesRes, labelRes, labelAssignRes, fieldsRes, valuesRes] = await Promise.all([
         supabase.from('profiles').select('*').eq('id', session!.user.id).maybeSingle(),
         supabase.from('pipeline_stages').select('*').order('sort_order'),
         supabase.from('crm_users').select('*, crm_companies(*)').order('full_name'),
@@ -1018,6 +1020,7 @@ function App() {
         supabase.from('deals').select('*, organizations(*), people(*), bpo_partners(*), pipeline_stages(*)').order('created_at', { ascending: false }),
         supabase.from('activities').select('*').order('due_at', { ascending: true }),
         supabase.from('deal_history').select('*').order('created_at', { ascending: false }),
+        supabase.from('deal_attachments').select('*').order('created_at', { ascending: false }),
         supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(1000),
         supabase.from('automation_rules').select('*').order('name'),
         supabase.from('automation_rule_executions').select('*').order('started_at', { ascending: false }).limit(1000),
@@ -1027,7 +1030,7 @@ function App() {
         supabase.from('custom_fields').select('*').order('sort_order'),
         supabase.from('custom_field_values').select('*'),
       ])
-      const firstError = [profileRes, stagesRes, crmUsersRes, crmCompaniesRes, orgRes, peopleRes, dealsRes, actsRes, histRes, auditRes, automationRulesRes, automationExecutionsRes, automationChangesRes, labelRes, labelAssignRes, fieldsRes, valuesRes].find((r) => r.error)?.error
+      const firstError = [profileRes, stagesRes, crmUsersRes, crmCompaniesRes, orgRes, peopleRes, dealsRes, actsRes, histRes, attachmentsRes, auditRes, automationRulesRes, automationExecutionsRes, automationChangesRes, labelRes, labelAssignRes, fieldsRes, valuesRes].find((r) => r.error)?.error
       if (firstError) throw firstError
       setProfile(profileRes.data as Profile | null)
       setStages((stagesRes.data || []) as Stage[])
@@ -1041,6 +1044,7 @@ function App() {
       setDeals((dealsRes.data || []) as Deal[])
       setActivities((actsRes.data || []) as ActivityRow[])
       setHistory((histRes.data || []) as HistoryRow[])
+      setDealAttachments((attachmentsRes.data || []) as DealAttachment[])
       setAuditLogs((auditRes.data || []) as AuditLog[])
       setAutomationRules((automationRulesRes.data || []) as AutomationRule[])
       setAutomationExecutions((automationExecutionsRes.data || []) as AutomationRuleExecution[])
@@ -1582,7 +1586,7 @@ function App() {
 
   if (detailDealId) {
     const isAdmin = profile?.role === 'admin_vmarket'
-    return <><DealPage key={detailDealId} deal={detailDeal} loading={loading} error={error} stages={stages} crmUsers={crmUsers} externalRecords={externalRecords} canEditOwner={isAdmin} canViewCustomFields={isAdmin} activities={activities.filter((a) => a.deal_id === detailDealId)} history={history.filter((h) => h.deal_id === detailDealId)} dealLabels={dealLabels} assignedLabels={dealLabelAssignments.filter((assignment) => assignment.deal_id === detailDealId)} closeDealPage={closeDealPage} saveDeal={saveDeal} createActivity={createActivityForDeal} createNote={createNoteForDeal} deleteDeal={(id, label) => deleteOneRecord('deal', id, label)} deleteActivity={(id, label) => deleteOneRecord('activity', id, label)} customFields={isAdmin ? customFields.filter((field) => field.entity === 'deal') : []} customFieldValues={isAdmin ? customFieldValues.filter((value) => value.entity_id === detailDealId) : []} completeActivity={completeActivity} updateActivity={updateActivity} createLabel={createDealLabel} deleteLabel={deleteDealLabel} updateDealLabels={updateDealLabels} openPersonPage={openPersonPage} openOrganizationPage={openOrganizationPage} unlinkDealPerson={unlinkDealPerson} unlinkDealOrganization={unlinkDealOrganization} /><TomatinhoChat session={session} contextDealId={detailDealId} onReload={loadAll} /></>
+    return <><DealPage key={detailDealId} deal={detailDeal} loading={loading} error={error} stages={stages} crmUsers={crmUsers} externalRecords={externalRecords} canEditOwner={isAdmin} canViewCustomFields={isAdmin} activities={activities.filter((a) => a.deal_id === detailDealId)} history={history.filter((h) => h.deal_id === detailDealId)} dealLabels={dealLabels} assignedLabels={dealLabelAssignments.filter((assignment) => assignment.deal_id === detailDealId)} attachments={dealAttachments.filter((attachment) => attachment.deal_id === detailDealId)} closeDealPage={closeDealPage} saveDeal={saveDeal} createActivity={createActivityForDeal} createNote={createNoteForDeal} deleteDeal={(id, label) => deleteOneRecord('deal', id, label)} deleteActivity={(id, label) => deleteOneRecord('activity', id, label)} customFields={isAdmin ? customFields.filter((field) => field.entity === 'deal') : []} customFieldValues={isAdmin ? customFieldValues.filter((value) => value.entity_id === detailDealId) : []} completeActivity={completeActivity} updateActivity={updateActivity} createLabel={createDealLabel} deleteLabel={deleteDealLabel} updateDealLabels={updateDealLabels} openPersonPage={openPersonPage} openOrganizationPage={openOrganizationPage} unlinkDealPerson={unlinkDealPerson} unlinkDealOrganization={unlinkDealOrganization} reloadDeal={loadAll} /><TomatinhoChat session={session} contextDealId={detailDealId} onReload={loadAll} /></>
   }
   if (detailPersonId) {
     return <><ContactPage key={detailPersonId} person={detailPerson} organization={organizations.find((org) => org.id === detailPerson?.organization_id)} loading={loading} error={error} deals={deals} activities={activities} history={history} externalRecords={externalRecords} crmUsers={crmUsers} canDelete={profile?.role === 'admin_vmarket'} deletePerson={(id, label) => deleteOneRecord('person', id, label)} openDealPage={openDealPage} openOrganizationPage={openOrganizationPage} unlinkPersonOrganization={unlinkPersonOrganization} closeDetailPage={closeDetailPage} /><TomatinhoChat session={session} onReload={loadAll} /></>
@@ -1611,7 +1615,7 @@ function App() {
   return (
     <main className="min-h-screen bg-[#f4f5f7] text-slate-900">
       <div className="flex min-h-screen flex-col md:flex-row">
-        <aside className="fixed inset-x-0 bottom-0 z-40 flex h-16 shrink-0 flex-row items-center justify-around gap-1 bg-[#211746] px-2 py-2 text-white shadow-[0_-10px_30px_rgba(15,23,42,0.25)] md:relative md:inset-auto md:h-auto md:w-14 md:flex-col md:justify-start md:gap-2 md:px-0 md:py-3 md:shadow-none">
+        <aside className="fixed inset-x-0 bottom-0 z-40 flex h-16 shrink-0 flex-row items-center justify-start gap-1 overflow-x-auto bg-[#211746] px-2 py-2 text-white shadow-[0_-10px_30px_rgba(15,23,42,0.25)] md:relative md:inset-auto md:h-auto md:w-14 md:flex-col md:justify-start md:gap-2 md:overflow-visible md:px-0 md:py-3 md:shadow-none">
           <div className="hidden h-10 w-10 place-items-center rounded-xl bg-white text-[13px] font-black tracking-[-0.08em] text-[#211746] shadow-sm md:mb-3 md:grid">VM</div>
           {navItems.map(([key, icon, label]) => <button key={key} onClick={() => setActiveView(key)} title={label} aria-label={label} className={cn('grid h-12 min-w-12 place-items-center rounded-xl transition md:h-10 md:w-10 md:min-w-0', activeView === key ? 'bg-[#6f5cf6] text-white' : 'text-white/70 hover:bg-white/10 hover:text-white')}>{icon}<span className="sr-only">{label}</span></button>)}
           <button onClick={() => supabase.auth.signOut()} title="Sair" aria-label="Sair" className="grid h-12 min-w-12 place-items-center rounded-xl text-white/70 hover:bg-white/10 hover:text-white md:mt-auto md:h-10 md:w-10 md:min-w-0"><LogOut size={18}/></button>
@@ -1851,6 +1855,25 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
           </select>
         </label>}
         <button onClick={() => setShowCreateDeal(true)} className="order-3 h-11 rounded border border-[#087d3e] bg-[#238847] px-4 text-sm font-bold text-white shadow-sm hover:bg-[#1f7a40] md:order-none md:h-auto md:py-1.5">+ Negócio</button>
+        <div className="relative order-3 md:hidden">
+          <button type="button" onClick={() => setShowFilters((current) => !current)} className={cn('inline-flex h-11 items-center gap-2 rounded border px-3 text-sm font-semibold shadow-sm', activeDealFilterId || activeOwnerFilterId ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50')}>
+            <Filter size={15}/>
+            {filterButtonLabel}
+          </button>
+          {showFilters && <DealFilterDropdown
+            filters={savedDealFilters}
+            activeFilterId={activeDealFilterId}
+            activeOwnerId={activeOwnerFilterId}
+            users={crmUsers}
+            onSelectFilter={(id) => { const filter = savedDealFilters.find((item) => item.id === id); setActiveDealFilterId(id); setActiveOwnerFilterId(''); applyFilterColumns(filter); setShowFilters(false) }}
+            onSelectOwner={(id) => { setActiveOwnerFilterId(id); setActiveDealFilterId(''); setShowFilters(false) }}
+            onClear={() => { setActiveDealFilterId(''); setActiveOwnerFilterId(''); setShowFilters(false) }}
+            onCreate={() => { setEditingFilter({ ...emptyFilterDraft(), columns: visibleColumns, saveColumns: false }); setShowFilters(false) }}
+            onEdit={(filter) => { setEditingFilter({ id: filter.id, name: filter.name, favorite: filter.favorite, rules: filter.rules.length ? filter.rules : [newFilterRule('all')], columns: filter.columns?.length ? filter.columns : visibleColumns, saveColumns: Boolean(filter.columns?.length) }); setShowFilters(false) }}
+            onToggleFavorite={toggleDealFilterFavorite}
+            onDelete={deleteDealFilter}
+          />}
+        </div>
         <div className="order-4 flex w-full flex-wrap items-center gap-2 text-sm text-slate-600 md:order-none md:ml-auto md:w-auto md:flex-nowrap">
           <div className={cn('flex min-w-0 items-center gap-2 rounded border border-slate-200 bg-slate-50 px-2 py-1 text-xs md:text-sm', expandedPipelineTotals ? 'md:min-w-[380px]' : '')}>
             <button type="button" onClick={() => setExpandedPipelineTotals((current) => !current)} className="grid h-6 w-6 shrink-0 place-items-center rounded border border-slate-200 bg-white text-sm font-black text-slate-600 hover:border-blue-300 hover:text-blue-700" aria-label={expandedPipelineTotals ? 'Fechar detalhamento total do funil' : 'Abrir detalhamento total do funil'} title={expandedPipelineTotals ? 'Ocultar detalhes do funil' : 'Mostrar detalhes do funil'}>{expandedPipelineTotals ? '-' : '+'}</button>
@@ -1866,7 +1889,7 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
           <select value={activePipeline} onChange={(e) => setActivePipeline(e.target.value)} className="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 outline-none">
             {(pipelineNames.length ? pipelineNames : ['Pipeline de Vendas']).map((name) => <option key={name}>{name}</option>)}
           </select>
-          <div className="relative">
+          <div className="relative hidden md:block">
             <button type="button" onClick={() => setShowFilters((current) => !current)} className={cn('inline-flex items-center gap-2 rounded border px-3 py-1.5 text-sm font-semibold shadow-sm', activeDealFilterId || activeOwnerFilterId ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50')}>
               <Filter size={15}/>
               {filterButtonLabel}
@@ -2326,7 +2349,7 @@ function CompanyPage({ organization, loading, error, deals, people, activities, 
 }
 
 
-function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, canEditOwner, canViewCustomFields, activities, history, customFields, customFieldValues, dealLabels, assignedLabels, closeDealPage, saveDeal, createActivity, createNote, deleteDeal, deleteActivity, completeActivity, updateActivity, createLabel, deleteLabel, updateDealLabels, openPersonPage, openOrganizationPage, unlinkDealPerson, unlinkDealOrganization }: {
+function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, canEditOwner, canViewCustomFields, activities, history, attachments, customFields, customFieldValues, dealLabels, assignedLabels, closeDealPage, saveDeal, createActivity, createNote, deleteDeal, deleteActivity, completeActivity, updateActivity, createLabel, deleteLabel, updateDealLabels, openPersonPage, openOrganizationPage, unlinkDealPerson, unlinkDealOrganization, reloadDeal }: {
   deal?: Deal
   loading: boolean
   error: string
@@ -2337,6 +2360,7 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
   canViewCustomFields: boolean
   activities: ActivityRow[]
   history: HistoryRow[]
+  attachments: DealAttachment[]
   customFields: CustomField[]
   customFieldValues: CustomFieldValue[]
   dealLabels: DealLabel[]
@@ -2356,6 +2380,7 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
   openOrganizationPage: (id: string) => void
   unlinkDealPerson: (dealId: string) => Promise<void>
   unlinkDealOrganization: (dealId: string) => Promise<void>
+  reloadDeal: () => Promise<void>
 }) {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -2363,7 +2388,8 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
   const [creatingNote, setCreatingNote] = useState(false)
   const [activityDraft, setActivityDraft] = useState<NewActivity>(() => blankNewActivity())
   const [noteDraft, setNoteDraft] = useState('')
-  const [composerMode, setComposerMode] = useState<'note' | 'activity'>('note')
+  const [composerMode, setComposerMode] = useState<'note' | 'activity' | 'attachment' | 'document'>('note')
+  const [uploadingAttachment, setUploadingAttachment] = useState(false)
   const [showLabelPicker, setShowLabelPicker] = useState(false)
   const [editingActivity, setEditingActivity] = useState<ActivityRow | null>(null)
   const [showCustomFields, setShowCustomFields] = useState(false)
@@ -2426,6 +2452,40 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
       // O erro já é exibido pelo estado global da página.
     } finally {
       setCreatingNote(false)
+    }
+  }
+
+  async function uploadDealFiles(files: FileList | null, category: 'attachment' | 'document' = 'attachment') {
+    if (!deal || !files?.length) return
+    setUploadingAttachment(true)
+    try {
+      const { data: authData } = await supabase.auth.getUser()
+      for (const file of Array.from(files)) {
+        const safeName = file.name.replace(/[^\w.\-À-ÿ ]+/g, '-').replace(/\s+/g, ' ').trim() || 'arquivo'
+        const path = `${deal.id}/${Date.now()}-${Math.random().toString(36).slice(2)}-${safeName}`
+        const upload = await supabase.storage.from('deal-attachments').upload(path, file, { upsert: false, contentType: file.type || undefined })
+        if (upload.error) throw upload.error
+        const { error: attachErr } = await supabase.from('deal_attachments').insert({
+          deal_id: deal.id,
+          storage_path: path,
+          file_name: file.name,
+          file_type: file.type || null,
+          file_size: file.size,
+          category,
+          uploaded_by: authData.user?.id || null,
+        })
+        if (attachErr) throw attachErr
+        const label = category === 'document' ? 'Documento enviado' : 'Anexo enviado'
+        await supabase.from('deal_history').insert({
+          deal_id: deal.id,
+          event_type: category === 'document' ? 'Documento' : 'Anexo',
+          title: label,
+          description: `${file.name} foi enviado para a ficha do negócio.`,
+        })
+      }
+      await reloadDeal()
+    } finally {
+      setUploadingAttachment(false)
     }
   }
 
@@ -2651,13 +2711,16 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
             <div className="flex flex-wrap items-center gap-1 px-4 pt-3 text-sm font-semibold text-slate-600">
               <button type="button" onClick={() => setComposerMode('note')} className={cn('flex items-center gap-2 rounded-t border border-b-0 px-3 py-2', composerMode === 'note' ? 'border-slate-200 bg-blue-50 text-blue-700' : 'border-transparent hover:bg-slate-50')}><MessageSquare size={15}/>Anotações</button>
               <button type="button" onClick={() => setComposerMode('activity')} className={cn('flex items-center gap-2 rounded-t border border-b-0 px-3 py-2', composerMode === 'activity' ? 'border-slate-200 bg-blue-50 text-blue-700' : 'border-transparent hover:bg-slate-50')}><CalendarClock size={15}/>Atividade</button>
+              <button type="button" onClick={() => setComposerMode('attachment')} className={cn('flex items-center gap-2 rounded-t border border-b-0 px-3 py-2', composerMode === 'attachment' ? 'border-slate-200 bg-blue-50 text-blue-700' : 'border-transparent hover:bg-slate-50')}><FileUp size={15}/>Anexo</button>
+              <button type="button" onClick={() => setComposerMode('document')} className={cn('flex items-center gap-2 rounded-t border border-b-0 px-3 py-2', composerMode === 'document' ? 'border-slate-200 bg-blue-50 text-blue-700' : 'border-transparent hover:bg-slate-50')}><FileText size={15}/>Documentos</button>
             </div>
           </div>
           <div className="p-4">
-            {composerMode === 'note' ? <div className="grid gap-3">
+            {composerMode === 'note' && <div className="grid gap-3">
               <textarea value={noteDraft} onChange={(e) => setNoteDraft(e.target.value)} rows={4} className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" placeholder="Escreva uma anotação. Ela aparecerá no histórico central." />
               <div className="flex justify-end"><button type="button" disabled={creatingNote || !noteDraft.trim()} onClick={() => void submitNote()} className="rounded bg-[#238847] px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-[#1f7a40] disabled:opacity-60">{creatingNote ? 'Salvando...' : 'Adicionar anotação'}</button></div>
-            </div> : <div className="grid gap-3">
+            </div>}
+            {composerMode === 'activity' && <div className="grid gap-3">
               <input value={activityDraft.title} onChange={(e) => setActivityDraft((current) => ({ ...current, title: e.target.value }))} className="rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" placeholder="Título da atividade" />
               <div className="grid gap-2 md:grid-cols-[1fr_150px_130px]">
                 <select value={activityDraft.activity_type} onChange={(e) => setActivityDraft((current) => ({ ...current, activity_type: e.target.value }))} className="rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100">
@@ -2669,13 +2732,15 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
               <textarea value={activityDraft.note} onChange={(e) => setActivityDraft((current) => ({ ...current, note: e.target.value }))} rows={3} className="rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" placeholder="Observação, próximo passo ou combinado" />
               <div className="flex justify-end"><button type="button" disabled={creatingActivity || !activityDraft.title.trim()} onClick={() => void submitActivity()} className="rounded bg-[#238847] px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-[#1f7a40] disabled:opacity-60">{creatingActivity ? 'Criando...' : 'Agendar atividade'}</button></div>
             </div>}
+            {composerMode === 'attachment' && <DealAttachmentPanel title="Arraste fotos e arquivos aqui" buttonLabel="upload" category="attachment" attachments={attachments.filter((item) => item.category === 'attachment')} uploading={uploadingAttachment} onUpload={uploadDealFiles} />}
+            {composerMode === 'document' && <DealAttachmentPanel title="Arraste documentos aqui" buttonLabel="upload" category="document" attachments={attachments.filter((item) => item.category === 'document')} uploading={uploadingAttachment} onUpload={uploadDealFiles} />}
           </div>
         </Panel>
 
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
           <Panel className="overflow-hidden">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white p-4">
-              <div><h2 className="text-lg font-bold">Histórico</h2><p className="mt-1 text-xs text-slate-500">Notas, atividades agendadas e eventos sincronizados do Pipedrive ficam aqui no centro.</p></div>
+              <div><h2 className="text-lg font-bold">Histórico</h2><p className="mt-1 text-xs text-slate-500">Notas, uploads, atividades, mudanças do negócio, empresa e contato vinculado ficam aqui no centro.</p></div>
               <div className="flex flex-wrap gap-2"><Badge tone="bg-blue-100 text-blue-700">{notes.length} anotações</Badge><Badge tone="bg-amber-100 text-amber-700">{openActivities.length} atividades abertas</Badge><Badge tone="bg-slate-100 text-slate-700">{history.length} eventos</Badge></div>
             </div>
             <div className="min-h-[420px] space-y-0 p-4">
@@ -2710,6 +2775,51 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
     {showLostReason && <LostReasonModal onCancel={() => setShowLostReason(false)} onConfirm={markLost} />}
     {showLabelPicker && <LabelPickerModal deal={deal} labels={dealLabels} assignedLabelIds={assignedLabels.map((assignment) => assignment.label_id)} onClose={() => setShowLabelPicker(false)} onCreateLabel={createLabel} onDeleteLabel={deleteLabel} onSave={async (labelIds) => { await updateDealLabels(deal.id, labelIds); setShowLabelPicker(false) }} />}
   </main>
+}
+
+function DealAttachmentPanel({ title, buttonLabel, category, attachments, uploading, onUpload }: {
+  title: string
+  buttonLabel: string
+  category: 'attachment' | 'document'
+  attachments: DealAttachment[]
+  uploading: boolean
+  onUpload: (files: FileList | null, category: 'attachment' | 'document') => Promise<void>
+}) {
+  const inputRef = useRef<HTMLInputElement | null>(null)
+  const [dragging, setDragging] = useState(false)
+  const fileSize = (value?: number | null) => {
+    if (!value) return '-'
+    if (value < 1024 * 1024) return `${Math.round(value / 1024)} KB`
+    return `${(value / (1024 * 1024)).toFixed(1)} MB`
+  }
+  async function openAttachment(item: DealAttachment) {
+    const { data, error } = await supabase.storage.from(item.storage_bucket).createSignedUrl(item.storage_path, 60)
+    if (error) throw error
+    if (data?.signedUrl) window.open(data.signedUrl, '_blank', 'noopener,noreferrer')
+  }
+  return <div className="grid gap-4">
+    <div
+      onDragOver={(event) => { event.preventDefault(); setDragging(true) }}
+      onDragLeave={() => setDragging(false)}
+      onDrop={(event) => { event.preventDefault(); setDragging(false); void onUpload(event.dataTransfer.files, category) }}
+      className={cn('grid min-h-[180px] place-items-center rounded-2xl border-2 border-dashed p-6 text-center transition', dragging ? 'border-[#238847] bg-emerald-50' : 'border-slate-300 bg-slate-50')}
+    >
+      <div className="grid gap-3 justify-items-center">
+        <div className="grid h-12 w-12 place-items-center rounded-full bg-white text-[#238847] shadow-sm ring-1 ring-slate-200"><FileUp size={22}/></div>
+        <p className="text-lg font-black text-slate-800">{title}</p>
+        <p className="text-sm text-slate-500">Os uploads ficam registrados no Histórico do negócio.</p>
+        <input ref={inputRef} type="file" multiple className="hidden" onChange={(event) => void onUpload(event.target.files, category)} />
+        <button type="button" disabled={uploading} onClick={() => inputRef.current?.click()} className="rounded bg-[#238847] px-5 py-2 text-sm font-black text-white shadow-sm hover:bg-[#1f7a40] disabled:opacity-60">{uploading ? 'Enviando...' : buttonLabel}</button>
+      </div>
+    </div>
+    <div className="grid gap-2">
+      <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">{category === 'document' ? 'Documentos enviados' : 'Anexos enviados'}</h3>
+      {attachments.length ? attachments.map((item) => <button key={item.id} type="button" onClick={() => void openAttachment(item)} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-left text-sm shadow-sm hover:border-blue-200 hover:bg-blue-50">
+        <span className="min-w-0"><b className="block truncate text-slate-800">{item.file_name}</b><span className="text-xs text-slate-500">{fileSize(item.file_size)} · {formatDateTime(item.created_at)}</span></span>
+        <span className="shrink-0 rounded-full bg-slate-100 px-2 py-1 text-[10px] font-black uppercase text-slate-500">abrir</span>
+      </button>) : <p className="rounded border border-dashed border-slate-300 p-4 text-center text-sm text-slate-500">Nada enviado ainda.</p>}
+    </div>
+  </div>
 }
 
 
