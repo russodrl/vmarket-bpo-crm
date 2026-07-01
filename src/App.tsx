@@ -30,7 +30,7 @@ import {
 import { supabase, supabaseConfigured, type ActivityRow, type AuditLog, type AutomationRule, type AutomationRuleChange, type AutomationRuleExecution, type CrmCompany, type CrmUser, type CustomField, type CustomFieldValue, type Deal, type DealLabel, type DealLabelAssignment, type HistoryRow, type Organization, type Person, type Profile, type Stage } from './supabase'
 import './App.css'
 
-type View = 'pipeline' | 'contacts' | 'companies' | 'activities' | 'automations' | 'audit' | 'fields' | 'admin'
+type View = 'pipeline' | 'contacts' | 'companies' | 'activities' | 'lead-distribution' | 'automations' | 'audit' | 'fields' | 'admin'
 type NewDeal = {
   title: string
   organization_name: string
@@ -1106,6 +1106,7 @@ function App() {
     ['companies', <Building2 size={19}/>, 'Empresas'],
     ['activities', <Activity size={19}/>, 'Atividades'],
   ]
+  if (profile?.role === 'admin_vmarket') navItems.push(['lead-distribution', <Users size={19}/>, 'Distribuição de Leads'])
   if (profile?.role === 'admin_vmarket') navItems.push(['automations', <Settings size={19}/>, 'Automações'])
   if (profile?.role === 'admin_vmarket') navItems.push(['audit', <ClipboardList size={19}/>, 'Log de Alterações'])
   if (profile?.role === 'admin_vmarket') {
@@ -1139,6 +1140,7 @@ function App() {
                 {activeView === 'contacts' && <ListView title="Contatos" icon={<Contact size={18}/>} rows={people.map((p) => ({ id: p.id, title: p.full_name, sub: `${p.role_title || 'Contato'} · ${p.email || 'sem email'}`, meta: p.phone || 'sem telefone' }))} canDelete={profile?.role === 'admin_vmarket'} onDelete={(id, label) => deleteOneRecord('person', id, label)} />}
                 {activeView === 'companies' && <ListView title="Empresas" icon={<Building2 size={18}/>} rows={organizations.map((o) => ({ id: o.id, title: o.name, sub: `${o.type ? businessTypeOptions.find(([id]) => id === o.type)?.[1] || o.type : 'Tipo não informado'} · ${o.city || ''} ${o.state || ''}`, meta: money(o.monthly_purchase) }))} canDelete={profile?.role === 'admin_vmarket'} onDelete={(id, label) => deleteOneRecord('organization', id, label)} />}
                 {activeView === 'activities' && <ActivitiesView activities={activities} deals={deals} completeActivity={completeActivity} updateActivity={updateActivity} canDelete={profile?.role === 'admin_vmarket'} deleteActivity={(id, label) => deleteOneRecord('activity', id, label)} />}
+                {activeView === 'lead-distribution' && profile?.role === 'admin_vmarket' && <LeadDistributionView users={crmUsers} deals={deals} />}
                 {activeView === 'automations' && profile?.role === 'admin_vmarket' && <AutomationsView rules={automationRules} executions={automationExecutions} changes={automationChanges} />}
                 {activeView === 'audit' && profile?.role === 'admin_vmarket' && <AuditLogView logs={auditLogs} />}
                 {activeView === 'fields' && profile?.role === 'admin_vmarket' && <FieldsConfigView fields={customFields} setError={setError} reload={loadAll} />}
@@ -2401,6 +2403,72 @@ function AutomationJsonList({ items }: { items: unknown[] }) {
         {Object.entries(record).map(([key, value]) => <p key={key} className="break-words"><b className="text-slate-900">{key}:</b> {formatAuditValue(value)}</p>)}
       </div>
     })}
+  </div>
+}
+
+function LeadDistributionView({ users, deals }: { users: CrmUser[]; deals: Deal[] }) {
+  const activeUsers = users.filter((user) => user.status === 'active' && user.auth_user_id)
+  const statsForUser = (user: CrmUser) => {
+    const userDeals = deals.filter((deal) => deal.owner_id && deal.owner_id === user.auth_user_id)
+    return {
+      received: userDeals.length,
+      open: userDeals.filter((deal) => deal.status === 'aberto').length,
+      won: userDeals.filter((deal) => deal.status === 'ganho').length,
+      lost: userDeals.filter((deal) => deal.status === 'perdido').length,
+    }
+  }
+  const orderUsers = (list: CrmUser[]) => [...list].sort((a, b) => {
+    const sa = statsForUser(a)
+    const sb = statsForUser(b)
+    return sa.open - sb.open || sb.won - sa.won || sa.received - sb.received || a.full_name.localeCompare(b.full_name, 'pt-BR')
+  })
+  const nextForDdd = (prefix?: string | null) => prefix ? orderUsers(activeUsers.filter((user) => user.ddd_prefix === prefix))[0] : undefined
+  const nextForState = (state?: string | null) => state ? orderUsers(activeUsers.filter((user) => user.ddd_state === state))[0] : undefined
+  const nextGeneral = orderUsers(activeUsers)[0]
+  const dddPrefixes = [...new Set([...activeUsers.map((user) => user.ddd_prefix), ...deals.map((deal) => deal.people?.ddd_prefix)].filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b, 'pt-BR'))
+  const states = [...new Set([...activeUsers.map((user) => user.ddd_state), ...deals.map((deal) => deal.people?.ddd_state)].filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b, 'pt-BR'))
+  const queueCard = (title: string, subtitle: string, next?: CrmUser) => {
+    const stats = next ? statsForUser(next) : null
+    return <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <p className="text-xs font-black uppercase tracking-wide text-slate-400">{title}</p>
+      <h3 className="mt-1 text-base font-bold text-slate-950">{subtitle}</h3>
+      {next ? <div className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-900">
+        <p className="font-black">Próximo: {next.full_name}</p>
+        <p className="mt-1 text-xs">DDD {next.ddd_prefix || '-'} · {next.ddd_state || '-'} · {next.ddd_region || '-'}</p>
+        <p className="mt-1 text-xs">Abertos {stats?.open || 0} · Ganhos {stats?.won || 0} · Recebidos {stats?.received || 0}</p>
+      </div> : <p className="mt-3 rounded-lg bg-slate-50 p-3 text-sm text-slate-500">Nenhum usuário ativo nessa fila.</p>}
+    </div>
+  }
+  const userRows = users.map((user) => ({ user, stats: statsForUser(user) })).sort((a, b) => a.user.full_name.localeCompare(b.user.full_name, 'pt-BR'))
+
+  return <div className="h-full overflow-auto p-4">
+    <div className="mb-4">
+      <h2 className="text-2xl font-black tracking-[-0.04em] text-slate-950">Distribuição de Leads</h2>
+      <p className="mt-1 text-sm text-slate-500">Ordem de distribuição: mesmo DDD, mesmo estado, fila geral. Dentro da fila ganha quem tem menos leads abertos. Em empate, quem tem mais negócios ganhos.</p>
+    </div>
+    <div className="grid gap-4 xl:grid-cols-3">
+      <Panel className="overflow-hidden">
+        <div className="border-b border-slate-200 p-4"><h3 className="font-black">1. Fila por DDD</h3><p className="text-xs text-slate-500">Usada quando existe usuário com o mesmo prefixo do lead.</p></div>
+        <div className="grid gap-3 p-4">{dddPrefixes.length ? dddPrefixes.map((prefix) => queueCard(`DDD ${prefix}`, `${activeUsers.filter((user) => user.ddd_prefix === prefix).length} usuário(s)`, nextForDdd(prefix))) : <p className="text-sm text-slate-500">Nenhum DDD mapeado.</p>}</div>
+      </Panel>
+      <Panel className="overflow-hidden">
+        <div className="border-b border-slate-200 p-4"><h3 className="font-black">2. Fila por Estado</h3><p className="text-xs text-slate-500">Usada quando não há usuário com o mesmo DDD, mas há usuário no mesmo estado.</p></div>
+        <div className="grid gap-3 p-4">{states.length ? states.map((state) => queueCard(state, `${activeUsers.filter((user) => user.ddd_state === state).length} usuário(s)`, nextForState(state))) : <p className="text-sm text-slate-500">Nenhum estado mapeado.</p>}</div>
+      </Panel>
+      <Panel className="overflow-hidden">
+        <div className="border-b border-slate-200 p-4"><h3 className="font-black">3. Fila Geral</h3><p className="text-xs text-slate-500">Usada quando não há correspondência de DDD nem estado.</p></div>
+        <div className="p-4">{queueCard('Geral', `${activeUsers.length} usuário(s) ativo(s)`, nextGeneral)}</div>
+      </Panel>
+    </div>
+    <Panel className="mt-4 overflow-hidden">
+      <div className="border-b border-slate-200 p-4"><h3 className="font-black">Usuários e desempenho</h3><p className="text-xs text-slate-500">DDD do telefone de registro e contagem de negócios recebidos por proprietário.</p></div>
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-left text-sm">
+          <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-4 py-3">Usuário</th><th className="px-4 py-3">DDD</th><th className="px-4 py-3">Estado</th><th className="px-4 py-3">Região</th><th className="px-4 py-3">Recebidos</th><th className="px-4 py-3">Abertos</th><th className="px-4 py-3">Perdidos</th><th className="px-4 py-3">Ganhos</th></tr></thead>
+          <tbody className="divide-y divide-slate-100">{userRows.map(({ user, stats }) => <tr key={user.id} className="bg-white"><td className="px-4 py-3"><b>{user.full_name}</b><p className="text-xs text-slate-400">{user.email}</p></td><td className="px-4 py-3">{user.ddd_prefix || '-'}</td><td className="px-4 py-3">{user.ddd_state || '-'}</td><td className="px-4 py-3">{user.ddd_region || '-'}</td><td className="px-4 py-3 font-semibold">{stats.received}</td><td className="px-4 py-3 font-semibold text-blue-700">{stats.open}</td><td className="px-4 py-3 font-semibold text-rose-700">{stats.lost}</td><td className="px-4 py-3 font-semibold text-emerald-700">{stats.won}</td></tr>)}</tbody>
+        </table>
+      </div>
+    </Panel>
   </div>
 }
 
