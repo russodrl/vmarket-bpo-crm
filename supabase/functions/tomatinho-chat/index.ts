@@ -95,7 +95,7 @@ Deno.serve(async (req: Request) => {
       poweredBy: HERMES_CHAT_ENDPOINT ? 'hermes' : 'tomatinho-local',
     })
   } catch (error) {
-    return json({ error: errorMessage(error), reply: 'Ops, deu ruim aqui no molho do Tomatinho. Tenta de novo em instantes.', expression: 'triste' }, 500)
+    return json({ error: errorMessage(error), reply: 'Erro ao processar. Tente novamente.', expression: 'triste' }, 500)
   }
 })
 
@@ -157,7 +157,7 @@ async function loadCrmSnapshot(profile: JsonRecord, contextDealId: string | null
 }
 
 function buildSystemPrompt(profile: JsonRecord) {
-  return `Você é o Tomatinho, chatbot interno do CRM BPO da VMarket. Responda em pt-BR, direto, com tom prestativo. Você ajuda usuários a entender negócios, empresas, contatos, atividades, notas, histórico e itens de foco. Também pode criar registros quando o usuário pedir de forma objetiva. Nunca invente dados fora do contexto recebido. Se for criar ou alterar registros, retorne JSON com reply, expression e actions. Expressões permitidas: pensativo, surpreso, feliz, hell-yeah, triste, intrigado, aliviado. Perfil do usuário: ${JSON.stringify(profile)}.`
+  return `Você é o Agente Vmarket BPO, assistente interno do CRM BPO da VMarket. Responda sempre em pt-BR, sem se apresentar, sem saudação, sem rodeios e com o mínimo de tokens possível. Use bullets curtos quando ajudar. Dê apenas a informação objetiva ou execute a ação pedida. Nunca invente dados fora do contexto recebido. Se for criar ou alterar registros, retorne JSON com reply, expression e actions. Expressões permitidas apenas para escolher imagem quando fizer sentido: pensativo, surpreso, feliz, hell-yeah, triste, intrigado, aliviado. Perfil do usuário: ${JSON.stringify(profile)}.`
 }
 
 function buildContextText(crm: JsonRecord) {
@@ -194,7 +194,7 @@ async function askHermes(input: { message: string; files: ChatRequest['files']; 
     method: 'POST',
     headers,
     body: JSON.stringify({
-      source: 'crm-bpo-tomatinho',
+      source: 'crm-bpo-agente-vmarket',
       message: input.message,
       files: input.files,
       history: input.history,
@@ -230,7 +230,7 @@ function localTomatinho(input: { message: string; files: ChatRequest['files']; c
   const overdueActivities = activities.filter((activity) => asText(activity.status) === 'open' && activity.due_at && new Date(asText(activity.due_at)).getTime() < Date.now())
 
   if (/como|usar|funciona|atividade|anota/.test(message)) {
-    return { expression: 'feliz', reply: 'Eu ajudo assim: pergunte por negócios, empresas, contatos, atividades, notas e foco. Para operar, peça de forma objetiva, por exemplo: “crie uma atividade para o negócio X amanhã às 10h”, “adicione uma nota no negócio X” ou “crie um negócio chamado Y”. Também posso analisar arquivos anexados quando o Hermes estiver conectado.' }
+    return { expression: 'feliz', reply: 'Posso consultar negócios, empresas, contatos, atividades, notas e foco. Também crio registros: “crie atividade no negócio X amanhã 10h”, “adicione nota no negócio X”, “crie negócio Y”.' }
   }
   if (/quantos|resumo|status|pipeline|negócios|negocios/.test(message)) {
     const top = openDeals.slice(0, 5).map((deal) => `• ${asText(deal.title)}: ${asText(deal.status) || 'aberto'}, valor ${Number(deal.total_value || deal.value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`).join('\n')
@@ -239,7 +239,7 @@ function localTomatinho(input: { message: string; files: ChatRequest['files']; c
   if (input.files.length) {
     return { expression: 'intrigado', reply: `Recebi ${input.files.length} arquivo(s). A análise profunda de arquivo fica ativa quando o endpoint Hermes estiver configurado. Por enquanto consigo responder com base nos dados carregados do CRM.` }
   }
-  return { expression: 'pensativo', reply: 'Estou pronto para ajudar com negócios, empresas, contatos, atividades, notas e foco. Me diga o que você quer consultar ou criar. Para inteligência completa com análise de arquivos e criação livre, configure o endpoint Hermes da função tomatinho-chat.' }
+  return { expression: 'pensativo', reply: 'Peça uma consulta ou ação objetiva no CRM.' }
 }
 
 function normalizeExpression(value: unknown, reply: string): TomatinhoExpression {
@@ -282,9 +282,9 @@ async function executeAction(action: TomatinhoAction, authUserId: string, profil
     const title = asText(payload.title)
     if (!title) throw new Error('Título do negócio obrigatório.')
     const stageId = asText(payload.stage_id) || asText((crm.stages as JsonRecord[]).find((stage) => asText(stage.pipeline_name) === 'Pipeline de Vendas')?.id) || null
-    const { data, error } = await supabase.from('deals').insert({ title, organization_id: payload.organization_id || null, person_id: payload.person_id || null, stage_id: stageId, owner_id: ownerId, bpo_id: bpoId, value: Number(payload.value || 0) || null, monthly_purchase: Number(payload.monthly_purchase || 0) || null, status: 'aberto', lead_source: profile.role === 'bpo_partner' ? 'parceiro' : 'vmarket', source: 'Tomatinho Hermes', focus_items: [] }).select('id').single()
+    const { data, error } = await supabase.from('deals').insert({ title, organization_id: payload.organization_id || null, person_id: payload.person_id || null, stage_id: stageId, owner_id: ownerId, bpo_id: bpoId, value: Number(payload.value || 0) || null, monthly_purchase: Number(payload.monthly_purchase || 0) || null, status: 'aberto', lead_source: profile.role === 'bpo_partner' ? 'parceiro' : 'vmarket', source: 'Agente Vmarket BPO', focus_items: [] }).select('id').single()
     if (error) throw error
-    await supabase.from('deal_history').insert({ deal_id: data.id, event_type: 'Sistema', title: 'Negócio criado pelo Tomatinho', description: 'Criado pelo chatbot Tomatinho operado via Hermes.' })
+    await supabase.from('deal_history').insert({ deal_id: data.id, event_type: 'Sistema', title: 'Negócio criado pelo Agente', description: 'Criado pelo Agente Vmarket BPO.' })
     return data
   }
   if (action.type === 'create_activity') {
@@ -294,14 +294,14 @@ async function executeAction(action: TomatinhoAction, authUserId: string, profil
     const deal = dealId ? (crm.deals as JsonRecord[]).find((item) => item.id === dealId) : undefined
     const { data, error } = await supabase.from('activities').insert({ title, activity_type: payload.activity_type || 'task', due_at: payload.due_at || null, status: 'open', note: payload.note || null, deal_id: dealId || null, organization_id: payload.organization_id || deal?.organization_id || null, person_id: payload.person_id || deal?.person_id || null, owner_id: ownerId, bpo_id: bpoId }).select('id').single()
     if (error) throw error
-    if (dealId) await supabase.from('deal_history').insert({ deal_id: dealId, event_type: 'Atividade', title: 'Atividade criada pelo Tomatinho', description: title })
+    if (dealId) await supabase.from('deal_history').insert({ deal_id: dealId, event_type: 'Atividade', title: 'Atividade criada pelo Agente', description: title })
     return data
   }
   if (action.type === 'create_note') {
     const dealId = asText(payload.deal_id)
     const text = asText(payload.description || payload.note || payload.text)
     if (!dealId || !text) throw new Error('Nota precisa de deal_id e texto.')
-    const { data, error } = await supabase.from('deal_history').insert({ deal_id: dealId, event_type: 'Anotação', title: 'Anotação adicionada pelo Tomatinho', description: text }).select('id').single()
+    const { data, error } = await supabase.from('deal_history').insert({ deal_id: dealId, event_type: 'Anotação', title: 'Anotação adicionada pelo Agente', description: text }).select('id').single()
     if (error) throw error
     return data
   }
@@ -311,7 +311,7 @@ async function executeAction(action: TomatinhoAction, authUserId: string, profil
     if (!dealId) throw new Error('Foco precisa de deal_id.')
     const { data, error } = await supabase.from('deals').update({ focus_items: focusItems }).eq('id', dealId).select('id').single()
     if (error) throw error
-    await supabase.from('deal_history').insert({ deal_id: dealId, event_type: 'Edição', title: 'Foco atualizado pelo Tomatinho', description: focusItems.join('\n') })
+    await supabase.from('deal_history').insert({ deal_id: dealId, event_type: 'Edição', title: 'Foco atualizado pelo Agente', description: focusItems.join('\n') })
     return data
   }
   throw new Error(`Ação não suportada: ${action.type}`)

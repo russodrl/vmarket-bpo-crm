@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
-import { Bot, Mic, Paperclip, Send, X } from 'lucide-react'
+import { Mic, Paperclip, Send, X } from 'lucide-react'
 import { supabase } from './supabase'
 
 type TomatinhoExpression = 'pensativo' | 'surpreso' | 'feliz' | 'hell-yeah' | 'triste' | 'intrigado' | 'aliviado'
@@ -45,28 +45,10 @@ function fileToPayload(file: File): Promise<ChatAttachment> {
   })
 }
 
-function expressionLabel(expression: TomatinhoExpression) {
-  const labels: Record<TomatinhoExpression, string> = {
-    pensativo: 'pensativo',
-    surpreso: 'surpreso',
-    feliz: 'feliz',
-    'hell-yeah': 'hell yeah',
-    triste: 'triste',
-    intrigado: 'intrigado',
-    aliviado: 'aliviado',
-  }
-  return labels[expression]
-}
-
 export function TomatinhoChat({ session, contextDealId, onReload }: Props) {
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
-  const [messages, setMessages] = useState<ChatMessage[]>([{
-    id: 'welcome',
-    role: 'assistant',
-    content: 'Oi, eu sou o Tomatinho. Pergunte sobre negócios, empresas, contatos, atividades, notas e foco. Também posso criar registros quando você pedir.',
-    expression: 'feliz',
-  }])
+  const [messages, setMessages] = useState<ChatMessage[]>([])
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [busy, setBusy] = useState(false)
   const [recording, setRecording] = useState(false)
@@ -139,7 +121,7 @@ export function TomatinhoChat({ session, contextDealId, onReload }: Props) {
     recorder.onstop = async () => {
       stream.getTracks().forEach((track) => track.stop())
       const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' })
-      const file = new File([blob], `audio-tomatinho-${Date.now()}.webm`, { type: blob.type })
+      const file = new File([blob], `audio-agente-vmarket-${Date.now()}.webm`, { type: blob.type })
       const payload = await fileToPayload(file)
       setAttachments((current) => [...current, payload].slice(0, 6))
     }
@@ -149,28 +131,28 @@ export function TomatinhoChat({ session, contextDealId, onReload }: Props) {
   }
 
   return <>
-    <button type="button" onClick={() => setOpen(true)} className="fixed bottom-20 right-4 z-50 flex items-center gap-3 rounded-full bg-[#211746] px-4 py-3 text-sm font-black text-white shadow-2xl ring-4 ring-white/70 transition hover:-translate-y-0.5 hover:bg-[#6f5cf6] md:bottom-6" title="Falar com o Tomatinho">
-      <img src={avatarByExpression[currentExpression]} alt={`Tomatinho ${expressionLabel(currentExpression)}`} className="h-10 w-10 rounded-full object-cover ring-2 ring-white" />
-      <span className="hidden sm:inline">Tomatinho</span>
+    <button type="button" onClick={() => setOpen(true)} className="fixed bottom-20 right-4 z-50 flex items-center gap-3 rounded-full bg-[#211746] px-4 py-3 text-sm font-black text-white shadow-2xl ring-4 ring-white/70 transition hover:-translate-y-0.5 hover:bg-[#6f5cf6] md:bottom-6" title="Falar com o agente">
+      <img src={avatarByExpression[currentExpression]} alt="Agente Vmarket BPO" className="h-10 w-10 rounded-full object-cover ring-2 ring-white" />
+      <span className="hidden sm:inline">Agente</span>
     </button>
 
-    {open && <div className="fixed inset-0 z-[70] flex items-end justify-center bg-slate-950/40 p-2 sm:items-center sm:p-4">
-      <section className="flex h-[86vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl sm:h-[720px]">
+    {open && <div className="fixed inset-0 z-[70] flex justify-end bg-slate-950/20 p-0">
+      <section className="flex h-full w-full max-w-[430px] flex-col overflow-hidden border-l border-slate-200 bg-white shadow-2xl sm:my-4 sm:mr-4 sm:h-[calc(100vh-2rem)] sm:rounded-2xl sm:border">
         <header className="flex items-center gap-3 border-b border-slate-200 bg-[#211746] px-4 py-3 text-white">
-          <img src={avatarByExpression[currentExpression]} alt="Tomatinho" className="h-14 w-14 rounded-full object-cover ring-2 ring-white" />
+          <img src={avatarByExpression[currentExpression]} alt="Agente Vmarket BPO" className="h-14 w-14 rounded-full object-cover ring-2 ring-white" />
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2"><Bot size={17}/><h2 className="font-black">Tomatinho</h2><span className="rounded-full bg-white/15 px-2 py-0.5 text-[10px] font-bold uppercase">{expressionLabel(currentExpression)}</span></div>
-            <p className="text-xs text-white/75">Chatbot Hermes do CRM BPO</p>
+            <h2 className="font-black leading-tight">Agente</h2>
+            <p className="text-xs text-white/75">Agente Vmarket BPO</p>
           </div>
           <button type="button" onClick={() => setOpen(false)} className="grid h-9 w-9 place-items-center rounded-full bg-white/10 hover:bg-white/20" aria-label="Fechar"><X size={18}/></button>
         </header>
 
         <div className="flex-1 space-y-3 overflow-y-auto bg-slate-50 p-4">
           {messages.map((message) => <div key={message.id} className={cn('flex gap-2', message.role === 'user' ? 'justify-end' : 'justify-start')}>
-            {message.role === 'assistant' && <img src={avatarByExpression[message.expression || 'pensativo']} alt="Tomatinho" className="mt-1 h-8 w-8 rounded-full object-cover" />}
+            {message.role === 'assistant' && <img src={avatarByExpression[message.expression || 'pensativo']} alt="Agente Vmarket BPO" className="mt-1 h-8 w-8 rounded-full object-cover" />}
             <div className={cn('max-w-[82%] whitespace-pre-wrap rounded-2xl px-4 py-3 text-sm leading-6 shadow-sm', message.role === 'user' ? 'bg-[#6f5cf6] text-white' : 'border border-slate-200 bg-white text-slate-700')}>{message.content}</div>
           </div>)}
-          {busy && <div className="flex items-center gap-2 text-sm font-semibold text-slate-500"><img src={avatarByExpression.pensativo} alt="Tomatinho pensando" className="h-8 w-8 rounded-full object-cover" />Tomatinho está pensando...</div>}
+          {busy && <div className="flex items-center gap-2 text-sm font-semibold text-slate-500"><img src={avatarByExpression.pensativo} alt="Agente processando" className="h-8 w-8 rounded-full object-cover" />Processando...</div>}
         </div>
 
         {attachments.length > 0 && <div className="flex flex-wrap gap-2 border-t border-slate-200 bg-white px-4 py-2">
@@ -185,7 +167,7 @@ export function TomatinhoChat({ session, contextDealId, onReload }: Props) {
           <div className="flex items-end gap-2">
             <button type="button" onClick={() => fileInputRef.current?.click()} className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-slate-200 text-slate-600 hover:bg-slate-50" title="Enviar arquivo"><Paperclip size={18}/></button>
             <button type="button" onClick={() => void toggleRecording()} className={cn('grid h-11 w-11 shrink-0 place-items-center rounded-full border text-slate-600 hover:bg-slate-50', recording ? 'border-rose-300 bg-rose-50 text-rose-600' : 'border-slate-200')} title={recording ? 'Parar gravação' : 'Enviar áudio'}><Mic size={18}/></button>
-            <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void sendMessage() } }} rows={2} className="min-h-11 flex-1 resize-none rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-[#6f5cf6] focus:ring-4 focus:ring-violet-100" placeholder="Pergunte ou peça: crie um negócio, uma atividade, uma nota, atualize foco..." />
+            <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void sendMessage() } }} rows={2} className="min-h-11 flex-1 resize-none rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-[#6f5cf6] focus:ring-4 focus:ring-violet-100" placeholder="Pergunte ou peça uma ação objetiva..." />
             <button type="button" disabled={busy || (!input.trim() && !attachments.length)} onClick={() => void sendMessage()} className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[#238847] text-white shadow-sm hover:bg-[#1f7a40] disabled:opacity-50" title="Enviar"><Send size={18}/></button>
           </div>
         </footer>
