@@ -393,7 +393,19 @@ const money = (value?: number | null) =>
 const numberOrNull = (value: string) => value.trim() === '' ? null : Number(value)
 
 const formatDateTime = (value?: string | null) => value ? new Date(value).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '-'
-const formatActivityDateTime = (value?: string | null) => value ? new Date(value).toLocaleString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }).replace(',', ' às') : 'sem vencimento'
+function startOfLocalDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
+}
+function formatActivityDateTime(value?: string | null) {
+  if (!value) return 'sem vencimento'
+  const date = new Date(value)
+  const now = new Date()
+  const diffDays = Math.round((startOfLocalDay(date) - startOfLocalDay(now)) / 86_400_000)
+  const time = date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+  if (diffDays === 0) return `Hoje às ${time}`
+  if (diffDays === 1) return `Amanhã às ${time}`
+  return date.toLocaleString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }).replace(',', ' às')
+}
 const toLocalDate = (value?: string | null) => value ? new Date(value).toISOString().slice(0, 10) : ''
 const toLocalTime = (value?: string | null) => value ? new Date(value).toTimeString().slice(0, 5) : ''
 function activityDisplayStatus(activity: ActivityRow) {
