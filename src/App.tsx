@@ -68,6 +68,7 @@ type NewActivity = {
   due_date: string
   due_time: string
   note: string
+  status?: ActivityRow['status']
 }
 
 type ActivityEditDraft = NewActivity & {
@@ -414,8 +415,10 @@ const toLocalTime = (value?: string | null) => value ? new Date(value).toTimeStr
 function activityDisplayStatus(activity: ActivityRow) {
   if (activity.status === 'done') return 'concluida'
   if (activity.status === 'cancelled') return 'cancelada'
+  if (activity.status === 'rescheduled') return 'reagendada'
+  if (activity.status === 'no_show') return 'nao_apareceu'
   if (activity.due_at && new Date(activity.due_at).getTime() < Date.now()) return 'atrasada'
-  return 'aberta'
+  return 'agendada'
 }
 const activityTypeOptions = [
   { id: 'call', label: 'Ligar', icon: PhoneCall },
@@ -1296,7 +1299,7 @@ function App() {
         title,
         activity_type: activity.activity_type,
         due_at: dueAt,
-        status: 'open',
+        status: activity.status || 'open',
         note: activity.note.trim() || null,
         deal_id: detailDeal.id,
         organization_id: detailDeal.organization_id,
@@ -2470,9 +2473,9 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
 }) {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [creatingActivity, setCreatingActivity] = useState(false)
   const [creatingNote, setCreatingNote] = useState(false)
   const [activityDraft, setActivityDraft] = useState<NewActivity>(() => blankNewActivity())
+  const [showNewActivityModal, setShowNewActivityModal] = useState(false)
   const [noteDraft, setNoteDraft] = useState('')
   const [composerMode, setComposerMode] = useState<'note' | 'activity' | 'attachment' | 'document'>('note')
   const [historyFilter, setHistoryFilter] = useState<'all' | 'notes' | 'activities' | 'emails' | 'attachments' | 'documents' | 'changes'>('all')
@@ -2517,18 +2520,6 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
   async function reopenDeal() {
     const next = { ...form, status: 'aberto', lost_reason: '' }
     await saveCurrent(next)
-  }
-
-  async function submitActivity() {
-    setCreatingActivity(true)
-    try {
-      await createActivity(activityDraft)
-      setActivityDraft(blankNewActivity())
-    } catch {
-      // O erro já é exibido pelo estado global da página.
-    } finally {
-      setCreatingActivity(false)
-    }
   }
 
   async function submitNote() {
@@ -2621,8 +2612,8 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
   const dealValueSummary = <>Valor Total: {money(totalValue)} <span className="text-slate-300">|</span> VMarket: {money(vmarketValue)} <span className="text-slate-300">|</span> Serviços: {money(partnerValue)}</>
   const fillingSource = fillingSourceLabel[form.source] || form.source || 'Importação'
   const businessTypeLabel = businessTypeOptions.find(([id]) => id === form.organization_type)?.[1] || '-'
-  const openActivities = activities.filter((activity) => activity.status === 'open')
-  type TimelineItem = { id: string; kind: string; title: string; description: string | null; date: string | null; status: string; activity?: ActivityRow }
+  const openActivities = activities.filter((activity) => !['done', 'cancelled'].includes(activity.status))
+  type TimelineItem = { id: string; kind: string; title: string; description: string | null; date: string | null; status: string; activity?: ActivityRow; history?: HistoryRow }
   const timelineCategory = (item: TimelineItem): typeof historyFilter => {
     if (item.activity) return 'activities'
     const kind = item.kind.toLowerCase()
@@ -2635,10 +2626,14 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
   }
   const timeline = ([
     ...activities.map((activity) => ({ id: `activity-${activity.id}`, kind: 'Atividades', title: activity.title, description: activity.note, date: activity.due_at, status: activity.status, activity })),
-    ...history.map((row) => ({ id: `history-${row.id}`, kind: row.event_type, title: row.title, description: row.description, date: row.created_at, status: '' })),
-  ] as TimelineItem[]).sort((a, b) => new Date(b.date || '1900-01-01').getTime() - new Date(a.date || '1900-01-01').getTime())
+    ...history.map((row) => ({ id: `history-${row.id}`, kind: row.event_type, title: row.title, description: row.description, date: row.created_at, status: '', history: row })),
+  ] as TimelineItem[]).sort((a, b) => {
+    const pinnedDelta = Number(Boolean(b.history?.is_pinned)) - Number(Boolean(a.history?.is_pinned))
+    if (pinnedDelta) return pinnedDelta
+    return new Date(b.date || '1900-01-01').getTime() - new Date(a.date || '1900-01-01').getTime()
+  })
   const historyFilterOptions = [
-    { id: 'all' as const, label: 'Todos', count: timeline.length },
+    { id: 'all' as const, label: 'Todos', count: timeline.filter((item) => timelineCategory(item) !== 'changes').length },
     { id: 'notes' as const, label: 'Anotações', count: timeline.filter((item) => timelineCategory(item) === 'notes').length },
     { id: 'activities' as const, label: 'Atividades', count: timeline.filter((item) => timelineCategory(item) === 'activities').length },
     { id: 'emails' as const, label: 'E-mails', count: timeline.filter((item) => timelineCategory(item) === 'emails').length },
@@ -2646,7 +2641,29 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
     { id: 'documents' as const, label: 'Documentos', count: timeline.filter((item) => timelineCategory(item) === 'documents').length },
     { id: 'changes' as const, label: 'Registro de alterações', count: timeline.filter((item) => timelineCategory(item) === 'changes').length },
   ]
-  const visibleTimeline = historyFilter === 'all' ? timeline : timeline.filter((item) => timelineCategory(item) === historyFilter)
+  const visibleTimeline = historyFilter === 'all' ? timeline.filter((item) => timelineCategory(item) !== 'changes') : timeline.filter((item) => timelineCategory(item) === historyFilter)
+
+  async function updateNote(noteId: string, text: string) {
+    const clean = text.trim()
+    if (!clean) throw new Error('Escreva uma anotação.')
+    const { error: noteErr } = await supabase.from('deal_history').update({ description: clean, title: 'Anotação atualizada' }).eq('id', noteId)
+    if (noteErr) throw noteErr
+    await reloadDeal()
+  }
+
+  async function toggleNotePin(note: HistoryRow) {
+    const { error: noteErr } = await supabase.from('deal_history').update({ is_pinned: !note.is_pinned }).eq('id', note.id)
+    if (noteErr) throw noteErr
+    await reloadDeal()
+  }
+
+  async function deleteNote(note: HistoryRow) {
+    const confirmed = window.confirm('Excluir esta anotação?')
+    if (!confirmed) return
+    const { error: noteErr } = await supabase.from('deal_history').delete().eq('id', note.id)
+    if (noteErr) throw noteErr
+    await reloadDeal()
+  }
 
   return <main className="min-h-screen w-full overflow-x-hidden bg-[#f4f5f7] text-slate-900">
     <header className="sticky top-0 z-30 w-full overflow-x-hidden border-b border-slate-200 bg-white shadow-sm">
@@ -2832,37 +2849,30 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
               <textarea value={noteDraft} onChange={(e) => setNoteDraft(e.target.value)} rows={4} className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" placeholder="Escreva uma anotação. Ela aparecerá no histórico central." />
               <div className="flex justify-end"><button type="button" disabled={creatingNote || !noteDraft.trim()} onClick={() => void submitNote()} className="rounded bg-[#238847] px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-[#1f7a40] disabled:opacity-60">{creatingNote ? 'Salvando...' : 'Adicionar anotação'}</button></div>
             </div>}
-            {composerMode === 'activity' && <div className="grid gap-3">
-              <input value={activityDraft.title} onChange={(e) => setActivityDraft((current) => ({ ...current, title: e.target.value }))} className="rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" placeholder="Título da atividade" />
-              <div className="grid gap-2 md:grid-cols-[1fr_150px_130px]">
-                <select value={activityDraft.activity_type} onChange={(e) => setActivityDraft((current) => ({ ...current, activity_type: e.target.value }))} className="rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100">
-                  <option value="task">Tarefa</option><option value="call">Ligação</option><option value="meeting">Reunião</option><option value="email">Email</option><option value="whatsapp">WhatsApp</option>
-                </select>
-                <input type="date" value={activityDraft.due_date} onChange={(e) => setActivityDraft((current) => ({ ...current, due_date: e.target.value }))} className="rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" />
-                <input type="time" value={activityDraft.due_time} onChange={(e) => setActivityDraft((current) => ({ ...current, due_time: e.target.value }))} className="rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" />
-              </div>
-              <textarea value={activityDraft.note} onChange={(e) => setActivityDraft((current) => ({ ...current, note: e.target.value }))} rows={3} className="rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" placeholder="Observação, próximo passo ou combinado" />
-              <div className="flex justify-end"><button type="button" disabled={creatingActivity || !activityDraft.title.trim()} onClick={() => void submitActivity()} className="rounded bg-[#238847] px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-[#1f7a40] disabled:opacity-60">{creatingActivity ? 'Criando...' : 'Agendar atividade'}</button></div>
+            {composerMode === 'activity' && <div className="grid gap-3 rounded border border-dashed border-slate-300 bg-slate-50 p-6 text-center">
+              <CalendarClock size={24} className="mx-auto text-[#238847]" />
+              <div><p className="font-bold text-slate-900">Agende uma atividade pela ficha do negócio</p><p className="mt-1 text-sm text-slate-500">O mesmo popup de edição será aberto para preencher tipo, data, horário, status, anotações e vínculos.</p></div>
+              <div className="flex justify-center"><button type="button" onClick={() => { setActivityDraft(blankNewActivity()); setShowNewActivityModal(true) }} className="rounded bg-[#238847] px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-[#1f7a40]">Adicionar atividade</button></div>
             </div>}
             {composerMode === 'attachment' && <DealAttachmentPanel title="Arraste fotos e arquivos aqui" buttonLabel="upload" category="attachment" attachments={attachments.filter((item) => item.category === 'attachment')} uploading={uploadingAttachment} onUpload={uploadDealFiles} />}
             {composerMode === 'document' && <DealAttachmentPanel title="Arraste documentos aqui" buttonLabel="upload" category="document" attachments={attachments.filter((item) => item.category === 'document')} uploading={uploadingAttachment} onUpload={uploadDealFiles} />}
           </div>
         </Panel>
 
-        <Panel className="overflow-hidden">
-          <div className="border-b border-slate-200 bg-white p-4"><h2 className="text-2xl font-bold tracking-[-0.03em] text-slate-950">Foco</h2></div>
+        <Panel className="overflow-hidden border-transparent bg-transparent shadow-none">
+          <div className="border-b border-slate-200 bg-transparent p-4"><h2 className="text-2xl font-bold tracking-[-0.03em] text-slate-950">Foco</h2></div>
           <div className="space-y-3 p-4">
             {openActivities.length ? openActivities.map((activity) => <ActivityInlineRow key={activity.id} activity={activity} deal={deal} ownerName={crmOwnerDisplay(crmUsers, activity.owner_id, deal.pipedrive_owner_name || 'Sem usuário')} onComplete={completeActivity} onMarkTodo={markActivityTodo} onEdit={setEditingActivity} onDelete={canEditOwner ? deleteActivity : undefined} />) : <p className="rounded border border-dashed border-slate-300 p-6 text-center text-sm text-slate-500">Nenhuma atividade aberta no foco.</p>}
           </div>
         </Panel>
 
-        <Panel className="overflow-hidden">
-          <button type="button" onClick={() => setHistoryExpanded((current) => !current)} className="flex w-full items-center justify-between gap-3 border-b border-slate-200 bg-white p-4 text-left" aria-expanded={historyExpanded}>
+        <Panel className="overflow-hidden border-transparent bg-transparent shadow-none">
+          <button type="button" onClick={() => setHistoryExpanded((current) => !current)} className="flex w-full items-center justify-between gap-3 border-b border-slate-200 bg-transparent p-4 text-left" aria-expanded={historyExpanded}>
             <h2 className="text-2xl font-bold tracking-[-0.03em] text-slate-950">Histórico</h2>
             <span className={cn('grid h-8 w-8 place-items-center rounded-full border border-slate-200 text-slate-600 transition', !historyExpanded && '-rotate-90')}><ChevronDown size={18}/></span>
           </button>
           {historyExpanded && <>
-            <div className="border-b border-slate-100 bg-slate-50 px-4 py-3">
+            <div className="border-b border-slate-100 bg-transparent px-4 py-3">
               <div className="flex flex-wrap items-center gap-2 text-sm font-bold">
                 {historyFilterOptions.map((option) => <button key={option.id} type="button" onClick={() => setHistoryFilter(option.id)} className={cn('rounded px-3 py-1.5 transition', historyFilter === option.id ? 'bg-blue-100 text-blue-700' : 'bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-blue-50 hover:text-blue-700')}>{option.label}{option.id !== 'all' ? ` (${option.count})` : ''}</button>)}
               </div>
@@ -2870,7 +2880,7 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
             <div className="min-h-[420px] space-y-0 p-4">
               {visibleTimeline.length ? visibleTimeline.map((item) => <div key={item.id} className="grid grid-cols-[40px_1fr] gap-3 pb-5 text-sm last:pb-0">
                 <div className="relative flex justify-center"><TimelineIcon item={item} /><span className="absolute top-10 h-full w-px bg-slate-200" /></div>
-                {item.activity ? <ActivityInlineRow activity={item.activity} deal={deal} ownerName={crmOwnerDisplay(crmUsers, item.activity.owner_id, deal.pipedrive_owner_name || 'Sem usuário')} onComplete={completeActivity} onMarkTodo={markActivityTodo} onEdit={setEditingActivity} onDelete={canEditOwner ? deleteActivity : undefined} /> : <div className="rounded border border-slate-200 bg-white p-3 shadow-sm"><div className="flex flex-wrap items-start justify-between gap-2"><div><b className="text-slate-900">{item.title}</b></div><div className="flex items-center gap-2">{item.date && <span className="text-xs text-slate-500">{formatDateTime(item.date)}</span>}</div></div>{item.description && <p className="mt-2 whitespace-pre-wrap text-slate-600">{item.description}</p>}</div>}
+                {item.activity ? <ActivityInlineRow activity={item.activity} deal={deal} ownerName={crmOwnerDisplay(crmUsers, item.activity.owner_id, deal.pipedrive_owner_name || 'Sem usuário')} onComplete={completeActivity} onMarkTodo={markActivityTodo} onEdit={setEditingActivity} onDelete={canEditOwner ? deleteActivity : undefined} /> : item.history && timelineCategory(item) === 'notes' ? <NoteTimelineRow note={item.history} onUpdate={updateNote} onTogglePin={toggleNotePin} onDelete={deleteNote} /> : <div className="rounded border border-slate-200 bg-white p-3 shadow-sm"><div className="flex flex-wrap items-start justify-between gap-2"><div><b className="text-slate-900">{item.title}</b></div><div className="flex items-center gap-2">{item.date && <span className="text-xs text-slate-500">{formatDateTime(item.date)}</span>}</div></div>{item.description && <p className="mt-2 whitespace-pre-wrap text-slate-600">{item.description}</p>}</div>}
               </div>) : <p className="rounded border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">Sem histórico para este filtro.</p>}
             </div>
           </>}
@@ -2879,6 +2889,7 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
     </form>
 
     {editingActivity && <ActivityEditorModal activity={editingActivity} deal={deal} crmUsers={crmUsers} ownerName={crmOwnerDisplay(crmUsers, editingActivity.owner_id || deal.owner_id, deal.pipedrive_owner_name || 'Sem usuário')} onClose={() => setEditingActivity(null)} onSave={async (draft) => { await updateActivity(editingActivity.id, draft); setEditingActivity(null) }} />}
+    {showNewActivityModal && <ActivityEditorModal mode="create" activity={{ id: 'new-activity', title: activityDraft.title, activity_type: activityDraft.activity_type, due_at: activityDraft.due_date ? new Date(`${activityDraft.due_date}T${activityDraft.due_time || '09:00'}`).toISOString() : null, status: 'open', note: activityDraft.note || null, deal_id: deal.id, organization_id: deal.organization_id, person_id: deal.person_id, owner_id: deal.owner_id, bpo_id: deal.bpo_id, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }} deal={deal} crmUsers={crmUsers} ownerName={crmOwnerDisplay(crmUsers, deal.owner_id, deal.pipedrive_owner_name || 'Sem usuário')} onClose={() => setShowNewActivityModal(false)} onSave={async (draft) => { await createActivity({ title: draft.title, activity_type: draft.activity_type, due_date: draft.due_date, due_time: draft.due_time, note: draft.note, status: draft.status }); setActivityDraft(blankNewActivity()); setShowNewActivityModal(false) }} />}
     {showLostReason && <LostReasonModal onCancel={() => setShowLostReason(false)} onConfirm={markLost} />}
     {showLabelPicker && <LabelPickerModal deal={deal} labels={dealLabels} assignedLabelIds={assignedLabels.map((assignment) => assignment.label_id)} onClose={() => setShowLabelPicker(false)} onCreateLabel={createLabel} onDeleteLabel={deleteLabel} onSave={async (labelIds) => { await updateDealLabels(deal.id, labelIds); setShowLabelPicker(false) }} />}
   </main>
@@ -3052,6 +3063,54 @@ function TimelineIcon({ item }: { item: { kind: string; activity?: ActivityRow }
   return <span className={cn('mt-0 grid h-9 w-9 place-items-center rounded-full ring-1 shadow-sm', tone)}>{icon}</span>
 }
 
+function NoteTimelineRow({ note, onUpdate, onTogglePin, onDelete }: { note: HistoryRow; onUpdate: (id: string, text: string) => Promise<void>; onTogglePin: (note: HistoryRow) => Promise<void>; onDelete: (note: HistoryRow) => Promise<void> }) {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(note.description || '')
+  const [busy, setBusy] = useState(false)
+  const menuRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    if (!menuOpen) return
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) setMenuOpen(false)
+    }
+    document.addEventListener('mousedown', closeOnOutsideClick)
+    return () => document.removeEventListener('mousedown', closeOnOutsideClick)
+  }, [menuOpen])
+  async function save() {
+    setBusy(true)
+    try {
+      await onUpdate(note.id, draft)
+      setEditing(false)
+    } finally {
+      setBusy(false)
+    }
+  }
+  async function action(fn: () => Promise<void>) {
+    setBusy(true)
+    setMenuOpen(false)
+    try { await fn() } finally { setBusy(false) }
+  }
+  return <div className="rounded border border-amber-100 bg-[#fff7d6] shadow-sm">
+    <div className="flex items-start justify-between gap-3 px-4 py-3 text-xs text-slate-600">
+      <span>{formatDateTime(note.created_at)}</span>
+      <div ref={menuRef} className="relative flex items-center gap-2">
+        {note.is_pinned && <span className="text-[11px] font-bold text-amber-700">Fixada</span>}
+        <button type="button" disabled={busy} onClick={() => setMenuOpen((current) => !current)} className="grid h-7 w-7 place-items-center rounded text-slate-600 hover:bg-amber-100" aria-label="Menu da anotação"><MoreHorizontal size={16}/></button>
+        {menuOpen && <div className="absolute right-0 top-8 z-30 w-48 overflow-hidden rounded border border-slate-200 bg-white py-1 text-sm shadow-xl">
+          <button type="button" onClick={() => { setMenuOpen(false); setEditing(true) }} className="block w-full px-4 py-2 text-left text-slate-700 hover:bg-blue-600 hover:text-white">Editar</button>
+          <button type="button" onClick={() => void action(() => onTogglePin(note))} className="block w-full px-4 py-2 text-left text-slate-700 hover:bg-blue-600 hover:text-white">{note.is_pinned ? 'Desafixar esta anotação' : 'Fixar esta anotação'}</button>
+          <button type="button" onClick={() => void action(() => onDelete(note))} className="block w-full px-4 py-2 text-left text-slate-700 hover:bg-blue-600 hover:text-white">Excluir</button>
+        </div>}
+      </div>
+    </div>
+    {editing ? <div className="px-4 pb-4">
+      <textarea autoFocus value={draft} onChange={(e) => setDraft(e.target.value)} rows={4} className="w-full rounded border border-amber-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300" />
+      <div className="mt-2 flex justify-end gap-2"><button type="button" disabled={busy} onClick={() => { setDraft(note.description || ''); setEditing(false) }} className="rounded border border-slate-300 bg-white px-3 py-1.5 text-xs font-bold text-slate-700">Cancelar</button><button type="button" disabled={busy || !draft.trim()} onClick={() => void save()} className="rounded bg-[#238847] px-3 py-1.5 text-xs font-bold text-white disabled:opacity-60">Salvar</button></div>
+    </div> : <p className="px-4 pb-4 text-base text-slate-900 whitespace-pre-wrap">{note.description || note.title}</p>}
+  </div>
+}
+
 function ActivityInlineRow({ activity, deal, ownerName, onComplete, onMarkTodo, onEdit, onDelete }: { activity: ActivityRow; deal?: Deal; ownerName?: string; onComplete?: (id: string) => Promise<void>; onMarkTodo?: (id: string) => Promise<void>; onEdit?: (activity: ActivityRow) => void; onDelete?: (id: string, label: string) => void }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [descriptionExpanded, setDescriptionExpanded] = useState(false)
@@ -3130,7 +3189,7 @@ function ActivityDayCalendar({ activities, selectedDate, onSelectDate, onPickAct
   </aside>
 }
 
-function ActivityEditorModal({ activity, deal, crmUsers, ownerName, onClose, onSave }: { activity: ActivityRow; deal?: Deal; crmUsers: CrmUser[]; ownerName?: string; onClose: () => void; onSave: (draft: ActivityEditDraft) => Promise<void> }) {
+function ActivityEditorModal({ activity, deal, crmUsers, ownerName, mode = 'edit', onClose, onSave }: { activity: ActivityRow; deal?: Deal; crmUsers: CrmUser[]; ownerName?: string; mode?: 'edit' | 'create'; onClose: () => void; onSave: (draft: ActivityEditDraft) => Promise<void> }) {
   const [draft, setDraft] = useState<ActivityEditDraft>(() => activityToEditDraft(activity))
   const [saving, setSaving] = useState(false)
   const [localError, setLocalError] = useState('')
@@ -3152,7 +3211,7 @@ function ActivityEditorModal({ activity, deal, crmUsers, ownerName, onClose, onS
   return <div className="fixed inset-0 z-[80] grid place-items-center bg-slate-950/40 p-2 backdrop-blur-sm" onClick={onClose}>
     <form onSubmit={submit} className="grid max-h-[94vh] w-full max-w-6xl overflow-hidden rounded border border-slate-300 bg-white shadow-2xl lg:grid-cols-[minmax(0,1fr)_320px]" onClick={(e) => e.stopPropagation()}>
       <div className="flex min-h-0 flex-col">
-        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3"><h2 className="text-lg font-semibold text-slate-800">Edit activity</h2><button type="button" onClick={onClose} className="grid h-8 w-8 place-items-center rounded text-slate-500 hover:bg-slate-100">×</button></div>
+        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3"><h2 className="text-lg font-semibold text-slate-800">{mode === 'create' ? 'Adicionar atividade' : 'Editar atividade'}</h2><button type="button" onClick={onClose} className="grid h-8 w-8 place-items-center rounded text-slate-500 hover:bg-slate-100">×</button></div>
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
           {localError && <p className="mb-3 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{localError}</p>}
           <input autoFocus value={draft.title} onChange={(e) => setDraft((current) => ({ ...current, title: e.target.value }))} className="w-full rounded border border-slate-300 px-3 py-2 text-2xl text-slate-800 outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400" placeholder={selectedType.label} />
@@ -3161,14 +3220,14 @@ function ActivityEditorModal({ activity, deal, crmUsers, ownerName, onClose, onS
             <div className="grid grid-cols-[28px_minmax(0,1fr)] items-center gap-2"><Clock size={19} className="text-slate-600"/><div className="flex flex-wrap items-center gap-2"><input type="date" value={draft.due_date} onChange={(e) => { setDraft((current) => ({ ...current, due_date: e.target.value })); if (e.target.value) setCalendarDate(new Date(`${e.target.value}T12:00`)) }} className="rounded border border-slate-300 px-3 py-2"/><input type="time" value={draft.due_time} onChange={(e) => setDraft((current) => ({ ...current, due_time: e.target.value }))} className="rounded border border-slate-300 px-3 py-2"/><span className="text-slate-400">-</span><input type="time" className="w-28 rounded border border-slate-300 px-3 py-2 text-slate-400" placeholder="HH:mm" disabled/><input type="date" value={draft.due_date} onChange={(e) => setDraft((current) => ({ ...current, due_date: e.target.value }))} className="rounded border border-slate-300 px-3 py-2"/></div></div>
             <div className="grid grid-cols-[28px_minmax(0,1fr)] items-center gap-2"><Flag size={19} className="text-slate-600"/><select className="w-36 rounded border border-slate-300 px-3 py-2 font-semibold"><option>Prioridade</option><option>Alta</option><option>Média</option><option>Baixa</option></select></div>
             <div className="grid grid-cols-[28px_minmax(0,1fr)] gap-2"><MoreHorizontal size={19} className="mt-1 text-slate-600"/><p className="leading-7 text-slate-700">Adicionar <button type="button" className="font-semibold text-blue-700">convidados</button>] [guests-link], [<button type="button" className="font-semibold text-blue-700">localização</button>, <button type="button" className="font-semibold text-blue-700">videochamada</button>, <button type="button" className="font-semibold text-blue-700">descrição</button></p></div>
-            <div className="grid grid-cols-[28px_minmax(0,1fr)] items-center gap-2"><LockKeyhole size={18} className="text-slate-600"/><div className="flex items-center gap-2"><select value={draft.status} onChange={(e) => setDraft((current) => ({ ...current, status: e.target.value as ActivityRow['status'] }))} className="rounded border border-slate-300 px-3 py-2"><option value="open">Aberta</option><option value="done">Concluída</option><option value="cancelled">Cancelada</option></select><span className="text-xs text-slate-400">ⓘ</span></div></div>
+            <div className="grid grid-cols-[28px_minmax(0,1fr)] items-center gap-2"><Activity size={18} className="text-slate-600"/><div className="flex items-center gap-2"><select value={draft.status} onChange={(e) => setDraft((current) => ({ ...current, status: e.target.value as ActivityRow['status'] }))} className="rounded border border-slate-300 px-3 py-2"><option value="open">Agendado</option><option value="rescheduled">Reagendado</option><option value="no_show">Não apareceu</option><option value="done">Concluída</option><option value="cancelled">Cancelada</option></select><span className="text-xs text-slate-400">ⓘ</span></div></div>
             <div className="grid grid-cols-[28px_minmax(0,1fr)] gap-2"><MessageSquare size={18} className="mt-2 text-slate-600"/><div><textarea value={draft.note} onChange={(e) => setDraft((current) => ({ ...current, note: e.target.value }))} rows={5} className="w-full rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm outline-none focus:border-amber-300"/><p className="mt-1 text-xs text-slate-500">As anotações ficam visíveis no Pipedrive, exceto para convidados do evento</p></div></div>
             <div className="grid grid-cols-[28px_minmax(0,1fr)] items-center gap-2"><User size={18} className="text-slate-600"/><select value={draft.owner_id} onChange={(e) => setDraft((current) => ({ ...current, owner_id: e.target.value }))} className="w-full rounded border border-slate-300 px-3 py-2"><option value="">{ownerName || 'Sem proprietário'}</option>{crmUsers.filter((user) => user.auth_user_id).map((user) => <option key={user.id} value={user.auth_user_id || ''}>{user.full_name}</option>)}</select></div>
             <div className="grid grid-cols-[28px_minmax(0,1fr)] gap-2"><span className="mt-2 grid h-5 w-5 place-items-center text-slate-600"><LockKeyhole size={15}/></span><div className="space-y-2"><div className="flex items-center justify-between gap-2 rounded border border-slate-300 px-3 py-2"><span className="truncate"><Activity size={14} className="mr-2 inline"/>{linkedDeal}</span><span className="text-slate-400">×</span></div><div className="flex items-center justify-between gap-2 rounded border border-slate-300 px-3 py-2"><span className="truncate"><User size={14} className="mr-2 inline"/>{linkedContact}</span><span className="text-slate-400">×</span></div><div className="flex items-center justify-between gap-2 rounded border border-slate-300 px-3 py-2"><span className="truncate"><Building2 size={14} className="mr-2 inline"/>{linkedCompany}</span><span className="text-slate-400">×</span></div></div></div>
             <div className="ml-9 pt-3 text-xs leading-5 text-slate-500"><p>Criado em: {formatDateTime(activity.created_at)} · {ownerName || 'Usuário'}</p><p>Última modificação: {formatDateTime(activity.updated_at)} · CRM BPO</p></div>
           </div>
         </div>
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-slate-50 px-4 py-3"><div className="flex gap-2"><button type="button" className="grid h-8 w-8 place-items-center rounded border border-slate-300 bg-white text-slate-600"><Settings size={14}/></button><button type="button" className="grid h-8 w-8 place-items-center rounded border border-slate-300 bg-white text-slate-600"><MoreHorizontal size={14}/></button></div><div className="flex items-center gap-3"><label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={draft.status === 'done'} onChange={(e) => setDraft((current) => ({ ...current, status: e.target.checked ? 'done' : 'open' }))}/> Marcar como feito</label><button type="button" onClick={onClose} className="rounded border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700">Cancelar</button><button disabled={saving || !draft.title.trim()} className="rounded bg-[#63ba68] px-5 py-2 text-sm font-bold text-white disabled:opacity-60">{saving ? 'Salvando...' : 'Salvar'}</button></div></div>
+        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-4 py-3"><div className="flex items-center gap-3"><label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={draft.status === 'done'} onChange={(e) => setDraft((current) => ({ ...current, status: e.target.checked ? 'done' : 'open' }))}/> Marcar como feito</label><button type="button" onClick={onClose} className="rounded border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700">Cancelar</button><button disabled={saving || !draft.title.trim()} className="rounded bg-[#63ba68] px-5 py-2 text-sm font-bold text-white disabled:opacity-60">{saving ? 'Salvando...' : 'Salvar'}</button></div></div>
       </div>
       <ActivityDayCalendar activities={[activity]} selectedDate={calendarDate} onSelectDate={setCalendarDate} />
     </form>

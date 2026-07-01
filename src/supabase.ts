@@ -215,7 +215,7 @@ export type ActivityRow = {
   title: string
   activity_type: string
   due_at: string | null
-  status: 'open' | 'done' | 'cancelled'
+  status: 'open' | 'done' | 'cancelled' | 'rescheduled' | 'no_show'
   note: string | null
   deal_id: string | null
   organization_id: string | null
@@ -234,6 +234,7 @@ export type HistoryRow = {
   title: string
   description: string | null
   created_at: string
+  is_pinned?: boolean
 }
 
 export type DealAttachment = {
