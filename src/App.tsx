@@ -2980,6 +2980,11 @@ function WarningsView({ deals, people, organizations, activities, crmUsers, open
         if (historyError) throw historyError
         const { error: deleteError } = await supabase.from('deals').delete().eq('id', removeId)
         if (deleteError) throw deleteError
+        const ownerToSync = (payload.owner_id as string | null | undefined) || (preferred.owner_id as string | null | undefined) || null
+        if (ownerToSync) {
+          const { error: syncError } = await supabase.from('deals').update({ owner_id: ownerToSync }).eq('id', keepId)
+          if (syncError) throw syncError
+        }
       } else if (duplicateCompare.entity === 'person') {
         const { error: updateError } = await supabase.from('people').update(payload).eq('id', keepId)
         if (updateError) throw updateError
