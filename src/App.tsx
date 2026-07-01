@@ -3043,7 +3043,9 @@ function ActivityInlineRow({ activity, deal, ownerName, onComplete, onEdit, onDe
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-2">
-          <button type="button" title={isDone ? 'Concluído' : 'Marcar como feito'} aria-label={isDone ? 'Atividade concluída' : 'Marcar como feito'} disabled={isDone || !onComplete} onClick={() => onComplete && void onComplete(activity.id)} className={cn('grid h-5 w-5 shrink-0 place-items-center rounded-full border-2 bg-white text-[11px] font-black transition', isDone ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-emerald-600 text-transparent hover:bg-emerald-50 hover:text-emerald-700 disabled:opacity-60')}>{isDone ? '✓' : '✓'}</button>
+          <button type="button" title={isDone ? 'Concluído' : 'Marcar como feito'} aria-label={isDone ? 'Atividade concluída' : 'Marcar como feito'} disabled={isDone || !onComplete} onClick={() => onComplete && void onComplete(activity.id)} className={cn('grid h-5 w-5 shrink-0 place-items-center rounded-full border-2 transition', isDone ? 'border-[#2fb344] bg-[#2fb344] text-white shadow-sm' : 'border-[#2fb344] bg-white text-transparent hover:bg-emerald-50 hover:text-[#2fb344] disabled:opacity-60')}>
+            <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" aria-hidden="true"><path d="M3.2 8.1 6.5 11.4 12.9 4.6" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          </button>
           <span className="grid h-6 w-6 shrink-0 place-items-center rounded border border-slate-200 bg-slate-50 text-slate-600" title={type.label}><ActivityTypeIcon type={activity.activity_type} size={14} /></span>
           <button type="button" onClick={() => onEdit?.(activity)} className={cn('truncate text-left text-base font-bold hover:text-blue-700 hover:underline', isDone ? 'text-slate-500 line-through' : 'text-slate-900')}>{activity.title}</button>
         </div>
