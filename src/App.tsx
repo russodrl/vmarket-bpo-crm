@@ -1173,7 +1173,7 @@ function App() {
     else {
       try {
         await supabase.from('deal_history').insert({ deal_id: dealId, event_type: 'Campo', title: 'Etapa do pipeline alterada', description: `Nova etapa: ${stages.find((s) => s.id === stageId)?.name || ''}` })
-        void syncExistingDealToPipedriveIfSalesPipeline(dealId, stageId, 'stage')
+        await syncExistingDealToPipedriveIfSalesPipeline(dealId, stageId, 'stage')
         await loadAll()
         setSelectedId(dealId)
       } catch (e) {
@@ -1551,9 +1551,9 @@ function App() {
         }
       }
 
-      if (form.stage_id) void syncExistingDealToPipedriveIfSalesPipeline(detailDeal.id, form.stage_id)
+      const pipedriveSync = form.stage_id ? await syncExistingDealToPipedriveIfSalesPipeline(detailDeal.id, form.stage_id) : null
 
-      await supabase.from('deal_history').insert({ deal_id: detailDeal.id, event_type: 'Edição', title: 'Ficha do negócio atualizada', description: 'Campos editados na URL da ficha completa.' })
+      await supabase.from('deal_history').insert({ deal_id: detailDeal.id, event_type: 'Edição', title: 'Ficha do negócio atualizada', description: pipedriveSync?.ignored ? 'Campos editados na URL da ficha completa.' : 'Campos editados na URL da ficha completa e enviados ao Pipedrive quando havia vínculo.' })
       await loadAll()
     } catch (e) {
       setError(errorMessage(e))
@@ -3123,6 +3123,34 @@ function FieldsConfigView({ fields, setError, reload }: { fields: CustomField[];
   const entityLabels: Record<CustomField['entity'], string> = { deal: 'Negócios', person: 'Pessoas', organization: 'Organizações', activity: 'Atividades' }
   const entities: CustomField['entity'][] = ['deal', 'person', 'organization', 'activity']
   const pipedriveFields = fields.filter((field) => field.pipedrive_key)
+  type MappingRow = { entity: CustomField['entity']; crmLabel: string; crmApiId: string; crmFieldId: string; pipedriveLabel: string; pipedriveKey: string; pipedriveId: string; crmType: string; pipedriveType: string; direction: string }
+  const nativeMappings: MappingRow[] = [
+    { entity: 'deal', crmLabel: 'Título do negócio', crmApiId: 'deals.title', crmFieldId: 'coluna nativa', pipedriveLabel: 'Título', pipedriveKey: 'title', pipedriveId: 'campo padrão', crmType: 'text', pipedriveType: 'varchar', direction: 'CRM ↔ Pipedrive' },
+    { entity: 'deal', crmLabel: 'Valor VMarket', crmApiId: 'deals.value', crmFieldId: 'coluna nativa', pipedriveLabel: 'Valor', pipedriveKey: 'value', pipedriveId: 'campo padrão', crmType: 'monetary', pipedriveType: 'monetary', direction: 'CRM ↔ Pipedrive' },
+    { entity: 'deal', crmLabel: 'Status', crmApiId: 'deals.status', crmFieldId: 'coluna nativa', pipedriveLabel: 'Status', pipedriveKey: 'status', pipedriveId: 'campo padrão', crmType: 'single_option', pipedriveType: 'enum', direction: 'CRM ↔ Pipedrive' },
+    { entity: 'deal', crmLabel: 'Data esperada de fechamento', crmApiId: 'deals.expected_close_date', crmFieldId: 'coluna nativa', pipedriveLabel: 'Expected close date', pipedriveKey: 'expected_close_date', pipedriveId: 'campo padrão', crmType: 'date', pipedriveType: 'date', direction: 'CRM ↔ Pipedrive' },
+    { entity: 'deal', crmLabel: 'Etapa', crmApiId: 'deals.stage_id + pipeline_stages.pipedrive_stage_id', crmFieldId: 'coluna nativa', pipedriveLabel: 'Stage ID', pipedriveKey: 'stage_id', pipedriveId: 'pipeline_stages.pipedrive_stage_id', crmType: 'stage_ref', pipedriveType: 'stage', direction: 'CRM ↔ Pipedrive' },
+    { entity: 'deal', crmLabel: 'Organização vinculada', crmApiId: 'deals.organization_id', crmFieldId: 'coluna nativa', pipedriveLabel: 'Organization ID', pipedriveKey: 'org_id', pipedriveId: 'campo padrão', crmType: 'organization_ref', pipedriveType: 'org', direction: 'CRM ↔ Pipedrive' },
+    { entity: 'deal', crmLabel: 'Contato vinculado', crmApiId: 'deals.person_id', crmFieldId: 'coluna nativa', pipedriveLabel: 'Person ID', pipedriveKey: 'person_id', pipedriveId: 'campo padrão', crmType: 'person_ref', pipedriveType: 'person', direction: 'CRM ↔ Pipedrive' },
+    { entity: 'organization', crmLabel: 'Empresa', crmApiId: 'organizations.name', crmFieldId: 'coluna nativa', pipedriveLabel: 'Nome da organização', pipedriveKey: 'name', pipedriveId: 'campo padrão', crmType: 'text', pipedriveType: 'varchar', direction: 'CRM ↔ Pipedrive' },
+    { entity: 'person', crmLabel: 'Nome do contato', crmApiId: 'people.full_name', crmFieldId: 'coluna nativa', pipedriveLabel: 'Nome da pessoa', pipedriveKey: 'name', pipedriveId: 'campo padrão', crmType: 'text', pipedriveType: 'varchar', direction: 'CRM ↔ Pipedrive' },
+    { entity: 'person', crmLabel: 'Email', crmApiId: 'people.email', crmFieldId: 'coluna nativa', pipedriveLabel: 'Email', pipedriveKey: 'email', pipedriveId: 'campo padrão', crmType: 'email', pipedriveType: 'email', direction: 'CRM ↔ Pipedrive' },
+    { entity: 'person', crmLabel: 'Telefone', crmApiId: 'people.phone', crmFieldId: 'coluna nativa', pipedriveLabel: 'Telefone', pipedriveKey: 'phone', pipedriveId: 'campo padrão', crmType: 'phone', pipedriveType: 'phone', direction: 'CRM ↔ Pipedrive' },
+  ]
+  const customMappings: MappingRow[] = fields.map((field) => ({
+    entity: field.entity,
+    crmLabel: field.name,
+    crmApiId: `custom_field_values.${apiSlug(field)}`,
+    crmFieldId: field.id,
+    pipedriveLabel: field.name,
+    pipedriveKey: field.pipedrive_key || 'Sem correspondente',
+    pipedriveId: field.pipedrive_id ? String(field.pipedrive_id) : (field.pipedrive_key ? 'sem id numérico' : 'Sem correspondente'),
+    crmType: field.field_type,
+    pipedriveType: field.pipedrive_field_type || 'n/a',
+    direction: field.pipedrive_key ? 'CRM ↔ Pipedrive' : 'Somente CRM BPO',
+  }))
+  const pipedriveToCrmRows = [...nativeMappings, ...customMappings.filter((row) => row.pipedriveKey !== 'Sem correspondente')].sort((a, b) => entityLabels[a.entity].localeCompare(entityLabels[b.entity]) || a.pipedriveLabel.localeCompare(b.pipedriveLabel))
+  const crmToPipedriveRows = [...nativeMappings, ...customMappings].sort((a, b) => entityLabels[a.entity].localeCompare(entityLabels[b.entity]) || a.crmLabel.localeCompare(b.crmLabel))
 
   async function createField(e: FormEvent) {
     e.preventDefault()
@@ -3146,17 +3174,36 @@ function FieldsConfigView({ fields, setError, reload }: { fields: CustomField[];
     }
   }
 
+  const renderMappingRows = (rows: MappingRow[]) => <div className="overflow-x-auto">
+    <div className="min-w-[1040px]">
+      <div className="grid grid-cols-[1.45fr_120px_1.1fr_1.35fr_1.25fr_1.05fr] gap-3 border-b border-slate-200 bg-slate-100 px-4 py-2 text-xs font-black uppercase tracking-wide text-slate-600">
+        <span>Correspondência</span><span>Entidade</span><span>Tipos</span><span>ID Pipedrive</span><span>ID CRM BPO</span><span>Sincronização</span>
+      </div>
+      {rows.map((row, index) => <div key={`${row.entity}-${row.crmApiId}-${row.pipedriveKey}-${index}`} className="grid grid-cols-[1.45fr_120px_1.1fr_1.35fr_1.25fr_1.05fr] gap-3 border-b border-slate-100 px-4 py-3 text-sm hover:bg-slate-50">
+        <div className="min-w-0">
+          <p className="font-bold text-slate-900">{row.pipedriveLabel}</p>
+          <p className="text-xs text-slate-500">Pipedrive → CRM: <b>{row.crmLabel}</b></p>
+        </div>
+        <span className="text-slate-700">{entityLabels[row.entity]}</span>
+        <span className="text-xs text-slate-500">CRM: <b>{row.crmType}</b><br/>Pipedrive: <b>{row.pipedriveType}</b></span>
+        <span className="min-w-0 text-xs text-blue-700"><code className="break-all">key: {row.pipedriveKey}</code><br/><code className="break-all">id: {row.pipedriveId}</code></span>
+        <span className="min-w-0 text-xs text-slate-600"><code className="break-all">api: {row.crmApiId}</code><br/><code className="break-all">id: {row.crmFieldId}</code></span>
+        <span className={cn('h-fit rounded-full px-2 py-1 text-center text-[11px] font-black', row.direction.includes('↔') ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500')}>{row.direction}</span>
+      </div>)}
+    </div>
+  </div>
+
   return <div className="h-full overflow-y-auto p-5">
     <Panel className="overflow-hidden">
       <div className="border-b border-slate-200 p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2"><Tags size={18} className="text-[#6f5cf6]"/><h2 className="text-lg font-bold">Campos Pipedrive e API</h2></div>
           <div className="flex flex-wrap gap-2 text-xs font-semibold">
-            <Badge tone="bg-emerald-100 text-emerald-700">{pipedriveFields.length} campos importados</Badge>
-            <Badge tone="bg-blue-100 text-blue-700">{fields.length} campos no CRM</Badge>
+            <Badge tone="bg-emerald-100 text-emerald-700">{pipedriveFields.length} campos importados do Pipedrive</Badge>
+            <Badge tone="bg-blue-100 text-blue-700">{fields.length} campos no CRM BPO</Badge>
           </div>
         </div>
-        <p className="mt-2 text-sm text-slate-500">O catálogo abaixo foi lido diretamente da API do Pipedrive. O CRM guarda a key original, tipo original, opções e tipo interno para manter a ficha próxima do Pipedrive sem escrever nada no Pipedrive.</p>
+        <p className="mt-2 text-sm text-slate-500">Os números mostram quantos campos configuráveis vieram do Pipedrive e quantos campos configuráveis existem no CRM BPO. IDs grandes/alfanuméricos são identificadores técnicos: a key/id do campo no Pipedrive e o UUID/id do campo configurável no CRM BPO.</p>
       </div>
       <form onSubmit={createField} className="grid gap-3 border-b border-slate-200 bg-slate-50 p-4 md:grid-cols-[140px_1fr_180px_1fr_120px]">
         <select value={newField.entity} onChange={(e) => setNewField({ ...newField, entity: e.target.value as CustomField['entity'] })} className="rounded border border-slate-300 px-3 py-2 text-sm"><option value="deal">Negócio</option><option value="organization">Empresa</option><option value="person">Pessoa</option><option value="activity">Atividade</option></select>
@@ -3173,34 +3220,29 @@ function FieldsConfigView({ fields, setError, reload }: { fields: CustomField[];
           return <div key={entity} className="rounded border border-slate-200 bg-slate-50 p-3">
             <p className="text-xs font-bold uppercase tracking-wide text-slate-500">{entityLabels[entity]}</p>
             <p className="mt-1 text-2xl font-black text-slate-900">{imported}</p>
-            <p className="text-xs text-slate-500">de {total} campos no CRM</p>
+            <p className="text-xs text-slate-500">de {total} campos configuráveis no CRM BPO</p>
           </div>
         })}
       </div>
 
-      <div className="divide-y divide-slate-100">
-        {entities.map((entity) => {
-          const entityFields = fields.filter((field) => field.entity === entity).sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || a.name.localeCompare(b.name))
-          if (!entityFields.length) return null
-          return <section key={entity}>
-            <div className="sticky top-0 z-10 border-b border-slate-200 bg-slate-100 px-4 py-2 text-sm font-black text-slate-700">{entityLabels[entity]}</div>
-            {entityFields.map((field) => <div key={field.id} className="grid gap-3 p-4 text-sm hover:bg-slate-50 md:grid-cols-[1fr_110px_120px_1.4fr]">
-              <div>
-                <b>{field.name}</b>
-                <p className="mt-1 text-xs text-slate-500">CRM: <code>{apiSlug(field)}</code></p>
-                {field.options?.length ? <p className="mt-1 line-clamp-2 text-xs text-slate-400">Opções: {field.options.slice(0, 8).join(', ')}{field.options.length > 8 ? ` +${field.options.length - 8}` : ''}</p> : null}
-              </div>
-              <span className="text-slate-600">{field.entity}</span>
-              <span className="text-slate-600">{field.field_type}</span>
-              <div className="min-w-0 text-xs text-slate-500">
-                {field.pipedrive_key ? <><p>Pipedrive key:</p><code className="break-all text-blue-700">{field.pipedrive_key}</code><p className="mt-1">Tipo Pipedrive: <b>{field.pipedrive_field_type || 'n/a'}</b></p></> : <><p>Campo local:</p><code className="break-all">{field.id}</code></>}
-              </div>
-            </div>)}
-          </section>
-        })}
-      </div>
+      <section className="border-b border-slate-200">
+        <div className="bg-[#eef2ff] px-4 py-3">
+          <h3 className="font-black text-slate-900">Mapeamento Pipedrive → CRM BPO</h3>
+          <p className="mt-1 text-xs text-slate-500">Todos os campos Pipedrive conhecidos, com o campo correspondente do CRM BPO na mesma linha e IDs dos dois lados.</p>
+        </div>
+        {renderMappingRows(pipedriveToCrmRows)}
+      </section>
+
+      <section className="border-b border-slate-200">
+        <div className="bg-emerald-50 px-4 py-3">
+          <h3 className="font-black text-slate-900">Mapeamento CRM BPO → Pipedrive</h3>
+          <p className="mt-1 text-xs text-slate-500">Todos os campos CRM BPO, incluindo campos somente locais e campos que sincronizam com Pipedrive.</p>
+        </div>
+        {renderMappingRows(crmToPipedriveRows)}
+      </section>
+
       <div className="border-t border-slate-200 bg-emerald-50 p-4 text-sm text-slate-700">
-        <b>API direta Pipedrive:</b> a função <code>pipedrive-sync</code> continua responsável por webhooks e mapeamentos. Esta versão adiciona o catálogo fiel de campos para orientar ficha, importação e sincronização.
+        <b>API direta Pipedrive:</b> a função <code>pipedrive-sync</code> sincroniza webhooks do Pipedrive para o CRM e, quando houver vínculo com Pipedrive, envia alterações do CRM BPO para o Pipedrive usando este mapeamento.
       </div>
     </Panel>
   </div>
