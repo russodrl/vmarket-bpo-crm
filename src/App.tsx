@@ -228,7 +228,6 @@ function buildFilterFields(customFields: CustomField[]): FilterField[] {
     { id: 'person:email', entity: 'person', key: 'email', label: 'Email da pessoa', type: 'text' },
     { id: 'person:phone', entity: 'person', key: 'phone', label: 'Telefone da pessoa', type: 'text' },
     { id: 'organization:name', entity: 'organization', key: 'name', label: 'Nome da empresa', type: 'text' },
-    { id: 'organization:city', entity: 'organization', key: 'city', label: 'Cidade da empresa', type: 'text' },
     { id: 'organization:state', entity: 'organization', key: 'state', label: 'Estado da empresa', type: 'text' },
     { id: 'organization:cnpjs', entity: 'organization', key: 'cnpjs', label: 'CNPJs', type: 'number' },
     { id: 'organization:monthly_purchase', entity: 'organization', key: 'monthly_purchase', label: 'Compra mensal', type: 'number' },
@@ -348,6 +347,10 @@ function dayLabel(days: number) {
 
 const statusLabel: Record<string, string> = { aberto: 'Aberto', ganho: 'Ganho', perdido: 'Perdido' }
 const businessTypeOptions: Array<[string, string]> = [['', 'Selecione'], ['restaurante', 'Restaurante'], ['hotel', 'Hotel'], ['fornecedor', 'Fornecedor']]
+const dddStateOptions: Array<[string, string]> = [
+  ['', 'Selecione'],
+  ...['Acre','Alagoas','Amapá','Amazonas','Bahia','Ceará','Distrito Federal','Espírito Santo','Goiás','Maranhão','Mato Grosso','Mato Grosso do Sul','Minas Gerais','Paraná','Paraíba','Pará','Pernambuco','Piauí','Rio Grande do Norte','Rio Grande do Sul','Rio de Janeiro','Rondônia','Roraima','Santa Catarina','Sergipe','São Paulo','Tocantins'].map((state) => [state, state] as [string, string]),
+]
 const fillingSourceLabel: Record<string, string> = {
   'Pipedrive API': 'Pipedrive API',
   Make: 'Make',
@@ -1054,7 +1057,7 @@ function App() {
           name: form.organization_name,
           type: syncedType || null,
           city: form.organization_city || null,
-          state: form.organization_state || null,
+          state: form.organization_state || form.person_ddd_state || null,
           cnpjs: numberOrNull(form.organization_cnpjs),
           monthly_purchase: numberOrNull(form.monthly_purchase),
           owner_id: form.owner_id || session?.user.id || null,
@@ -1746,7 +1749,34 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
       {error && <div className="xl:col-span-2 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><b>Erro:</b> {error}</div>}
 
       <aside className="min-w-0 space-y-4 xl:sticky xl:top-32 xl:max-h-[calc(100vh-9rem)] xl:overflow-y-auto">
-        <CollapsibleSection title="Campos do negócio" defaultOpen>
+        <CollapsibleSection title="Empresa" defaultOpen>
+          <div className="divide-y divide-slate-100">
+            <InlineField label="Empresa" value={form.organization_name} onChange={(v) => update('organization_name', v)} />
+            <ReadOnlyField label="Tipo" value={businessTypeLabel} />
+            <InlineSelect label="Estado" value={form.organization_state} onChange={(v) => update('organization_state', v)} options={dddStateOptions} />
+            <InlineField label="Quantidade de CNPJs" value={form.organization_cnpjs} onChange={(v) => update('organization_cnpjs', v)} type="number" />
+          </div>
+        </CollapsibleSection>
+
+        <CollapsibleSection title="Contato" defaultOpen>
+          <div className="divide-y divide-slate-100">
+            <InlineField label="Nome" value={form.person_name} onChange={(v) => update('person_name', v)} />
+            <InlineField label="Cargo" value={form.person_role} onChange={(v) => update('person_role', v)} />
+            <InlineField label="Email" value={form.person_email} onChange={(v) => update('person_email', v)} type="email" />
+            <InlineField label="Telefone" value={form.person_phone} onChange={(v) => update('person_phone', v)} />
+            <div className="p-3">
+              <CollapsibleSection title="DDD" defaultOpen={false} className="border border-slate-200 shadow-none">
+                <div className="divide-y divide-slate-100">
+                  <ReadOnlyField label="Prefixo" value={form.person_ddd_prefix || '-'} />
+                  <ReadOnlyField label="Estado" value={form.person_ddd_state || '-'} />
+                  <ReadOnlyField label="Região" value={form.person_ddd_region || '-'} />
+                </div>
+              </CollapsibleSection>
+            </div>
+          </div>
+        </CollapsibleSection>
+
+        <CollapsibleSection title="Campos do negócio" defaultOpen={false}>
           <div className="divide-y divide-slate-100">
             <ReadOnlyField label="Fonte do Lead" value={form.lead_source === 'vmarket' ? 'VMarket' : 'Parceiro'} />
             <InlineSelect label="Tipo" value={form.business_type} onChange={(v) => update('business_type', v)} options={businessTypeOptions} />
@@ -1766,7 +1796,7 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
           </div>
         </CollapsibleSection>
 
-        <CollapsibleSection title="Plataforma VMarket" defaultOpen>
+        <CollapsibleSection title="Plataforma VMarket" defaultOpen={false}>
           <div className="divide-y divide-slate-100">
             <label className="flex items-center gap-3 p-3 text-sm font-semibold text-slate-800">
               <input type="checkbox" checked={form.vm_sale} onChange={(e) => update('vm_sale', e.target.checked)} className="h-4 w-4 accent-[#238847]" />
@@ -1805,7 +1835,7 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
           </div>
         </CollapsibleSection>
 
-        <CollapsibleSection title="Serviços Parceiro" defaultOpen>
+        <CollapsibleSection title="Serviços Parceiro" defaultOpen={false}>
           <div className="divide-y divide-slate-100">
             {partnerServiceDefinitions.map(([, label, flagKey, valueKey]) => <div key={flagKey} className="grid grid-cols-[1fr_120px] items-center gap-3 p-3 text-sm">
               <label className="flex min-w-0 items-center gap-2 font-semibold text-slate-800"><input type="checkbox" checked={Boolean(form[flagKey])} onChange={(e) => update(flagKey, e.target.checked)} className="h-4 w-4 accent-[#238847]" /> <span className="truncate">{label}</span></label>
@@ -1819,34 +1849,6 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
               {form.partner_service_other && <input value={form.partner_service_other_name} onChange={(e) => update('partner_service_other_name', e.target.value)} required className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" placeholder="Qual outro serviço?" />}
             </div>
             <ReadOnlyField label="Valor Parceiro" value={money(partnerValue)} />
-          </div>
-        </CollapsibleSection>
-
-        <CollapsibleSection title="Empresa" defaultOpen>
-          <div className="divide-y divide-slate-100">
-            <InlineField label="Empresa" value={form.organization_name} onChange={(v) => update('organization_name', v)} />
-            <ReadOnlyField label="Tipo" value={businessTypeLabel} />
-            <InlineField label="Cidade" value={form.organization_city} onChange={(v) => update('organization_city', v)} />
-            <InlineField label="Estado" value={form.organization_state} onChange={(v) => update('organization_state', v)} />
-            <InlineField label="Quantidade de CNPJs" value={form.organization_cnpjs} onChange={(v) => update('organization_cnpjs', v)} type="number" />
-          </div>
-        </CollapsibleSection>
-
-        <CollapsibleSection title="Contato" defaultOpen>
-          <div className="divide-y divide-slate-100">
-            <InlineField label="Nome" value={form.person_name} onChange={(v) => update('person_name', v)} />
-            <InlineField label="Cargo" value={form.person_role} onChange={(v) => update('person_role', v)} />
-            <InlineField label="Email" value={form.person_email} onChange={(v) => update('person_email', v)} type="email" />
-            <InlineField label="Telefone" value={form.person_phone} onChange={(v) => update('person_phone', v)} />
-            <div className="p-3">
-              <CollapsibleSection title="DDD" defaultOpen className="border border-slate-200 shadow-none">
-                <div className="divide-y divide-slate-100">
-                  <ReadOnlyField label="Prefixo" value={form.person_ddd_prefix || '-'} />
-                  <ReadOnlyField label="Estado" value={form.person_ddd_state || '-'} />
-                  <ReadOnlyField label="Região" value={form.person_ddd_region || '-'} />
-                </div>
-              </CollapsibleSection>
-            </div>
           </div>
         </CollapsibleSection>
 
@@ -2006,7 +2008,7 @@ function dealToForm(deal?: Deal): DealForm {
     organization_type: deal?.organizations?.type || deal?.business_type || deal?.vm_product_type || '',
     organization_segment: deal?.organizations?.segment || '',
     organization_city: deal?.organizations?.city || '',
-    organization_state: deal?.organizations?.state || '',
+    organization_state: deal?.organizations?.state || deal?.people?.ddd_state || '',
     organization_cnpjs: String(deal?.organizations?.cnpjs ?? ''),
     person_name: deal?.people?.full_name || '',
     person_role: deal?.people?.role_title || '',
