@@ -420,6 +420,15 @@ const vmarketPlanOptionsByType: Record<string, string[]> = {
   hotel: ['Starter', 'Essencial', 'Premium'],
 }
 const vmarketPeriodOptions: Array<[string, string]> = [['mensal', 'Mensal'], ['semestral', 'Semestral']]
+type VmarketPlanInclude = { type: 'restaurante' | 'hotel'; plan: string; description: string; items: string[] }
+const vmarketPlanIncludes: VmarketPlanInclude[] = [
+  { type: 'restaurante', plan: 'Lite', description: 'Para bares e restaurantes de pequeno porte que buscam os menores preços.', items: ['Até 2 usuários', 'Contagem de estoque', 'Cotação automática', 'App para conferência de mercadoria', 'Fornecedores VMarket ilimitados', 'Até 10 fornecedores convidados gratuitos', 'Base de insumos VMarket por tipo de cozinha'] },
+  { type: 'restaurante', plan: 'Essencial', description: 'Para bares e restaurantes de médio porte que buscam otimizar as operações.', items: ['Todos os recursos do Lite', '5 usuários', 'Dashboard com indicadores chave do processo de compras', 'Cadastro livre de insumos e fornecedores', 'Definição de perfil de produtos, cotação e exclusivo', 'Configuração de estoque mínimo', 'Sugestão automática de compra', 'Agendamento de solicitação de compra e posição de estoque', 'Emissão de links de cotação via WhatsApp', 'Mapa de preços das cotações com preço, prazos e mínimos por fornecedor', 'Ordens de compras com envio, romaneio e controle de estoque'] },
+  { type: 'restaurante', plan: 'Premium', description: 'Para redes e grandes operações foodservice que precisam de controle e compliance.', items: ['Todos os recursos do Essencial', 'Usuários ilimitados', 'Todas as integrações disponíveis', 'Aprovação por alçada', 'Priorização de novos recursos', 'Suporte Premium', 'Gerente de sucesso dedicado'] },
+  { type: 'hotel', plan: 'Starter', description: 'Para pousadas e hotéis pequenos com operações mais simples.', items: ['5 usuários', 'Cotação automatizada via WhatsApp', 'Comparação de preços em 1 tela', 'Relatórios gerenciais', 'Solicitações internas via app', 'Negociação de preços', 'Recebimento de mercadorias via app'] },
+  { type: 'hotel', plan: 'Essencial', description: 'Para hotéis médios que precisam otimizar as operações com automações.', items: ['Todos os recursos do Starter', '10 usuários', 'Integração de ordem de compra', 'Integração de NFe', 'Canal de atendimento via WhatsApp', 'Gerente de sucesso do cliente', 'Construção de relatórios personalizados'] },
+  { type: 'hotel', plan: 'Premium', description: 'Para resorts, grandes hotéis e cadeias que exigem recursos avançados e automação.', items: ['Todos os recursos do Essencial', 'Usuários ilimitados', 'Integração completa', 'Escolha de produtos com IA', 'Priorização de novos recursos', 'Suporte Premium', 'Gerente de sucesso dedicado'] },
+]
 type VmarketPricingRule = { type: 'restaurante' | 'hotel'; range: string; min: number; max: number | null; plan: string; monthly: number; monthlyBpo: number; semester: number; semesterBpo: number }
 const vmarketPricingRules: VmarketPricingRule[] = [
   { type: 'restaurante', range: '1 CNPJ', min: 1, max: 1, plan: 'Essencial', monthly: 499.90, monthlyBpo: 374.92, semester: 399.90, semesterBpo: 299.92 },
@@ -2543,7 +2552,6 @@ function VmarketPlansView() {
   const commissionRows = [
     ['1º mês', '100%', 'Paga após o pagamento da assinatura pelo cliente ou parceiro'],
     ['2º ao 12º mês', '20%', 'Apurada mensalmente'],
-    ['13º mês em diante', 'Sem comissão', 'Parceiro não recebe mais comissão das assinaturas'],
   ]
   return <div className="h-full overflow-y-auto p-5">
     <Panel className="overflow-hidden">
@@ -2557,7 +2565,7 @@ function VmarketPlansView() {
       <div className="grid gap-4 p-4">
         <section className="rounded-xl border border-slate-200 bg-slate-50 p-4">
           <h3 className="text-base font-black text-slate-900">Comissão sobre mensalidade</h3>
-          <div className="mt-3 grid gap-2 md:grid-cols-3">
+          <div className="mt-3 grid gap-2 md:grid-cols-2">
             {commissionRows.map(([period, commission, note]) => <div key={period} className="rounded border border-slate-200 bg-white p-3 text-sm">
               <p className="font-black text-slate-800">{period}</p>
               <p className="mt-1 text-lg font-black text-[#238847]">{commission}</p>
@@ -2565,6 +2573,21 @@ function VmarketPlansView() {
             </div>)}
           </div>
         </section>
+        {sections.map(([type, title]) => <section key={`includes-${type}`} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+          <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+            <h3 className="text-base font-black text-slate-900">O que cada plano inclui, {title}</h3>
+            <p className="text-xs text-slate-500">Conteúdo extraído da seção de planos do site VMarket.</p>
+          </div>
+          <div className="grid gap-3 p-4 lg:grid-cols-3">
+            {vmarketPlanIncludes.filter((plan) => plan.type === type).map((plan) => <article key={`${plan.type}-${plan.plan}`} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <h4 className="text-lg font-black text-slate-900">{plan.plan}</h4>
+              <p className="mt-1 text-sm text-slate-500">{plan.description}</p>
+              <ul className="mt-3 space-y-2 text-sm text-slate-700">
+                {plan.items.map((item) => <li key={item} className="flex gap-2"><span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[#238847]"/><span>{item}</span></li>)}
+              </ul>
+            </article>)}
+          </div>
+        </section>)}
         {sections.map(([type, title]) => <section key={type} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
           <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
             <h3 className="text-base font-black text-slate-900">{title}</h3>
