@@ -118,6 +118,17 @@ export type Organization = {
   owner_id: string | null
 }
 
+export type ExternalRecord = {
+  id: string
+  provider: 'pipedrive'
+  entity: 'deal' | 'organization' | 'person' | 'activity'
+  internal_id: string
+  external_id: string
+  external_key: string | null
+  created_at?: string
+  updated_at?: string
+}
+
 export type Person = {
   id: string
   full_name: string

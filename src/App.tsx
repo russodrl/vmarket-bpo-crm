@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { DragEvent, FormEvent, ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import {
@@ -28,7 +28,7 @@ import {
   Settings,
   Tags,
 } from 'lucide-react'
-import { supabase, supabaseConfigured, type ActivityRow, type AuditLog, type AutomationRule, type AutomationRuleChange, type AutomationRuleExecution, type CrmCompany, type CrmUser, type CustomField, type CustomFieldValue, type Deal, type DealLabel, type DealLabelAssignment, type HistoryRow, type Organization, type Person, type Profile, type Stage } from './supabase'
+import { supabase, supabaseConfigured, type ActivityRow, type AuditLog, type AutomationRule, type AutomationRuleChange, type AutomationRuleExecution, type CrmCompany, type CrmUser, type CustomField, type CustomFieldValue, type Deal, type DealLabel, type DealLabelAssignment, type ExternalRecord, type HistoryRow, type Organization, type Person, type Profile, type Stage } from './supabase'
 import './App.css'
 
 type View = 'pipeline' | 'contacts' | 'companies' | 'activities' | 'warnings' | 'plans-vmarket' | 'lead-distribution' | 'automations' | 'audit' | 'fields' | 'admin'
@@ -544,6 +544,10 @@ function totalValueFromForm(form: DealForm) {
   return vmarketValueFromForm(form) + partnerValueFromForm(form)
 }
 
+function externalIdFor(records: ExternalRecord[], entity: ExternalRecord['entity'], internalId?: string | null) {
+  if (!internalId) return ''
+  return records.find((record) => record.provider === 'pipedrive' && record.entity === entity && record.internal_id === internalId)?.external_id || ''
+}
 function cn(...classes: Array<string | false | undefined | null>) { return classes.filter(Boolean).join(' ') }
 function errorMessage(error: unknown) {
   if (error instanceof Error) return error.message
@@ -789,6 +793,7 @@ function App() {
   const [automationChanges, setAutomationChanges] = useState<AutomationRuleChange[]>([])
   const [dealLabels, setDealLabels] = useState<DealLabel[]>([])
   const [dealLabelAssignments, setDealLabelAssignments] = useState<DealLabelAssignment[]>([])
+  const [externalRecords, setExternalRecords] = useState<ExternalRecord[]>([])
   const [customFields, setCustomFields] = useState<CustomField[]>([])
   const [customFieldValues, setCustomFieldValues] = useState<CustomFieldValue[]>([])
   const [organizations, setOrganizations] = useState<Organization[]>([])
@@ -802,6 +807,7 @@ function App() {
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(false)
   const [error, setError] = useState('')
   const [creating, setCreating] = useState(false)
+  const creatingRef = useRef(false)
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [pipelineView, setPipelineView] = useState<'kanban' | 'list' | 'forecast'>('kanban')
   const [savedDealFilters, setSavedDealFilters] = useState<SavedDealFilter[]>(() => loadSavedDealFilters())
@@ -909,6 +915,8 @@ function App() {
       setAutomationChanges((automationChangesRes.data || []) as AutomationRuleChange[])
       setDealLabels((labelRes.data || []) as DealLabel[])
       setDealLabelAssignments((labelAssignRes.data || []) as DealLabelAssignment[])
+      const externalRes = await supabase.from('external_records').select('id,provider,entity,internal_id,external_id,external_key,created_at,updated_at').eq('provider', 'pipedrive')
+      setExternalRecords(externalRes.error ? [] : ((externalRes.data || []) as ExternalRecord[]))
       setCustomFields((fieldsRes.data || []) as CustomField[])
       setCustomFieldValues((valuesRes.data || []) as CustomFieldValue[])
       if (!selectedId && dealsRes.data?.[0]) setSelectedId(dealsRes.data[0].id)
@@ -921,6 +929,8 @@ function App() {
 
   async function createDeal(e: FormEvent) {
     e.preventDefault()
+    if (creatingRef.current) return
+    creatingRef.current = true
     setCreating(true)
     setError('')
     const numberOrNull = (value: string) => value.trim() === '' ? null : Number(value)
@@ -987,6 +997,7 @@ function App() {
       setError(e instanceof Error ? e.message : String(e))
       throw e
     } finally {
+      creatingRef.current = false
       setCreating(false)
     }
   }
@@ -1381,13 +1392,13 @@ function App() {
 
   if (detailDealId) {
     const isAdmin = profile?.role === 'admin_vmarket'
-    return <DealPage key={detailDealId} deal={detailDeal} loading={loading} error={error} stages={stages} crmUsers={crmUsers} canEditOwner={isAdmin} canViewCustomFields={isAdmin} activities={activities.filter((a) => a.deal_id === detailDealId)} history={history.filter((h) => h.deal_id === detailDealId)} dealLabels={dealLabels} assignedLabels={dealLabelAssignments.filter((assignment) => assignment.deal_id === detailDealId)} closeDealPage={closeDealPage} saveDeal={saveDeal} createActivity={createActivityForDeal} createNote={createNoteForDeal} deleteDeal={(id, label) => deleteOneRecord('deal', id, label)} deleteActivity={(id, label) => deleteOneRecord('activity', id, label)} customFields={isAdmin ? customFields.filter((field) => field.entity === 'deal') : []} customFieldValues={isAdmin ? customFieldValues.filter((value) => value.entity_id === detailDealId) : []} completeActivity={completeActivity} updateActivity={updateActivity} createLabel={createDealLabel} deleteLabel={deleteDealLabel} updateDealLabels={updateDealLabels} openPersonPage={openPersonPage} openOrganizationPage={openOrganizationPage} />
+    return <DealPage key={detailDealId} deal={detailDeal} loading={loading} error={error} stages={stages} crmUsers={crmUsers} externalRecords={externalRecords} canEditOwner={isAdmin} canViewCustomFields={isAdmin} activities={activities.filter((a) => a.deal_id === detailDealId)} history={history.filter((h) => h.deal_id === detailDealId)} dealLabels={dealLabels} assignedLabels={dealLabelAssignments.filter((assignment) => assignment.deal_id === detailDealId)} closeDealPage={closeDealPage} saveDeal={saveDeal} createActivity={createActivityForDeal} createNote={createNoteForDeal} deleteDeal={(id, label) => deleteOneRecord('deal', id, label)} deleteActivity={(id, label) => deleteOneRecord('activity', id, label)} customFields={isAdmin ? customFields.filter((field) => field.entity === 'deal') : []} customFieldValues={isAdmin ? customFieldValues.filter((value) => value.entity_id === detailDealId) : []} completeActivity={completeActivity} updateActivity={updateActivity} createLabel={createDealLabel} deleteLabel={deleteDealLabel} updateDealLabels={updateDealLabels} openPersonPage={openPersonPage} openOrganizationPage={openOrganizationPage} />
   }
   if (detailPersonId) {
-    return <ContactPage key={detailPersonId} person={detailPerson} loading={loading} error={error} deals={deals} activities={activities} history={history} openDealPage={openDealPage} closeDetailPage={closeDetailPage} />
+    return <ContactPage key={detailPersonId} person={detailPerson} loading={loading} error={error} deals={deals} activities={activities} history={history} externalRecords={externalRecords} openDealPage={openDealPage} closeDetailPage={closeDetailPage} />
   }
   if (detailOrganizationId) {
-    return <CompanyPage key={detailOrganizationId} organization={detailOrganization} loading={loading} error={error} deals={deals} people={people} activities={activities} history={history} openDealPage={openDealPage} openPersonPage={openPersonPage} closeDetailPage={closeDetailPage} />
+    return <CompanyPage key={detailOrganizationId} organization={detailOrganization} loading={loading} error={error} deals={deals} people={people} activities={activities} history={history} externalRecords={externalRecords} openDealPage={openDealPage} openPersonPage={openPersonPage} closeDetailPage={closeDetailPage} />
   }
 
   const navItems: Array<[View, ReactNode, string]> = [
@@ -1984,35 +1995,38 @@ function LinkedTimeline({ deals, activities, history, openDealPage }: { deals: D
   </Panel>
 }
 
-function ContactPage({ person, loading, error, deals, activities, history, openDealPage, closeDetailPage }: { person?: Person; loading: boolean; error: string; deals: Deal[]; activities: ActivityRow[]; history: HistoryRow[]; openDealPage: (id: string) => void; closeDetailPage: () => void }) {
+function ContactPage({ person, loading, error, deals, activities, history, externalRecords, openDealPage, closeDetailPage }: { person?: Person; loading: boolean; error: string; deals: Deal[]; activities: ActivityRow[]; history: HistoryRow[]; externalRecords: ExternalRecord[]; openDealPage: (id: string) => void; closeDetailPage: () => void }) {
   if (loading) return <main className="min-h-screen bg-[#f4f5f7] p-5 text-slate-900"><LoadingBpo /></main>
   if (!person) return <main className="min-h-screen bg-[#f4f5f7] p-5 text-slate-900"><div className="rounded bg-white p-6 shadow-sm"><h1 className="text-xl font-bold">Contato não encontrado</h1><button onClick={closeDetailPage} className="mt-4 rounded bg-[#238847] px-4 py-2 text-sm font-bold text-white">Voltar</button></div></main>
   const linkedDeals = deals.filter((deal) => deal.person_id === person.id)
+  const pipedrivePersonId = externalIdFor(externalRecords, 'person', person.id)
   return <main className="min-h-screen bg-[#f4f5f7] text-slate-900">
     <header className="sticky top-0 z-30 border-b border-slate-200 bg-white shadow-sm"><div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-3 px-4 py-3"><button onClick={closeDetailPage} className="rounded border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">← Voltar</button><div className="min-w-0 flex-1"><h1 className="truncate text-2xl font-semibold tracking-[-0.03em] text-slate-950">{person.full_name}</h1><p className="mt-1 truncate text-sm font-semibold text-slate-600">{person.phone || 'sem telefone'} · {person.email || 'sem email'}</p></div><Badge tone="bg-blue-100 text-blue-700">Ficha de contato</Badge></div></header>
-    <div className="mx-auto grid max-w-[1600px] gap-4 p-4 xl:grid-cols-[360px_minmax(0,1fr)]">{error && <div className="xl:col-span-2 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><b>Erro:</b> {error}</div>}<aside className="space-y-4"><CollapsibleSection title="Detalhes" defaultOpen><div className="divide-y divide-slate-100"><ReadOnlyField label="Nome do Contato" value={person.full_name} /><ReadOnlyField label="Cargo" value={person.role_title || '-'} /><ReadOnlyField label="Email" value={person.email || '-'} /><ReadOnlyField label="Telefone" value={person.phone || '-'} /><ReadOnlyField label="DDD" value={person.ddd_prefix || '-'} /><ReadOnlyField label="Estado DDD" value={person.ddd_state || '-'} /></div></CollapsibleSection><EntityDealsSummary deals={linkedDeals} openDealPage={openDealPage} /></aside><section><LinkedTimeline deals={linkedDeals} activities={activities} history={history} openDealPage={openDealPage} /></section></div>
+    <div className="mx-auto grid max-w-[1600px] gap-4 p-4 xl:grid-cols-[360px_minmax(0,1fr)]">{error && <div className="xl:col-span-2 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><b>Erro:</b> {error}</div>}<aside className="space-y-4"><CollapsibleSection title="Detalhes" defaultOpen><div className="divide-y divide-slate-100"><ReadOnlyField label="Nome do Contato" value={person.full_name} /><ReadOnlyField label="ID do contato no Pipedrive" value={pipedrivePersonId || 'Não sincronizado'} /><ReadOnlyField label="Cargo" value={person.role_title || '-'} /><ReadOnlyField label="Email" value={person.email || '-'} /><ReadOnlyField label="Telefone" value={person.phone || '-'} /><ReadOnlyField label="DDD" value={person.ddd_prefix || '-'} /><ReadOnlyField label="Estado DDD" value={person.ddd_state || '-'} /></div></CollapsibleSection><EntityDealsSummary deals={linkedDeals} openDealPage={openDealPage} /></aside><section><LinkedTimeline deals={linkedDeals} activities={activities} history={history} openDealPage={openDealPage} /></section></div>
   </main>
 }
 
-function CompanyPage({ organization, loading, error, deals, people, activities, history, openDealPage, openPersonPage, closeDetailPage }: { organization?: Organization; loading: boolean; error: string; deals: Deal[]; people: Person[]; activities: ActivityRow[]; history: HistoryRow[]; openDealPage: (id: string) => void; openPersonPage: (id: string) => void; closeDetailPage: () => void }) {
+function CompanyPage({ organization, loading, error, deals, people, activities, history, externalRecords, openDealPage, openPersonPage, closeDetailPage }: { organization?: Organization; loading: boolean; error: string; deals: Deal[]; people: Person[]; activities: ActivityRow[]; history: HistoryRow[]; externalRecords: ExternalRecord[]; openDealPage: (id: string) => void; openPersonPage: (id: string) => void; closeDetailPage: () => void }) {
   if (loading) return <main className="min-h-screen bg-[#f4f5f7] p-5 text-slate-900"><LoadingBpo /></main>
   if (!organization) return <main className="min-h-screen bg-[#f4f5f7] p-5 text-slate-900"><div className="rounded bg-white p-6 shadow-sm"><h1 className="text-xl font-bold">Empresa não encontrada</h1><button onClick={closeDetailPage} className="mt-4 rounded bg-[#238847] px-4 py-2 text-sm font-bold text-white">Voltar</button></div></main>
   const companyPeople = people.filter((person) => person.organization_id === organization.id)
   const personIds = new Set(companyPeople.map((person) => person.id))
   const linkedDeals = deals.filter((deal) => deal.organization_id === organization.id || (deal.person_id && personIds.has(deal.person_id)))
+  const pipedriveOrganizationId = externalIdFor(externalRecords, 'organization', organization.id)
   return <main className="min-h-screen bg-[#f4f5f7] text-slate-900">
     <header className="sticky top-0 z-30 border-b border-slate-200 bg-white shadow-sm"><div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-3 px-4 py-3"><button onClick={closeDetailPage} className="rounded border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">← Voltar</button><div className="min-w-0 flex-1"><h1 className="truncate text-2xl font-semibold tracking-[-0.03em] text-slate-950">{organization.name}</h1><p className="mt-1 truncate text-sm font-semibold text-slate-600">CNPJs: {organization.cnpjs || '-'} / GMV: {money(organization.monthly_purchase)} / UF: {organization.state || '-'}</p></div><Badge tone="bg-emerald-100 text-emerald-700">Ficha de empresa</Badge></div></header>
-    <div className="mx-auto grid max-w-[1600px] gap-4 p-4 xl:grid-cols-[360px_minmax(0,1fr)]">{error && <div className="xl:col-span-2 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><b>Erro:</b> {error}</div>}<aside className="space-y-4"><CollapsibleSection title="Detalhes" defaultOpen><div className="divide-y divide-slate-100"><ReadOnlyField label="Empresa" value={organization.name} /><ReadOnlyField label="Tipo" value={businessTypeOptions.find(([id]) => id === organization.type)?.[1] || organization.type || '-'} /><ReadOnlyField label="Estado" value={organization.state || '-'} /><ReadOnlyField label="Quantidade de CNPJs" value={String(organization.cnpjs ?? '-')} /><ReadOnlyField label="GMV mensal total" value={money(organization.monthly_purchase)} /></div></CollapsibleSection><EntityDealsSummary deals={linkedDeals} openDealPage={openDealPage} /><Panel className="overflow-hidden"><div className="border-b border-slate-200 bg-white p-4"><h2 className="font-bold">Contatos vinculados</h2></div><div className="divide-y divide-slate-100">{companyPeople.map((person) => <button key={person.id} type="button" onClick={() => openPersonPage(person.id)} className="block w-full p-3 text-left text-sm hover:bg-blue-50"><b className="text-blue-700">{person.full_name}</b><p className="text-xs text-slate-500">{person.phone || 'sem telefone'} · {person.email || 'sem email'}</p></button>)}{!companyPeople.length && <p className="p-4 text-sm text-slate-400">Nenhum contato vinculado.</p>}</div></Panel></aside><section><LinkedTimeline deals={linkedDeals} activities={activities} history={history} openDealPage={openDealPage} /></section></div>
+    <div className="mx-auto grid max-w-[1600px] gap-4 p-4 xl:grid-cols-[360px_minmax(0,1fr)]">{error && <div className="xl:col-span-2 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><b>Erro:</b> {error}</div>}<aside className="space-y-4"><CollapsibleSection title="Detalhes" defaultOpen><div className="divide-y divide-slate-100"><ReadOnlyField label="Empresa" value={organization.name} /><ReadOnlyField label="ID da organização no Pipedrive" value={pipedriveOrganizationId || 'Não sincronizado'} /><ReadOnlyField label="Tipo" value={businessTypeOptions.find(([id]) => id === organization.type)?.[1] || organization.type || '-'} /><ReadOnlyField label="Estado" value={organization.state || '-'} /><ReadOnlyField label="Quantidade de CNPJs" value={String(organization.cnpjs ?? '-')} /><ReadOnlyField label="GMV mensal total" value={money(organization.monthly_purchase)} /></div></CollapsibleSection><EntityDealsSummary deals={linkedDeals} openDealPage={openDealPage} /><Panel className="overflow-hidden"><div className="border-b border-slate-200 bg-white p-4"><h2 className="font-bold">Contatos vinculados</h2></div><div className="divide-y divide-slate-100">{companyPeople.map((person) => <button key={person.id} type="button" onClick={() => openPersonPage(person.id)} className="block w-full p-3 text-left text-sm hover:bg-blue-50"><b className="text-blue-700">{person.full_name}</b><p className="text-xs text-slate-500">{person.phone || 'sem telefone'} · {person.email || 'sem email'}</p></button>)}{!companyPeople.length && <p className="p-4 text-sm text-slate-400">Nenhum contato vinculado.</p>}</div></Panel></aside><section><LinkedTimeline deals={linkedDeals} activities={activities} history={history} openDealPage={openDealPage} /></section></div>
   </main>
 }
 
 
-function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canViewCustomFields, activities, history, customFields, customFieldValues, dealLabels, assignedLabels, closeDealPage, saveDeal, createActivity, createNote, deleteDeal, deleteActivity, completeActivity, updateActivity, createLabel, deleteLabel, updateDealLabels, openPersonPage, openOrganizationPage }: {
+function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, canEditOwner, canViewCustomFields, activities, history, customFields, customFieldValues, dealLabels, assignedLabels, closeDealPage, saveDeal, createActivity, createNote, deleteDeal, deleteActivity, completeActivity, updateActivity, createLabel, deleteLabel, updateDealLabels, openPersonPage, openOrganizationPage }: {
   deal?: Deal
   loading: boolean
   error: string
   stages: Stage[]
   crmUsers: CrmUser[]
+  externalRecords: ExternalRecord[]
   canEditOwner: boolean
   canViewCustomFields: boolean
   activities: ActivityRow[]
@@ -2136,6 +2150,7 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
   const vmarketValue = vmarketValueFromForm(form)
   const partnerValue = partnerValueFromForm(form)
   const totalValue = totalValueFromForm(form)
+  const pipedriveDealId = externalIdFor(externalRecords, 'deal', deal.id)
   const companySummary = `CNPJs: ${form.organization_cnpjs || '-'} / GMV: ${money(Number(form.monthly_purchase || 0))} / UF: ${form.organization_state || '-'}`
   const dealValueSummary = <>Valor total do negócio: {money(totalValue)} <span className="text-slate-300">|</span> VMarket: {money(vmarketValue)} <span className="text-slate-300">|</span> Serviços: {money(partnerValue)}</>
   const fillingSource = fillingSourceLabel[form.source] || form.source || 'Importação'
@@ -2234,6 +2249,7 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
             <ReadOnlyField label="Fonte do Lead" value={form.lead_source === 'vmarket' ? 'VMarket' : 'Parceiro'} />
             <ReadOnlyField label="Tipo" value={businessTypeLabel} />
             <InlineField label="Título do negócio" value={form.title} onChange={(v) => update('title', v)} />
+            <ReadOnlyField label="ID do negócio no Pipedrive" value={pipedriveDealId || 'Não sincronizado'} />
             <ReadOnlyField label="Preenchimento" value={fillingSource} />
             <InlineField label="Data esperada de Fechamento" value={form.expected_close_date} onChange={(v) => update('expected_close_date', v)} type="date" displayValue={formatShortDate(form.expected_close_date)} />
             <ReadOnlyField label="Criação do Negócio" value={formatDateTime(deal.pipedrive_deal_created_at)} />
