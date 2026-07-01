@@ -835,9 +835,9 @@ function App() {
   const visibleDeals = useMemo(() => {
     const visibleStageIds = new Set(visibleStages.map((stage) => stage.id))
     const activeSavedFilter = savedDealFilters.find((filter) => filter.id === activeDealFilterId)
-    const canShowLostDeals = filterIncludesDealStatus(activeSavedFilter)
+    const canShowNonOpenDeals = filterIncludesDealStatus(activeSavedFilter)
     const pipelineDeals = visibleStageIds.size ? deals.filter((deal) => deal.stage_id && visibleStageIds.has(deal.stage_id)) : deals
-    const openPipelineDeals = canShowLostDeals ? pipelineDeals : pipelineDeals.filter((deal) => deal.status !== 'perdido')
+    const openPipelineDeals = canShowNonOpenDeals ? pipelineDeals : pipelineDeals.filter((deal) => deal.status === 'aberto' || !deal.status || !statusLabel[deal.status])
     const ownerDeals = activeOwnerFilterId ? openPipelineDeals.filter((deal) => deal.owner_id === activeOwnerFilterId) : openPipelineDeals
     return filterDealsBySavedFilter(ownerDeals, activeSavedFilter, filterFields, filterContext)
   }, [deals, visibleStages, activeOwnerFilterId, savedDealFilters, activeDealFilterId, filterFields, filterContext])
@@ -1371,13 +1371,25 @@ function App() {
       }
 
       if (dealFields.length) {
-        const rows = dealFields.map((field) => ({
+        const parsedRows = dealFields.map((field) => ({
           field_id: field.id,
           entity_id: detailDeal.id,
           value: parseCustomValue(field, customValues[field.id] || ''),
         }))
-        const { error: customErr } = await supabase.from('custom_field_values').upsert(rows, { onConflict: 'field_id,entity_id' })
-        if (customErr) throw customErr
+        const rows = parsedRows.filter((row) => row.value !== null)
+        const emptyFieldIds = parsedRows.filter((row) => row.value === null).map((row) => row.field_id)
+        if (rows.length) {
+          const { error: customErr } = await supabase.from('custom_field_values').upsert(rows, { onConflict: 'field_id,entity_id' })
+          if (customErr) throw customErr
+        }
+        if (emptyFieldIds.length) {
+          const { error: deleteCustomErr } = await supabase
+            .from('custom_field_values')
+            .delete()
+            .eq('entity_id', detailDeal.id)
+            .in('field_id', emptyFieldIds)
+          if (deleteCustomErr) throw deleteCustomErr
+        }
       }
 
       if (form.stage_id) void syncExistingDealToPipedriveIfSalesPipeline(detailDeal.id, form.stage_id)
@@ -2217,6 +2229,11 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
     setShowLostReason(false)
   }
 
+  async function reopenDeal() {
+    const next = { ...form, status: 'aberto', lost_reason: '' }
+    await saveCurrent(next)
+  }
+
   async function submitActivity() {
     setCreatingActivity(true)
     try {
@@ -2311,8 +2328,10 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
           {saved && <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700">Salvo</span>}
         </div>
         <div className="flex w-full flex-wrap gap-2 md:w-auto">
-          <button type="button" disabled={saving || form.status === 'ganho'} onClick={() => void markWon()} className="flex-1 rounded bg-[#238847] px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-[#1f7a40] disabled:opacity-60 md:flex-none">Ganho</button>
-          <button type="button" disabled={saving || form.status === 'perdido'} onClick={() => setShowLostReason(true)} className="flex-1 rounded bg-rose-600 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-rose-700 disabled:opacity-60 md:flex-none">Perdido</button>
+          {form.status === 'aberto' || !statusLabel[form.status] ? <>
+            <button type="button" disabled={saving} onClick={() => void markWon()} className="flex-1 rounded bg-[#238847] px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-[#1f7a40] disabled:opacity-60 md:flex-none">Ganho</button>
+            <button type="button" disabled={saving} onClick={() => setShowLostReason(true)} className="flex-1 rounded bg-rose-600 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-rose-700 disabled:opacity-60 md:flex-none">Perdido</button>
+          </> : <button type="button" disabled={saving} onClick={() => void reopenDeal()} className="flex-1 rounded bg-blue-600 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-blue-700 disabled:opacity-60 md:flex-none">Reabrir</button>}
           {canEditOwner && <button type="button" onClick={() => deleteDeal(deal.id, deal.title)} className="flex-1 rounded border border-rose-200 px-4 py-2 text-sm font-bold text-rose-600 hover:bg-rose-50 md:flex-none">Apagar</button>}
         </div>
       </div>
@@ -3464,11 +3483,12 @@ function WarningsView({ deals, people, organizations, activities, crmUsers, open
 
 function LeadDistributionView({ users, deals }: { users: CrmUser[]; deals: Deal[] }) {
   const activeUsers = users.filter((user) => user.status === 'active' && user.auth_user_id)
+  const isDistributionOpenDeal = (deal: Deal) => (deal.status === 'aberto' || !deal.status || !statusLabel[deal.status]) && deal.pipeline_stages?.pipeline_name === 'Pipeline de Vendas'
   const statsForUser = (user: CrmUser) => {
     const userDeals = deals.filter((deal) => deal.owner_id && deal.owner_id === user.auth_user_id)
     return {
       received: userDeals.length,
-      open: userDeals.filter((deal) => deal.status === 'aberto').length,
+      open: userDeals.filter(isDistributionOpenDeal).length,
       won: userDeals.filter((deal) => deal.status === 'ganho').length,
       lost: userDeals.filter((deal) => deal.status === 'perdido').length,
     }
@@ -3500,7 +3520,7 @@ function LeadDistributionView({ users, deals }: { users: CrmUser[]; deals: Deal[
   return <div className="h-full overflow-auto p-4">
     <div className="mb-4">
       <h2 className="text-2xl font-black tracking-[-0.04em] text-slate-950">Distribuição de Leads</h2>
-      <p className="mt-1 text-sm text-slate-500">Ordem de distribuição: mesmo DDD, mesmo estado, fila geral. Dentro da fila ganha quem tem menos leads abertos. Em empate, quem tem mais negócios ganhos.</p>
+      <p className="mt-1 text-sm text-slate-500">Ordem de distribuição: mesmo DDD, mesmo estado, fila geral. Dentro da fila ganha quem tem menos leads abertos no Pipeline de Vendas. Em empate, quem tem mais negócios ganhos.</p>
     </div>
     <div className="grid gap-4 xl:grid-cols-3">
       <Panel className="overflow-hidden">
