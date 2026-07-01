@@ -1543,6 +1543,7 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
   const [showFilters, setShowFilters] = useState(false)
   const [editingFilter, setEditingFilter] = useState<FilterDraft | null>(null)
   const [expandedStageTotals, setExpandedStageTotals] = useState<Set<string>>(() => new Set())
+  const [expandedPipelineTotals, setExpandedPipelineTotals] = useState(false)
   const activeFilter = savedDealFilters.find((filter) => filter.id === activeDealFilterId)
   const activeOwner = crmUsers.find((user) => user.auth_user_id === activeOwnerFilterId)
   const filterButtonLabel = activeFilter?.name || activeOwner?.full_name || 'Filtro'
@@ -1585,6 +1586,10 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
     .filter((assignment) => assignment.deal_id === dealId && assignment.deal_labels)
     .map((assignment) => assignment.deal_labels as DealLabel)
 
+  const pipelineVmarketValue = deals.reduce((acc, deal) => acc + getDealVmarketValue(deal), 0)
+  const pipelinePartnerValue = deals.reduce((acc, deal) => acc + getDealPartnerValue(deal), 0)
+  const pipelineTotalValue = deals.reduce((acc, deal) => acc + getDealTotalValue(deal), 0)
+
   return <div className="flex min-h-[calc(100vh-7.5rem)] flex-col md:h-full md:min-h-0">
     <div className="border-b border-slate-200 bg-white">
       <div className="flex flex-wrap items-center gap-2 px-3 py-2 md:h-12 md:flex-nowrap md:px-4 md:py-0">
@@ -1595,7 +1600,16 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
         </div>
         <button onClick={() => setShowCreateDeal(true)} className="h-11 rounded border border-[#087d3e] bg-[#238847] px-4 text-sm font-bold text-white shadow-sm hover:bg-[#1f7a40] md:h-auto md:py-1.5">+ Negócio</button>
         <div className="flex w-full flex-wrap items-center gap-2 text-sm text-slate-600 md:ml-auto md:w-auto md:flex-nowrap">
-          <span><b>{deals.length}</b> negócios</span>
+          <div className={cn('flex min-w-0 items-center gap-2 rounded border border-slate-200 bg-slate-50 px-2 py-1 text-xs md:text-sm', expandedPipelineTotals ? 'md:min-w-[380px]' : '')}>
+            <button type="button" onClick={() => setExpandedPipelineTotals((current) => !current)} className="grid h-6 w-6 shrink-0 place-items-center rounded border border-slate-200 bg-white text-sm font-black text-slate-600 hover:border-blue-300 hover:text-blue-700" aria-label={expandedPipelineTotals ? 'Fechar detalhamento total do funil' : 'Abrir detalhamento total do funil'} title={expandedPipelineTotals ? 'Ocultar detalhes do funil' : 'Mostrar detalhes do funil'}>{expandedPipelineTotals ? '-' : '+'}</button>
+            <div className="min-w-0 whitespace-nowrap font-semibold text-slate-700"><b>{deals.length}</b> negócios <span className="text-slate-300">|</span> {money(pipelineTotalValue)}</div>
+            {expandedPipelineTotals && <div className="flex min-w-0 flex-wrap items-center gap-1 whitespace-nowrap text-[11px] font-semibold text-slate-600 md:text-xs">
+              <span className="text-slate-300">|</span>
+              <span title="Total VMarket no funil">v {money(pipelineVmarketValue)}</span>
+              <span className="text-slate-300">|</span>
+              <span title="Total Serviços no funil">s {money(pipelinePartnerValue)}</span>
+            </div>}
+          </div>
           <span className="hidden text-slate-300 md:inline">|</span>
           <select value={activePipeline} onChange={(e) => setActivePipeline(e.target.value)} className="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 outline-none">
             {(pipelineNames.length ? pipelineNames : ['Pipeline de Vendas']).map((name) => <option key={name}>{name}</option>)}
@@ -1657,7 +1671,7 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
                   <p className="line-clamp-2 text-sm font-bold leading-snug text-slate-900">{deal.title}</p>
                   <p className="mt-1 truncate text-xs text-slate-600">{deal.organizations?.name || 'Sem empresa'}</p>
                   <p className="truncate text-xs text-slate-500">{deal.people?.full_name || 'Sem contato'}</p>
-                  <p className="mt-0.5 truncate text-[11px] font-semibold text-slate-700">{money(getDealTotalValue(deal))}</p>
+                  <p className="mt-0.5 truncate text-[11px] font-semibold text-slate-700" title={`Total: ${money(getDealTotalValue(deal))} | VMarket: ${money(getDealVmarketValue(deal))} | Serviços: ${money(getDealPartnerValue(deal))}`}>{money(getDealTotalValue(deal))} <span className="font-normal text-slate-400">|</span> <span className="text-slate-600">v {money(getDealVmarketValue(deal))}</span> <span className="font-normal text-slate-400">|</span> <span className="text-slate-600">s {money(getDealPartnerValue(deal))}</span></p>
                   <div className="mt-2 flex items-center justify-between">
                     <span title={dealOwnerName(deal)} aria-label={`Proprietário: ${dealOwnerName(deal)}`} className="grid h-5 w-5 place-items-center rounded-full bg-slate-200 text-[10px] font-bold text-slate-600">{dealOwnerInitial(deal)}</span>
                     <span title={indicator.title} className={cn('grid h-5 w-5 place-items-center rounded-full text-[11px] font-black', indicator.className)}>{indicator.label}</span>
