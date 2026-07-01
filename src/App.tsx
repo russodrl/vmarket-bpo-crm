@@ -1426,12 +1426,12 @@ function App() {
 
   const navItems: Array<[View, ReactNode, string]> = [
     ['pipeline', <LayoutDashboard size={19}/>, 'Negócios'],
-    ['plans-vmarket', <FileText size={19}/>, 'Planos VMarket'],
-    ['commissions-vmarket', <Star size={19}/>, 'Comissões VMarket'],
     ['contacts', <Contact size={19}/>, 'Contatos'],
     ['companies', <Building2 size={19}/>, 'Empresas'],
     ['activities', <Activity size={19}/>, 'Atividades'],
     ['warnings', <AlertTriangle size={19}/>, 'Avisos'],
+    ['plans-vmarket', <FileText size={19}/>, 'Planos VMarket'],
+    ['commissions-vmarket', <Star size={19}/>, 'Comissões VMarket'],
   ]
   if (profile?.role === 'admin_vmarket') navItems.push(['lead-distribution', <Users size={19}/>, 'Distribuição de Leads'])
   if (profile?.role === 'admin_vmarket') navItems.push(['automations', <Settings size={19}/>, 'Automações'])
