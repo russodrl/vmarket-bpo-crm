@@ -115,6 +115,7 @@ export type Organization = {
   monthly_purchase: number | null
   supplier_count: number | null
   bpo_id: string | null
+  owner_id: string | null
 }
 
 export type Person = {
@@ -129,6 +130,7 @@ export type Person = {
   organization_id: string | null
   labels: string[] | null
   bpo_id: string | null
+  owner_id: string | null
 }
 
 export type Deal = {

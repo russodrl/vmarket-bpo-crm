@@ -1959,6 +1959,8 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
   const vmarketValue = vmarketValueFromForm(form)
   const partnerValue = partnerValueFromForm(form)
   const totalValue = totalValueFromForm(form)
+  const companySummary = `CNPJs: ${form.organization_cnpjs || '-'} / GMV: ${money(Number(form.monthly_purchase || 0))} / UF: ${form.organization_state || '-'}`
+  const dealValueSummary = <>Valor total do negócio: {money(totalValue)} <span className="text-slate-300">|</span> VMarket: {money(vmarketValue)} <span className="text-slate-300">|</span> Serviços: {money(partnerValue)}</>
   const fillingSource = fillingSourceLabel[form.source] || form.source || 'Importação'
   const businessTypeLabel = businessTypeOptions.find(([id]) => id === form.organization_type)?.[1] || '-'
   const openActivities = activities.filter((activity) => activity.status === 'open')
@@ -1975,14 +1977,12 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
           <button onClick={closeDealPage} className="shrink-0 rounded border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">← Voltar</button>
           <div className="min-w-0 flex-1 md:hidden">
             <input value={form.title} onChange={(e) => update('title', e.target.value)} className="w-full truncate bg-transparent text-lg font-semibold tracking-[-0.03em] text-slate-950 outline-none hover:bg-slate-50 focus:bg-slate-50 focus:ring-2 focus:ring-blue-100" aria-label="Título do negócio" />
-            <p className="mt-1 truncate text-xs font-semibold text-blue-600">{currentPipeline} › {currentStage?.name || 'Sem etapa'}</p>
-            <p className="mt-1 text-xs font-semibold text-slate-700">Total: {money(totalValue)} · VMarket: {money(vmarketValue)} · Serviços: {money(partnerValue)}</p>
+            <p className="mt-1 truncate text-xs font-semibold text-slate-600">{companySummary}</p>
           </div>
         </div>
         <div className="hidden min-w-0 flex-1 md:block">
           <input value={form.title} onChange={(e) => update('title', e.target.value)} className="w-full truncate bg-transparent text-2xl font-semibold tracking-[-0.03em] text-slate-950 outline-none hover:bg-slate-50 focus:bg-slate-50 focus:ring-2 focus:ring-blue-100" aria-label="Título do negócio" title="Clique para editar o título do negócio" />
-          <p className="mt-1 text-xs font-semibold text-blue-600">{currentPipeline} › {currentStage?.name || 'Sem etapa'}</p>
-          <p className="mt-1 text-sm font-semibold text-slate-700">Valor total do negócio: {money(totalValue)} <span className="text-slate-300">|</span> VMarket: {money(vmarketValue)} <span className="text-slate-300">|</span> Serviços: {money(partnerValue)}</p>
+          <p className="mt-1 truncate text-sm font-semibold text-slate-600">{companySummary}</p>
         </div>
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <div className="flex max-w-full items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700">
@@ -2012,6 +2012,7 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
             })}
           </div>
           <p className="mt-1 truncate text-xs text-slate-500">{currentPipeline} · {currentStage?.name || 'Sem etapa'}</p>
+          <p className="mt-1 text-xs font-semibold text-slate-700">{dealValueSummary}</p>
         </div>
       </div>
     </header>
