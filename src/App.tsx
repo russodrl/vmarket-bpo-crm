@@ -384,6 +384,7 @@ const money = (value?: number | null) =>
 const numberOrNull = (value: string) => value.trim() === '' ? null : Number(value)
 
 const formatDateTime = (value?: string | null) => value ? new Date(value).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '-'
+const formatActivityDateTime = (value?: string | null) => value ? new Date(value).toLocaleString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }).replace(',', ' às') : 'sem vencimento'
 const toLocalDate = (value?: string | null) => value ? new Date(value).toISOString().slice(0, 10) : ''
 const toLocalTime = (value?: string | null) => value ? new Date(value).toTimeString().slice(0, 5) : ''
 function activityDisplayStatus(activity: ActivityRow) {
@@ -391,6 +392,20 @@ function activityDisplayStatus(activity: ActivityRow) {
   if (activity.status === 'cancelled') return 'cancelada'
   if (activity.due_at && new Date(activity.due_at).getTime() < Date.now()) return 'atrasada'
   return 'aberta'
+}
+function activityStatusLabel(activity: ActivityRow) {
+  const status = activityDisplayStatus(activity)
+  if (status === 'concluida') return 'CONCLUÍDA'
+  if (status === 'atrasada') return 'VENCIDO'
+  if (status === 'cancelada') return 'CANCELADA'
+  return 'ABERTA'
+}
+function activityStatusTone(activity: ActivityRow) {
+  const status = activityDisplayStatus(activity)
+  if (status === 'concluida') return 'bg-emerald-100 text-emerald-700'
+  if (status === 'atrasada') return 'bg-rose-100 text-rose-700'
+  if (status === 'cancelada') return 'bg-slate-200 text-slate-700'
+  return 'bg-blue-100 text-blue-700'
 }
 function daysSince(value?: string | null) {
   if (!value) return 0
@@ -1589,10 +1604,10 @@ function App() {
     return <><DealPage key={detailDealId} deal={detailDeal} loading={loading} error={error} stages={stages} crmUsers={crmUsers} externalRecords={externalRecords} canEditOwner={isAdmin} canViewCustomFields={isAdmin} activities={activities.filter((a) => a.deal_id === detailDealId)} history={history.filter((h) => h.deal_id === detailDealId)} dealLabels={dealLabels} assignedLabels={dealLabelAssignments.filter((assignment) => assignment.deal_id === detailDealId)} attachments={dealAttachments.filter((attachment) => attachment.deal_id === detailDealId)} closeDealPage={closeDealPage} saveDeal={saveDeal} createActivity={createActivityForDeal} createNote={createNoteForDeal} deleteDeal={(id, label) => deleteOneRecord('deal', id, label)} deleteActivity={(id, label) => deleteOneRecord('activity', id, label)} customFields={isAdmin ? customFields.filter((field) => field.entity === 'deal') : []} customFieldValues={isAdmin ? customFieldValues.filter((value) => value.entity_id === detailDealId) : []} completeActivity={completeActivity} updateActivity={updateActivity} createLabel={createDealLabel} deleteLabel={deleteDealLabel} updateDealLabels={updateDealLabels} openPersonPage={openPersonPage} openOrganizationPage={openOrganizationPage} unlinkDealPerson={unlinkDealPerson} unlinkDealOrganization={unlinkDealOrganization} reloadDeal={loadAll} /><TomatinhoChat session={session} contextDealId={detailDealId} onReload={loadAll} /></>
   }
   if (detailPersonId) {
-    return <><ContactPage key={detailPersonId} person={detailPerson} organization={organizations.find((org) => org.id === detailPerson?.organization_id)} loading={loading} error={error} deals={deals} activities={activities} history={history} externalRecords={externalRecords} crmUsers={crmUsers} canDelete={profile?.role === 'admin_vmarket'} deletePerson={(id, label) => deleteOneRecord('person', id, label)} openDealPage={openDealPage} openOrganizationPage={openOrganizationPage} unlinkPersonOrganization={unlinkPersonOrganization} reloadDetail={loadAll} closeDetailPage={closeDetailPage} /><TomatinhoChat session={session} onReload={loadAll} /></>
+    return <><ContactPage key={detailPersonId} person={detailPerson} organization={organizations.find((org) => org.id === detailPerson?.organization_id)} loading={loading} error={error} deals={deals} activities={activities} history={history} externalRecords={externalRecords} crmUsers={crmUsers} canDelete={profile?.role === 'admin_vmarket'} deletePerson={(id, label) => deleteOneRecord('person', id, label)} openDealPage={openDealPage} openOrganizationPage={openOrganizationPage} unlinkPersonOrganization={unlinkPersonOrganization} completeActivity={completeActivity} reloadDetail={loadAll} closeDetailPage={closeDetailPage} /><TomatinhoChat session={session} onReload={loadAll} /></>
   }
   if (detailOrganizationId) {
-    return <><CompanyPage key={detailOrganizationId} organization={detailOrganization} loading={loading} error={error} deals={deals} people={people} activities={activities} history={history} externalRecords={externalRecords} crmUsers={crmUsers} canDelete={profile?.role === 'admin_vmarket'} deleteOrganization={(id, label) => deleteOneRecord('organization', id, label)} openDealPage={openDealPage} openPersonPage={openPersonPage} unlinkPersonOrganization={unlinkPersonOrganization} reloadDetail={loadAll} closeDetailPage={closeDetailPage} /><TomatinhoChat session={session} onReload={loadAll} /></>
+    return <><CompanyPage key={detailOrganizationId} organization={detailOrganization} loading={loading} error={error} deals={deals} people={people} activities={activities} history={history} externalRecords={externalRecords} crmUsers={crmUsers} canDelete={profile?.role === 'admin_vmarket'} deleteOrganization={(id, label) => deleteOneRecord('organization', id, label)} openDealPage={openDealPage} openPersonPage={openPersonPage} unlinkPersonOrganization={unlinkPersonOrganization} completeActivity={completeActivity} reloadDetail={loadAll} closeDetailPage={closeDetailPage} /><TomatinhoChat session={session} onReload={loadAll} /></>
   }
 
   const navItems: Array<[View, ReactNode, string]> = [
@@ -1639,7 +1654,7 @@ function App() {
                 {activeView === 'commissions-vmarket' && <VmarketCommissionsView deals={deals} stages={stages} history={history} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} />}
                 {activeView === 'contacts' && <EntityListView title="Contatos" icon={<Contact size={18}/>} entity="person" rows={visiblePeople} deals={deals} people={people} organizations={organizations} stages={stages} crmUsers={crmUsers} dealLabelAssignments={dealLabelAssignments} selectedId={detailPersonId} onOpen={openPersonPage} savedFilters={savedDealFilters} activeFilterId={activeDealFilterId} activeOwnerId={activeOwnerFilterId} setActiveFilterId={setActiveDealFilterId} setActiveOwnerId={setActiveOwnerFilterId} users={crmUsers} filterFields={filterFields} filterContext={filterContext} saveDealFilter={saveDealFilter} onDeleteFilter={deleteDealFilter} onToggleFavoriteFilter={toggleDealFilterFavorite} applyFilterColumns={applyFilterColumns} visibleColumns={personListColumns} setVisibleColumns={setPersonColumns} />}
                 {activeView === 'companies' && <EntityListView title="Empresas" icon={<Building2 size={18}/>} entity="organization" rows={visibleOrganizations} deals={deals} people={people} organizations={organizations} stages={stages} crmUsers={crmUsers} dealLabelAssignments={dealLabelAssignments} selectedId={detailOrganizationId} onOpen={openOrganizationPage} savedFilters={savedDealFilters} activeFilterId={activeDealFilterId} activeOwnerId={activeOwnerFilterId} setActiveFilterId={setActiveDealFilterId} setActiveOwnerId={setActiveOwnerFilterId} users={crmUsers} filterFields={filterFields} filterContext={filterContext} saveDealFilter={saveDealFilter} onDeleteFilter={deleteDealFilter} onToggleFavoriteFilter={toggleDealFilterFavorite} applyFilterColumns={applyFilterColumns} visibleColumns={organizationListColumns} setVisibleColumns={setOrganizationColumns} />}
-                {activeView === 'activities' && <ActivitiesView activities={activities} deals={deals} completeActivity={completeActivity} updateActivity={updateActivity} canDelete={profile?.role === 'admin_vmarket'} deleteActivity={(id, label) => deleteOneRecord('activity', id, label)} />}
+                {activeView === 'activities' && <ActivitiesView activities={activities} deals={deals} crmUsers={crmUsers} completeActivity={completeActivity} updateActivity={updateActivity} canDelete={profile?.role === 'admin_vmarket'} deleteActivity={(id, label) => deleteOneRecord('activity', id, label)} />}
                 {activeView === 'warnings' && <WarningsView deals={deals} people={people} organizations={organizations} activities={activities} crmUsers={crmUsers} openDealPage={openDealPage} reload={loadAll} setError={setError} />}
                 {activeView === 'lead-distribution' && profile?.role === 'admin_vmarket' && <LeadDistributionView users={crmUsers} deals={deals} />}
                 {activeView === 'automations' && profile?.role === 'admin_vmarket' && <AutomationsView rules={automationRules} executions={automationExecutions} changes={automationChanges} />}
@@ -2300,7 +2315,7 @@ function EntityDealsSummary({ deals, openDealPage }: { deals: Deal[]; openDealPa
   </Panel>
 }
 
-function LinkedTimeline({ deals, activities, history, openDealPage }: { deals: Deal[]; activities: ActivityRow[]; history: HistoryRow[]; openDealPage: (id: string) => void }) {
+function LinkedTimeline({ deals, activities, history, crmUsers, completeActivity, openDealPage }: { deals: Deal[]; activities: ActivityRow[]; history: HistoryRow[]; crmUsers: CrmUser[]; completeActivity: (id: string) => Promise<void>; openDealPage: (id: string) => void }) {
   const dealIds = new Set(deals.map((deal) => deal.id))
   const timeline = ([
     ...activities.filter((activity) => activity.deal_id && dealIds.has(activity.deal_id)).map((activity) => ({ id: `activity-${activity.id}`, kind: 'Atividade', title: activity.title, description: activity.note, date: activity.due_at || activity.created_at || null, status: activity.status, dealId: activity.deal_id, activity })),
@@ -2310,19 +2325,22 @@ function LinkedTimeline({ deals, activities, history, openDealPage }: { deals: D
   return <Panel className="overflow-hidden">
     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white p-4"><div><h2 className="text-lg font-bold">Histórico</h2><p className="mt-1 text-xs text-slate-500">Atividades e alterações de todos os negócios vinculados.</p></div><Badge tone="bg-slate-100 text-slate-700">{timeline.length} registros</Badge></div>
     <div className="min-h-[420px] space-y-0 p-4">
-      {timeline.map((item) => <div key={item.id} className="grid grid-cols-[40px_1fr] gap-3 pb-5 text-sm last:pb-0">
+      {timeline.map((item) => {
+        const linkedDeal = deals.find((deal) => deal.id === item.dealId)
+        return <div key={item.id} className="grid grid-cols-[40px_1fr] gap-3 pb-5 text-sm last:pb-0">
         <div className="relative flex justify-center"><TimelineIcon item={item} /><span className="absolute top-10 h-full w-px bg-slate-200" /></div>
-        <div className="rounded border border-slate-200 bg-white p-3 shadow-sm">
-          <div className="flex flex-wrap items-start justify-between gap-2"><div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{item.kind}</p><b className="text-slate-900">{item.title}</b><button type="button" onClick={() => item.dealId && openDealPage(item.dealId)} className="mt-1 block text-left text-xs font-bold text-blue-700 hover:underline">{dealName(item.dealId)}</button></div><div className="flex items-center gap-2">{item.activity?.status === 'done' && <span className="text-xs font-bold text-emerald-700">Concluído</span>}{item.date && <span className="text-xs text-slate-500">{formatDateTime(item.date)}</span>}</div></div>
+        {item.activity ? <ActivityInlineRow activity={item.activity} deal={linkedDeal} ownerName={crmOwnerDisplay(crmUsers, item.activity.owner_id, 'Sem usuário')} onComplete={completeActivity} /> : <div className="rounded border border-slate-200 bg-white p-3 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-2"><div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{item.kind}</p><b className="text-slate-900">{item.title}</b><button type="button" onClick={() => item.dealId && openDealPage(item.dealId)} className="mt-1 block text-left text-xs font-bold text-blue-700 hover:underline">{dealName(item.dealId)}</button></div><div className="flex items-center gap-2">{item.date && <span className="text-xs text-slate-500">{formatDateTime(item.date)}</span>}</div></div>
           {item.description && <p className="mt-2 whitespace-pre-wrap text-slate-600">{item.description}</p>}
-        </div>
-      </div>)}
+        </div>}
+      </div>
+      })}
       {!timeline.length && <p className="rounded border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">Sem histórico ainda.</p>}
     </div>
   </Panel>
 }
 
-function ContactPage({ person, organization, loading, error, deals, activities, history, externalRecords, crmUsers, canDelete = false, deletePerson, openDealPage, openOrganizationPage, unlinkPersonOrganization, reloadDetail, closeDetailPage }: { person?: Person; organization?: Organization; loading: boolean; error: string; deals: Deal[]; activities: ActivityRow[]; history: HistoryRow[]; externalRecords: ExternalRecord[]; crmUsers: CrmUser[]; canDelete?: boolean; deletePerson?: (id: string, label: string) => void; openDealPage: (id: string) => void; openOrganizationPage: (id: string) => void; unlinkPersonOrganization: (id: string) => Promise<void>; reloadDetail: () => Promise<void>; closeDetailPage: () => void }) {
+function ContactPage({ person, organization, loading, error, deals, activities, history, externalRecords, crmUsers, canDelete = false, deletePerson, openDealPage, openOrganizationPage, unlinkPersonOrganization, completeActivity, reloadDetail, closeDetailPage }: { person?: Person; organization?: Organization; loading: boolean; error: string; deals: Deal[]; activities: ActivityRow[]; history: HistoryRow[]; externalRecords: ExternalRecord[]; crmUsers: CrmUser[]; canDelete?: boolean; deletePerson?: (id: string, label: string) => void; openDealPage: (id: string) => void; openOrganizationPage: (id: string) => void; unlinkPersonOrganization: (id: string) => Promise<void>; completeActivity: (id: string) => Promise<void>; reloadDetail: () => Promise<void>; closeDetailPage: () => void }) {
   if (loading) return <main className="min-h-screen bg-[#f4f5f7] p-5 text-slate-900"><LoadingBpo /></main>
   if (!person) return <main className="min-h-screen bg-[#f4f5f7] p-5 text-slate-900"><div className="rounded bg-white p-6 shadow-sm"><h1 className="text-xl font-bold">Contato não encontrado</h1><button onClick={closeDetailPage} className="mt-4 rounded bg-[#238847] px-4 py-2 text-sm font-bold text-white">Voltar</button></div></main>
   const linkedDeals = deals.filter((deal) => deal.person_id === person.id)
@@ -2336,11 +2354,11 @@ function ContactPage({ person, organization, loading, error, deals, activities, 
   }
   return <main className="min-h-screen bg-[#f4f5f7] text-slate-900">
     <header className="sticky top-0 z-30 border-b border-slate-200 bg-white shadow-sm"><div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-3 px-4 py-3"><button onClick={closeDetailPage} className="rounded border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">← Voltar</button><div className="min-w-0 flex-1"><h1 className="truncate text-2xl font-semibold tracking-[-0.03em] text-slate-950">{person.full_name}</h1><p className="mt-1 truncate text-sm font-semibold text-slate-600">{person.phone || 'sem telefone'} · {person.email || 'sem email'}</p></div><Badge tone="bg-blue-100 text-blue-700">Ficha de contato</Badge>{canDelete && <button type="button" onClick={() => deletePerson?.(person.id, person.full_name)} className="rounded border border-rose-200 px-4 py-2 text-sm font-bold text-rose-600 hover:bg-rose-50">Apagar</button>}</div></header>
-    <div className="mx-auto grid max-w-[1600px] gap-4 p-4 xl:grid-cols-[360px_minmax(0,1fr)]">{error && <div className="xl:col-span-2 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><b>Erro:</b> {error}</div>}<aside className="space-y-4"><CollapsibleSection title="Detalhes" defaultOpen><div className="divide-y divide-slate-100"><InlineField label="Nome do Contato" value={person.full_name} onChange={() => undefined} onSaveValue={(value) => savePersonField('full_name', value)} /><ReadOnlyField label="Proprietário do contato" value={personOwner} /><LinkedEditableField label="Empresa vinculada" value={organization?.name || 'Sem empresa vinculada'} onOpen={organization ? () => openOrganizationPage(organization.id) : undefined} onUnlink={person.organization_id ? () => unlinkPersonOrganization(person.id) : undefined} /><ReadOnlyField label="ID do contato no Pipedrive" value={pipedrivePersonId || 'Não sincronizado'} /><InlineField label="Cargo" value={person.role_title || ''} onChange={() => undefined} onSaveValue={(value) => savePersonField('role_title', value)} /><InlineField label="Email" value={person.email || ''} onChange={() => undefined} onSaveValue={(value) => savePersonField('email', value)} type="email" /><InlineField label="Telefone" value={person.phone || ''} onChange={() => undefined} onSaveValue={(value) => savePersonField('phone', value)} /><ReadOnlyField label="DDD" value={person.ddd_prefix || '-'} /><ReadOnlyField label="Estado DDD" value={person.ddd_state || '-'} /></div></CollapsibleSection><EntityDealsSummary deals={linkedDeals} openDealPage={openDealPage} /></aside><section><LinkedTimeline deals={linkedDeals} activities={activities} history={history} openDealPage={openDealPage} /></section></div>
+    <div className="mx-auto grid max-w-[1600px] gap-4 p-4 xl:grid-cols-[360px_minmax(0,1fr)]">{error && <div className="xl:col-span-2 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><b>Erro:</b> {error}</div>}<aside className="space-y-4"><CollapsibleSection title="Detalhes" defaultOpen><div className="divide-y divide-slate-100"><InlineField label="Nome do Contato" value={person.full_name} onChange={() => undefined} onSaveValue={(value) => savePersonField('full_name', value)} /><ReadOnlyField label="Proprietário do contato" value={personOwner} /><LinkedEditableField label="Empresa vinculada" value={organization?.name || 'Sem empresa vinculada'} onOpen={organization ? () => openOrganizationPage(organization.id) : undefined} onUnlink={person.organization_id ? () => unlinkPersonOrganization(person.id) : undefined} /><ReadOnlyField label="ID do contato no Pipedrive" value={pipedrivePersonId || 'Não sincronizado'} /><InlineField label="Cargo" value={person.role_title || ''} onChange={() => undefined} onSaveValue={(value) => savePersonField('role_title', value)} /><InlineField label="Email" value={person.email || ''} onChange={() => undefined} onSaveValue={(value) => savePersonField('email', value)} type="email" /><InlineField label="Telefone" value={person.phone || ''} onChange={() => undefined} onSaveValue={(value) => savePersonField('phone', value)} /><ReadOnlyField label="DDD" value={person.ddd_prefix || '-'} /><ReadOnlyField label="Estado DDD" value={person.ddd_state || '-'} /></div></CollapsibleSection><EntityDealsSummary deals={linkedDeals} openDealPage={openDealPage} /></aside><section><LinkedTimeline deals={linkedDeals} activities={activities} history={history} crmUsers={crmUsers} completeActivity={completeActivity} openDealPage={openDealPage} /></section></div>
   </main>
 }
 
-function CompanyPage({ organization, loading, error, deals, people, activities, history, externalRecords, crmUsers, canDelete = false, deleteOrganization, openDealPage, openPersonPage, unlinkPersonOrganization, reloadDetail, closeDetailPage }: { organization?: Organization; loading: boolean; error: string; deals: Deal[]; people: Person[]; activities: ActivityRow[]; history: HistoryRow[]; externalRecords: ExternalRecord[]; crmUsers: CrmUser[]; canDelete?: boolean; deleteOrganization?: (id: string, label: string) => void; openDealPage: (id: string) => void; openPersonPage: (id: string) => void; unlinkPersonOrganization: (id: string) => Promise<void>; reloadDetail: () => Promise<void>; closeDetailPage: () => void }) {
+function CompanyPage({ organization, loading, error, deals, people, activities, history, externalRecords, crmUsers, canDelete = false, deleteOrganization, openDealPage, openPersonPage, unlinkPersonOrganization, completeActivity, reloadDetail, closeDetailPage }: { organization?: Organization; loading: boolean; error: string; deals: Deal[]; people: Person[]; activities: ActivityRow[]; history: HistoryRow[]; externalRecords: ExternalRecord[]; crmUsers: CrmUser[]; canDelete?: boolean; deleteOrganization?: (id: string, label: string) => void; openDealPage: (id: string) => void; openPersonPage: (id: string) => void; unlinkPersonOrganization: (id: string) => Promise<void>; completeActivity: (id: string) => Promise<void>; reloadDetail: () => Promise<void>; closeDetailPage: () => void }) {
   if (loading) return <main className="min-h-screen bg-[#f4f5f7] p-5 text-slate-900"><LoadingBpo /></main>
   if (!organization) return <main className="min-h-screen bg-[#f4f5f7] p-5 text-slate-900"><div className="rounded bg-white p-6 shadow-sm"><h1 className="text-xl font-bold">Empresa não encontrada</h1><button onClick={closeDetailPage} className="mt-4 rounded bg-[#238847] px-4 py-2 text-sm font-bold text-white">Voltar</button></div></main>
   const companyPeople = people.filter((person) => person.organization_id === organization.id)
@@ -2358,7 +2376,7 @@ function CompanyPage({ organization, loading, error, deals, people, activities, 
   }
   return <main className="min-h-screen bg-[#f4f5f7] text-slate-900">
     <header className="sticky top-0 z-30 border-b border-slate-200 bg-white shadow-sm"><div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-3 px-4 py-3"><button onClick={closeDetailPage} className="rounded border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">← Voltar</button><div className="min-w-0 flex-1"><h1 className="truncate text-2xl font-semibold tracking-[-0.03em] text-slate-950">{organization.name}</h1><p className="mt-1 truncate text-sm font-semibold text-slate-600">CNPJs: {organization.cnpjs || '-'} / GMV: {money(organization.monthly_purchase)} / UF: {organization.state || '-'}</p></div><Badge tone="bg-emerald-100 text-emerald-700">Ficha de empresa</Badge>{canDelete && <button type="button" onClick={() => deleteOrganization?.(organization.id, organization.name)} className="rounded border border-rose-200 px-4 py-2 text-sm font-bold text-rose-600 hover:bg-rose-50">Apagar</button>}</div></header>
-    <div className="mx-auto grid max-w-[1600px] gap-4 p-4 xl:grid-cols-[360px_minmax(0,1fr)]">{error && <div className="xl:col-span-2 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><b>Erro:</b> {error}</div>}<aside className="space-y-4"><CollapsibleSection title="Detalhes" defaultOpen><div className="divide-y divide-slate-100"><InlineField label="Empresa" value={organization.name} onChange={() => undefined} onSaveValue={(value) => saveOrganizationField('name', value)} /><ReadOnlyField label="Proprietário da empresa" value={organizationOwner} /><ReadOnlyField label="ID da organização no Pipedrive" value={pipedriveOrganizationId || 'Não sincronizado'} /><InlineSelect label="Tipo" value={organization.type || ''} onChange={() => undefined} onSaveValue={(value) => saveOrganizationField('type', value)} options={businessTypeOptions} /><InlineSelect label="Estado" value={organization.state || ''} onChange={() => undefined} onSaveValue={(value) => saveOrganizationField('state', value)} options={dddStateOptions} /><InlineField label="Quantidade de CNPJs" value={String(organization.cnpjs ?? '')} onChange={() => undefined} onSaveValue={(value) => saveOrganizationField('cnpjs', value)} type="number" /><InlineField label="GMV mensal total" value={String(organization.monthly_purchase ?? '')} onChange={() => undefined} onSaveValue={(value) => saveOrganizationField('monthly_purchase', value)} type="number" displayValue={money(organization.monthly_purchase)} /></div></CollapsibleSection><EntityDealsSummary deals={linkedDeals} openDealPage={openDealPage} /><Panel className="overflow-hidden"><div className="border-b border-slate-200 bg-white p-4"><h2 className="font-bold">Contatos vinculados</h2></div><div className="divide-y divide-slate-100">{companyPeople.map((person) => <LinkedEditableField key={person.id} label="Contato vinculado" value={`${person.full_name} · ${person.phone || 'sem telefone'} · ${person.email || 'sem email'}`} onOpen={() => openPersonPage(person.id)} onUnlink={() => unlinkPersonOrganization(person.id)} />)}{!companyPeople.length && <p className="p-4 text-sm text-slate-400">Nenhum contato vinculado.</p>}</div></Panel></aside><section><LinkedTimeline deals={linkedDeals} activities={activities} history={history} openDealPage={openDealPage} /></section></div>
+    <div className="mx-auto grid max-w-[1600px] gap-4 p-4 xl:grid-cols-[360px_minmax(0,1fr)]">{error && <div className="xl:col-span-2 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><b>Erro:</b> {error}</div>}<aside className="space-y-4"><CollapsibleSection title="Detalhes" defaultOpen><div className="divide-y divide-slate-100"><InlineField label="Empresa" value={organization.name} onChange={() => undefined} onSaveValue={(value) => saveOrganizationField('name', value)} /><ReadOnlyField label="Proprietário da empresa" value={organizationOwner} /><ReadOnlyField label="ID da organização no Pipedrive" value={pipedriveOrganizationId || 'Não sincronizado'} /><InlineSelect label="Tipo" value={organization.type || ''} onChange={() => undefined} onSaveValue={(value) => saveOrganizationField('type', value)} options={businessTypeOptions} /><InlineSelect label="Estado" value={organization.state || ''} onChange={() => undefined} onSaveValue={(value) => saveOrganizationField('state', value)} options={dddStateOptions} /><InlineField label="Quantidade de CNPJs" value={String(organization.cnpjs ?? '')} onChange={() => undefined} onSaveValue={(value) => saveOrganizationField('cnpjs', value)} type="number" /><InlineField label="GMV mensal total" value={String(organization.monthly_purchase ?? '')} onChange={() => undefined} onSaveValue={(value) => saveOrganizationField('monthly_purchase', value)} type="number" displayValue={money(organization.monthly_purchase)} /></div></CollapsibleSection><EntityDealsSummary deals={linkedDeals} openDealPage={openDealPage} /><Panel className="overflow-hidden"><div className="border-b border-slate-200 bg-white p-4"><h2 className="font-bold">Contatos vinculados</h2></div><div className="divide-y divide-slate-100">{companyPeople.map((person) => <LinkedEditableField key={person.id} label="Contato vinculado" value={`${person.full_name} · ${person.phone || 'sem telefone'} · ${person.email || 'sem email'}`} onOpen={() => openPersonPage(person.id)} onUnlink={() => unlinkPersonOrganization(person.id)} />)}{!companyPeople.length && <p className="p-4 text-sm text-slate-400">Nenhum contato vinculado.</p>}</div></Panel></aside><section><LinkedTimeline deals={linkedDeals} activities={activities} history={history} crmUsers={crmUsers} completeActivity={completeActivity} openDealPage={openDealPage} /></section></div>
   </main>
 }
 
@@ -2765,13 +2783,7 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
             <div className="min-h-[420px] space-y-0 p-4">
               {timeline.length ? timeline.map((item) => <div key={item.id} className="grid grid-cols-[40px_1fr] gap-3 pb-5 text-sm last:pb-0">
                 <div className="relative flex justify-center"><TimelineIcon item={item} /><span className="absolute top-10 h-full w-px bg-slate-200" /></div>
-                <div className="rounded border border-slate-200 bg-white p-3 shadow-sm">
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{item.kind}</p>{item.activity ? <button type="button" onClick={() => item.activity && setEditingActivity(item.activity)} className="text-left font-bold text-slate-900 hover:text-blue-700 hover:underline">{item.title}</button> : <b className="text-slate-900">{item.title}</b>}</div>
-                    <div className="flex items-center gap-2">{item.activity?.status === 'done' && <span className="text-xs font-bold text-emerald-700">Concluído</span>}{item.date && <span className="text-xs text-slate-500">{formatDateTime(item.date)}</span>}{item.activity?.status === 'open' && <button type="button" onClick={() => item.activity && void completeActivity(item.activity.id)} className="rounded border border-emerald-200 px-2 py-1 text-[10px] font-bold text-emerald-700 hover:bg-emerald-50">Concluir</button>}{item.activity && canEditOwner && <button type="button" onClick={() => item.activity && deleteActivity(item.activity.id, item.activity.title)} className="rounded border border-rose-200 px-2 py-1 text-[10px] font-bold text-rose-600 hover:bg-rose-50">Apagar</button>}</div>
-                  </div>
-                  {item.description && <p className="mt-2 whitespace-pre-wrap text-slate-600">{item.description}</p>}
-                </div>
+                {item.activity ? <ActivityInlineRow activity={item.activity} deal={deal} ownerName={crmOwnerDisplay(crmUsers, item.activity.owner_id, deal.pipedrive_owner_name || 'Sem usuário')} onComplete={completeActivity} onEdit={setEditingActivity} onDelete={canEditOwner ? deleteActivity : undefined} /> : <div className="rounded border border-slate-200 bg-white p-3 shadow-sm"><div className="flex flex-wrap items-start justify-between gap-2"><div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{item.kind}</p><b className="text-slate-900">{item.title}</b></div><div>{item.date && <span className="text-xs text-slate-500">{formatDateTime(item.date)}</span>}</div></div>{item.description && <p className="mt-2 whitespace-pre-wrap text-slate-600">{item.description}</p>}</div>}
               </div>) : <p className="rounded border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">Sem histórico ainda.</p>}
             </div>
           </Panel>
@@ -2945,11 +2957,6 @@ function activityToEditDraft(activity: ActivityRow): ActivityEditDraft {
   }
 }
 
-function ActivityStatusDot({ status }: { status: ActivityRow['status'] }) {
-  if (status === 'done') return <span className="mt-0.5 grid h-5 w-5 place-items-center rounded-full bg-emerald-500 text-[12px] font-black leading-none text-white ring-4 ring-emerald-100">✓</span>
-  return <span className="mt-1 h-4 w-4 rounded-full border-2 border-slate-300 bg-white ring-4 ring-slate-100" />
-}
-
 function TimelineIcon({ item }: { item: { kind: string; activity?: ActivityRow } }) {
   const type = item.activity?.activity_type || ''
   const lowerKind = item.kind.toLowerCase()
@@ -2967,6 +2974,34 @@ function TimelineIcon({ item }: { item: { kind: string; activity?: ActivityRow }
     tone = 'bg-amber-50 text-amber-700 ring-amber-200'
   }
   return <span className={cn('mt-0 grid h-9 w-9 place-items-center rounded-full ring-1 shadow-sm', tone)}>{icon}</span>
+}
+
+function ActivityInlineRow({ activity, deal, ownerName, onComplete, onEdit, onDelete }: { activity: ActivityRow; deal?: Deal; ownerName?: string; onComplete?: (id: string) => Promise<void>; onEdit?: (activity: ActivityRow) => void; onDelete?: (id: string, label: string) => void }) {
+  const isDone = activity.status === 'done'
+  const contactName = deal?.people?.full_name || 'Sem contato'
+  const companyName = deal?.organizations?.name || 'Sem empresa'
+  return <div className={cn('rounded border bg-white px-3 py-2 shadow-sm', isDone ? 'border-emerald-100' : 'border-slate-200')}>
+    <div className="flex items-start justify-between gap-3">
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center gap-2">
+          <button type="button" title={isDone ? 'Concluído' : 'Marcar como feito'} aria-label={isDone ? 'Atividade concluída' : 'Marcar como feito'} disabled={isDone || !onComplete} onClick={() => onComplete && void onComplete(activity.id)} className={cn('grid h-5 w-5 shrink-0 place-items-center rounded-full border-2 bg-white text-[11px] font-black transition', isDone ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-emerald-600 text-transparent hover:bg-emerald-50 hover:text-emerald-700 disabled:opacity-60')}>{isDone ? '✓' : '✓'}</button>
+          <button type="button" onClick={() => onEdit?.(activity)} className={cn('truncate text-left text-base font-bold hover:text-blue-700 hover:underline', isDone ? 'text-slate-500 line-through' : 'text-slate-900')}>{activity.title}</button>
+        </div>
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
+          <span className={cn('rounded px-1.5 py-0.5 text-[10px] font-black leading-none', activityStatusTone(activity))}>{activityStatusLabel(activity)}</span>
+          <span>{formatActivityDateTime(activity.due_at)}</span>
+          <span>·</span>
+          <span>{ownerName || 'Sem usuário'}</span>
+          <span className="inline-flex items-center gap-1"><User size={12}/>{contactName}</span>
+          <span className="inline-flex items-center gap-1"><Building2 size={12}/>{companyName}</span>
+        </div>
+        {activity.note && <p className="mt-2 whitespace-pre-wrap text-sm text-slate-600">{activity.note}</p>}
+      </div>
+      <div className="flex shrink-0 items-center gap-1">
+        {onDelete && <button type="button" aria-label="Apagar atividade" onClick={() => onDelete(activity.id, activity.title)} className="rounded px-2 py-1 text-lg font-bold leading-none text-slate-400 hover:bg-slate-100 hover:text-slate-700">...</button>}
+      </div>
+    </div>
+  </div>
 }
 
 function ActivityEditorModal({ activity, onClose, onSave }: { activity: ActivityRow; onClose: () => void; onSave: (draft: ActivityEditDraft) => Promise<void> }) {
@@ -3498,35 +3533,19 @@ function EntityListView({ title, icon, entity, rows, deals, people, organization
   </div>
 }
 
-function ActivitiesView({ activities, deals, completeActivity, updateActivity, canDelete = false, deleteActivity }: { activities: ActivityRow[]; deals: Deal[]; completeActivity: (id: string) => Promise<void>; updateActivity: (activityId: string, draft: ActivityEditDraft) => Promise<void>; canDelete?: boolean; deleteActivity?: (id: string, label: string) => void }) {
+function ActivitiesView({ activities, deals, crmUsers, completeActivity, updateActivity, canDelete = false, deleteActivity }: { activities: ActivityRow[]; deals: Deal[]; crmUsers: CrmUser[]; completeActivity: (id: string) => Promise<void>; updateActivity: (activityId: string, draft: ActivityEditDraft) => Promise<void>; canDelete?: boolean; deleteActivity?: (id: string, label: string) => void }) {
   const [editingActivity, setEditingActivity] = useState<ActivityRow | null>(null)
-  const statusTone = (status: string) => status === 'concluida' ? 'bg-emerald-100 text-emerald-700' : status === 'atrasada' ? 'bg-rose-100 text-rose-700' : 'bg-blue-100 text-blue-700'
   return <div className="h-full overflow-y-auto p-5">
     <Panel>
       <div className="flex items-center gap-2 border-b border-slate-200 p-4"><CalendarClock size={18} className="text-[#6f5cf6]"/><h2 className="text-lg font-bold">Atividades</h2></div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">
-            <tr><th className="px-4 py-3">Atividade</th><th className="px-4 py-3">Criada em</th><th className="px-4 py-3">Concluída em</th><th className="px-4 py-3">Negócio</th><th className="px-4 py-3">Contato</th><th className="px-4 py-3">Empresa</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Vencimento</th><th className="px-4 py-3">Ações</th></tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {activities.map((a) => {
-              const deal = deals.find((d) => d.id === a.deal_id)
-              const displayStatus = activityDisplayStatus(a)
-              return <tr key={a.id} className="hover:bg-slate-50">
-                <td className="min-w-[220px] px-4 py-3"><div className="flex items-center gap-3"><ActivityStatusDot status={a.status}/><button type="button" onClick={() => setEditingActivity(a)} className="text-left font-bold text-slate-900 hover:text-blue-700 hover:underline">{a.title}</button></div></td>
-                <td className="px-4 py-3 text-slate-600">{formatDateTime(a.created_at)}</td>
-                <td className="px-4 py-3 text-slate-600">{formatDateTime(a.completed_at)}</td>
-                <td className="px-4 py-3 text-slate-700">{deal?.title || 'Sem negócio'}</td>
-                <td className="px-4 py-3 text-slate-600">{deal?.people?.full_name || 'Sem contato'}</td>
-                <td className="px-4 py-3 text-slate-600">{deal?.organizations?.name || 'Sem empresa'}</td>
-                <td className="px-4 py-3"><Badge tone={statusTone(displayStatus)}>{displayStatus}</Badge></td>
-                <td className="px-4 py-3 text-slate-600">{formatDateTime(a.due_at)}</td>
-                <td className="px-4 py-3"><div className="flex gap-2">{a.status === 'open' && <button type="button" onClick={() => void completeActivity(a.id)} className="rounded border border-emerald-200 px-3 py-1.5 text-xs font-bold text-emerald-700 hover:bg-emerald-50">Concluir</button>}{canDelete && <button type="button" onClick={() => deleteActivity?.(a.id, a.title)} className="rounded border border-rose-200 px-3 py-1.5 text-xs font-bold text-rose-600 hover:bg-rose-50">Apagar</button>}</div></td>
-              </tr>
-            })}
-          </tbody>
-        </table>
+      <div className="divide-y divide-slate-100">
+        {activities.map((a) => {
+          const deal = deals.find((d) => d.id === a.deal_id)
+          const ownerName = crmOwnerDisplay(crmUsers, a.owner_id || deal?.owner_id, deal?.pipedrive_owner_name || 'Sem usuário')
+          return <div key={a.id} className="p-3 hover:bg-slate-50">
+            <ActivityInlineRow activity={a} deal={deal} ownerName={ownerName} onComplete={completeActivity} onEdit={setEditingActivity} onDelete={canDelete ? deleteActivity : undefined} />
+          </div>
+        })}
         {activities.length === 0 && <div className="p-8 text-center text-slate-400">Nenhuma atividade encontrada.</div>}
       </div>
     </Panel>
