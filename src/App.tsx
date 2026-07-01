@@ -2897,6 +2897,9 @@ function CrmUserTallyDetails({ user }: { user: CrmUser }) {
       <UserDetailField label="Cargo na empresa" value={user.company_role} />
       <UserDetailField label="Email principal" value={user.primary_email} />
       <UserDetailField label="Telefone/WhatsApp CRM" value={user.crm_phone} />
+      <UserDetailField label="DDD" value={user.ddd_prefix} />
+      <UserDetailField label="Estado do DDD" value={user.ddd_state} />
+      <UserDetailField label="Região do DDD" value={user.ddd_region} />
       <UserDetailField label="Emite NF de serviço" value={user.issues_service_invoice} />
       <UserDetailField label="Banco" value={user.bank_name} />
       <UserDetailField label="Agência" value={user.bank_agency} />
@@ -2940,6 +2943,12 @@ function AdminUsersView({ users, companies, dealsCount, activitiesCount, peopleC
   const [newUser, setNewUser] = useState({ full_name: '', email: '', company_name: '' })
   const [passwordDrafts, setPasswordDrafts] = useState<Record<string, string>>({})
   const [cleanupConfirm, setCleanupConfirm] = useState<Record<CleanupTarget, string>>({ deals: '', activities: '', people: '', organizations: '', users: '' })
+  const [selectedTallyUserId, setSelectedTallyUserId] = useState<string>('')
+  const [adminUsersViewMode, setAdminUsersViewMode] = useState<'cards' | 'list'>('cards')
+  const [userSearch, setUserSearch] = useState('')
+  const [userStatusFilter, setUserStatusFilter] = useState<'all' | CrmUser['status']>('all')
+  const [userCompanyFilter, setUserCompanyFilter] = useState('all')
+  const [userDddStateFilter, setUserDddStateFilter] = useState('all')
 
   const cleanupItems: Array<{ target: CleanupTarget; label: string; count: number; description: string }> = [
     { target: 'deals', label: 'Apagar negócios', count: dealsCount, description: 'Remove negócios, histórico e atividades vinculadas aos negócios.' },
@@ -3044,6 +3053,59 @@ function AdminUsersView({ users, companies, dealsCount, activitiesCount, peopleC
     }
   }
 
+  const selectedTallyUser = users.find((user) => user.id === selectedTallyUserId)
+  const statusOptions: CrmUser['status'][] = ['active', 'pending', 'invited', 'disabled', 'deleted']
+  const companyOptions = [...new Set(users.map((user) => user.crm_companies?.name || 'Sem empresa'))].sort((a, b) => a.localeCompare(b, 'pt-BR'))
+  const dddStateOptions = [...new Set(users.map((user) => user.ddd_state).filter((state): state is string => Boolean(state)))].sort((a, b) => a.localeCompare(b, 'pt-BR'))
+  const normalizedUserSearch = normalizeKey(userSearch)
+  const filteredUsers = users.filter((user) => {
+    const companyName = user.crm_companies?.name || 'Sem empresa'
+    const searchable = normalizeKey([
+      user.full_name,
+      user.email,
+      companyName,
+      user.status,
+      user.legal_company_name,
+      user.cnpj,
+      user.primary_email,
+      user.crm_phone,
+      user.ddd_prefix,
+      user.ddd_state,
+      user.service_regions,
+      ...(user.offered_services || []),
+      ...(user.operation_types || []),
+    ].filter(Boolean).join(' '))
+    if (normalizedUserSearch && !searchable.includes(normalizedUserSearch)) return false
+    if (userStatusFilter !== 'all' && user.status !== userStatusFilter) return false
+    if (userCompanyFilter !== 'all' && companyName !== userCompanyFilter) return false
+    if (userDddStateFilter !== 'all' && user.ddd_state !== userDddStateFilter) return false
+    return true
+  })
+
+  if (selectedTallyUser) {
+    return <div className="h-full overflow-y-auto p-5">
+      <Panel className="overflow-hidden">
+        <div className="border-b border-slate-200 bg-white p-4">
+          <button type="button" onClick={() => setSelectedTallyUserId('')} className="mb-3 rounded border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">Voltar para usuários</button>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-black text-slate-900">{selectedTallyUser.full_name}</h2>
+              <p className="mt-1 text-sm text-slate-500">Dados do cadastro Tally, somente leitura</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Badge tone={crmOwnerBadgeTone(selectedTallyUser.status)}>{selectedTallyUser.status}</Badge>
+              <Badge tone="bg-slate-100 text-slate-700">{selectedTallyUser.crm_companies?.name || 'Sem empresa'}</Badge>
+              {(selectedTallyUser.ddd_prefix || selectedTallyUser.ddd_state) && <Badge tone="bg-blue-100 text-blue-700">DDD {selectedTallyUser.ddd_prefix || '-'} {selectedTallyUser.ddd_state || ''}</Badge>}
+            </div>
+          </div>
+        </div>
+        <div className="p-4">
+          <CrmUserTallyDetails user={selectedTallyUser} />
+        </div>
+      </Panel>
+    </div>
+  }
+
   return <div className="h-full overflow-y-auto p-5">
     <div className="space-y-5">
       <Panel className="overflow-hidden">
@@ -3064,22 +3126,75 @@ function AdminUsersView({ users, companies, dealsCount, activitiesCount, peopleC
           <button disabled={busyId === 'create'} className="rounded bg-[#238847] px-3 py-2 text-sm font-bold text-white disabled:opacity-60">{busyId === 'create' ? 'Criando...' : 'Criar usuário'}</button>
         </form>
 
-        <div className="divide-y divide-slate-100">
-          {users.map((user) => <div key={user.id} className="p-4 text-sm hover:bg-slate-50">
-            <div className="grid gap-3 md:grid-cols-[1.1fr_1.1fr_1fr_100px_1fr_150px_150px_100px]">
-              <div><b>{user.full_name}</b><p className="mt-1 text-xs text-slate-500">ID usuário: <code>{user.id}</code></p></div>
+        <div className="border-b border-slate-200 bg-white p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative min-w-[240px] flex-1">
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input value={userSearch} onChange={(e) => setUserSearch(e.target.value)} className="w-full rounded border border-slate-300 py-2 pl-9 pr-3 text-sm outline-none focus:border-[#6f5cf6] focus:ring-4 focus:ring-purple-100" placeholder="Filtrar usuários, empresa, email, DDD, Tally..." />
+            </div>
+            <select value={userStatusFilter} onChange={(e) => setUserStatusFilter(e.target.value as 'all' | CrmUser['status'])} className="rounded border border-slate-300 px-3 py-2 text-sm">
+              <option value="all">Todos os status</option>
+              {statusOptions.map((status) => <option key={status} value={status}>{status}</option>)}
+            </select>
+            <select value={userCompanyFilter} onChange={(e) => setUserCompanyFilter(e.target.value)} className="rounded border border-slate-300 px-3 py-2 text-sm">
+              <option value="all">Todas empresas</option>
+              {companyOptions.map((company) => <option key={company} value={company}>{company}</option>)}
+            </select>
+            <select value={userDddStateFilter} onChange={(e) => setUserDddStateFilter(e.target.value)} className="rounded border border-slate-300 px-3 py-2 text-sm">
+              <option value="all">Todos estados</option>
+              {dddStateOptions.map((state) => <option key={state} value={state}>{state}</option>)}
+            </select>
+            <button type="button" onClick={() => { setUserSearch(''); setUserStatusFilter('all'); setUserCompanyFilter('all'); setUserDddStateFilter('all') }} className="rounded border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"><Filter size={15} className="mr-1 inline"/>Limpar</button>
+            <div className="ml-auto flex rounded border border-slate-300 bg-white p-1">
+              <button type="button" onClick={() => setAdminUsersViewMode('cards')} className={cn('rounded px-3 py-1.5 text-xs font-bold', adminUsersViewMode === 'cards' ? 'bg-[#6f5cf6] text-white' : 'text-slate-600 hover:bg-slate-50')}>Cards</button>
+              <button type="button" onClick={() => setAdminUsersViewMode('list')} className={cn('rounded px-3 py-1.5 text-xs font-bold', adminUsersViewMode === 'list' ? 'bg-[#6f5cf6] text-white' : 'text-slate-600 hover:bg-slate-50')}><List size={14} className="mr-1 inline"/>Lista</button>
+            </div>
+          </div>
+          <p className="mt-2 text-xs font-semibold text-slate-500">{filteredUsers.length} de {users.length} usuários</p>
+        </div>
+
+        {adminUsersViewMode === 'cards' ? <div className="divide-y divide-slate-100">
+          {filteredUsers.map((user) => <div key={user.id} className="p-4 text-sm hover:bg-slate-50">
+            <div className="grid gap-3 md:grid-cols-[1.2fr_1.1fr_1fr_120px_150px_1fr_150px_150px_100px]">
+              <div><button type="button" onClick={() => setSelectedTallyUserId(user.id)} className="text-left font-black text-slate-900 underline-offset-4 hover:text-[#6f5cf6] hover:underline">{user.full_name}</button><p className="mt-1 text-xs text-slate-500">ID usuário: <code>{user.id}</code></p></div>
               <div className="text-slate-600">{user.email}</div>
               <div><b>{user.crm_companies?.name || 'Sem empresa'}</b><p className="mt-1 text-xs text-slate-500">ID empresa: <code>{user.company_id}</code></p></div>
               <div><Badge tone={crmOwnerBadgeTone(user.status)}>{user.status}</Badge></div>
+              <div><b>DDD {user.ddd_prefix || '-'}</b><p className="mt-1 text-xs text-slate-500">{user.ddd_state || 'Estado não informado'}</p></div>
               <input value={passwordDrafts[user.id] || ''} onChange={(e) => setPasswordDrafts((current) => ({ ...current, [user.id]: e.target.value }))} className="rounded border border-slate-300 px-3 py-2 text-sm" placeholder="Senha inicial" type="text" autoComplete="new-password" />
               <button onClick={() => void setInitialPassword(user)} disabled={busyId === `password-${user.id}` || !(passwordDrafts[user.id] || '').trim()} className="rounded border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-60">{busyId === `password-${user.id}` ? 'Salvando...' : 'Definir senha'}</button>
               <button onClick={() => void sendAccessEmail(user)} disabled={busyId === user.id} className="rounded border border-[#238847] px-3 py-2 text-sm font-bold text-[#238847] hover:bg-emerald-50 disabled:opacity-60">{busyId === user.id ? 'Enviando...' : user.auth_user_id ? 'Redefinir senha' : 'Enviar acesso'}</button>
               <button type="button" onClick={() => void deleteUser(user)} disabled={busyId === `delete-${user.id}`} className="rounded border border-rose-200 px-3 py-2 text-sm font-bold text-rose-600 hover:bg-rose-50 disabled:opacity-60">{busyId === `delete-${user.id}` ? 'Apagando...' : 'Apagar'}</button>
             </div>
-            <CrmUserTallyDetails user={user} />
           </div>)}
-          {!users.length && <div className="p-8 text-center text-slate-400">Nenhum usuário cadastrado.</div>}
-        </div>
+          {!filteredUsers.length && <div className="p-8 text-center text-slate-400">Nenhum usuário encontrado.</div>}
+        </div> : <div className="overflow-auto">
+          <table className="w-full min-w-[1600px] text-sm">
+            <thead className="sticky top-0 bg-white">
+              <tr className="border-b border-slate-200 text-left text-[11px] font-semibold uppercase text-slate-500">
+                <th className="px-4 py-3">Usuário</th><th className="px-4 py-3">Email acesso</th><th className="px-4 py-3">Empresa acesso</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">DDD</th><th className="px-4 py-3">Estado</th><th className="px-4 py-3">Telefone CRM</th><th className="px-4 py-3">Razão social</th><th className="px-4 py-3">CNPJ</th><th className="px-4 py-3">Email principal</th><th className="px-4 py-3">Regiões</th><th className="px-4 py-3">Serviços</th><th className="px-4 py-3">Ações</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {filteredUsers.map((user) => <tr key={user.id} className="align-top hover:bg-blue-50">
+                <td className="px-4 py-3"><button type="button" onClick={() => setSelectedTallyUserId(user.id)} className="font-black text-slate-900 underline-offset-4 hover:text-[#6f5cf6] hover:underline">{user.full_name}</button></td>
+                <td className="px-4 py-3 text-slate-600">{user.email}</td>
+                <td className="px-4 py-3 text-slate-700">{user.crm_companies?.name || 'Sem empresa'}</td>
+                <td className="px-4 py-3"><Badge tone={crmOwnerBadgeTone(user.status)}>{user.status}</Badge></td>
+                <td className="px-4 py-3 font-semibold text-slate-800">{user.ddd_prefix || '-'}</td>
+                <td className="px-4 py-3 text-slate-700">{user.ddd_state || '-'}</td>
+                <td className="px-4 py-3 text-slate-700">{user.crm_phone || '-'}</td>
+                <td className="px-4 py-3 text-slate-700">{user.legal_company_name || '-'}</td>
+                <td className="px-4 py-3 text-slate-700">{user.cnpj || '-'}</td>
+                <td className="px-4 py-3 text-slate-700">{user.primary_email || '-'}</td>
+                <td className="max-w-[240px] px-4 py-3 text-slate-700"><span className="line-clamp-2">{user.service_regions || '-'}</span></td>
+                <td className="max-w-[240px] px-4 py-3 text-slate-700"><span className="line-clamp-2">{(user.offered_services || []).join(', ') || '-'}</span></td>
+                <td className="px-4 py-3"><button type="button" onClick={() => void deleteUser(user)} disabled={busyId === `delete-${user.id}`} className="rounded border border-rose-200 px-3 py-1.5 text-xs font-bold text-rose-600 hover:bg-rose-50 disabled:opacity-60">Apagar</button></td>
+              </tr>)}
+            </tbody>
+          </table>
+          {!filteredUsers.length && <div className="p-8 text-center text-slate-400">Nenhum usuário encontrado.</div>}
+        </div>}
       </Panel>
 
       <Panel className="overflow-hidden border-rose-200">
