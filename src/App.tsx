@@ -34,7 +34,9 @@ import './App.css'
 type View = 'pipeline' | 'contacts' | 'companies' | 'activities' | 'warnings' | 'plans-vmarket' | 'lead-distribution' | 'automations' | 'audit' | 'fields' | 'admin'
 type NewDeal = {
   title: string
+  organization_id: string
   organization_name: string
+  contact_id: string
   contact_name: string
   contact_email: string
   contact_phone: string
@@ -94,6 +96,8 @@ type GlobalSearchResult = {
   match: 'nome' | 'descrição'
   view?: View
   dealId?: string
+  personId?: string
+  organizationId?: string
 }
 type FilterDraft = {
   id?: string
@@ -261,7 +265,9 @@ function buildFilterFields(customFields: CustomField[]): FilterField[] {
 
 const blankNewDeal = (): NewDeal => ({
   title: '',
+  organization_id: '',
   organization_name: '',
+  contact_id: '',
   contact_name: '',
   contact_email: '',
   contact_phone: '',
@@ -397,8 +403,8 @@ function buildGlobalSearchResults(query: string, deals: Deal[], people: Person[]
     else if (matchesSearchDescription(description, q)) results.push({ ...result, match: 'descrição' })
   }
   deals.forEach((deal) => push({ id: `deal-${deal.id}`, group: 'Negócios', title: deal.title, description: `${deal.organizations?.name || ''} ${deal.people?.full_name || ''} ${deal.source || ''} ${(deal.focus_items || []).join(' ')}`, dealId: deal.id }, deal.title, `${deal.organizations?.name || ''} ${deal.people?.full_name || ''} ${deal.source || ''} ${(deal.focus_items || []).join(' ')}`))
-  people.forEach((person) => push({ id: `person-${person.id}`, group: 'Contatos', title: person.full_name, description: `${person.role_title || ''} ${person.email || ''} ${person.phone || ''}`, view: 'contacts' }, person.full_name, `${person.role_title || ''} ${person.email || ''} ${person.phone || ''}`))
-  organizations.forEach((org) => push({ id: `org-${org.id}`, group: 'Empresas', title: org.name, description: `${org.segment || ''} ${org.type || ''} ${org.city || ''} ${org.state || ''}`, view: 'companies' }, org.name, `${org.segment || ''} ${org.type || ''} ${org.city || ''} ${org.state || ''}`))
+  people.forEach((person) => push({ id: `person-${person.id}`, group: 'Contatos', title: person.full_name, description: `${person.role_title || ''} ${person.email || ''} ${person.phone || ''}`, view: 'contacts', personId: person.id }, person.full_name, `${person.role_title || ''} ${person.email || ''} ${person.phone || ''}`))
+  organizations.forEach((org) => push({ id: `org-${org.id}`, group: 'Empresas', title: org.name, description: `${org.segment || ''} ${org.type || ''} ${org.city || ''} ${org.state || ''}`, view: 'companies', organizationId: org.id }, org.name, `${org.segment || ''} ${org.type || ''} ${org.city || ''} ${org.state || ''}`))
   activities.forEach((activity) => {
     const deal = deals.find((item) => item.id === activity.deal_id)
     push({ id: `activity-${activity.id}`, group: 'Atividades', title: activity.title, description: `${activity.note || ''} ${activity.activity_type || ''} ${deal?.title || ''}`, dealId: activity.deal_id || undefined, view: activity.deal_id ? undefined : 'activities' }, activity.title, `${activity.note || ''} ${activity.activity_type || ''} ${deal?.title || ''}`)
@@ -481,6 +487,29 @@ function getDealPartnerValue(deal: Pick<Deal, 'partner_value'>) {
 function getDealTotalValue(deal: Pick<Deal, 'value' | 'partner_value' | 'total_value'>) {
   return Number(deal.total_value ?? (getDealVmarketValue(deal) + getDealPartnerValue(deal)))
 }
+
+function dealStatusCounts(deals: Deal[]) {
+  return {
+    aberto: deals.filter((deal) => deal.status === 'aberto' || !deal.status || !statusLabel[deal.status]).length,
+    ganho: deals.filter((deal) => deal.status === 'ganho').length,
+    perdido: deals.filter((deal) => deal.status === 'perdido').length,
+  }
+}
+function similarRecords<T>(query: string, rows: T[], labelFor: (row: T) => string, limit = 5) {
+  const normalized = normalizeKey(query)
+  if (normalized.length < 3) return []
+  return rows
+    .map((row) => {
+      const label = normalizeKey(labelFor(row))
+      const score = label === normalized ? 100 : label.includes(normalized) || normalized.includes(label) ? 80 : normalized.split(' ').filter((part) => part.length > 2 && label.includes(part)).length * 20
+      return { row, score }
+    })
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((item) => item.row)
+}
+
 function findVmarketPricingRule(type: string, cnpjCount: string | number, plan: string, period: string) {
   const count = Number(cnpjCount || 0)
   const normalizedType = type === 'hotel' ? 'hotel' : type === 'restaurante' ? 'restaurante' : ''
@@ -780,6 +809,8 @@ function App() {
   const [activeOwnerFilterId, setActiveOwnerFilterId] = useState('')
   const [globalSearch, setGlobalSearch] = useState('')
   const [detailDealId, setDetailDealId] = useState(() => new URLSearchParams(window.location.search).get('deal') || '')
+  const [detailPersonId, setDetailPersonId] = useState(() => new URLSearchParams(window.location.search).get('person') || '')
+  const [detailOrganizationId, setDetailOrganizationId] = useState(() => new URLSearchParams(window.location.search).get('organization') || '')
   const [newDeal, setNewDeal] = useState<NewDeal>(() => blankNewDeal())
   const pipelineNames = useMemo(() => {
     const names = stages.map((stage) => stage.pipeline_name).filter((name): name is string => Boolean(name))
@@ -803,6 +834,8 @@ function App() {
   }, [deals, visibleStages, activeOwnerFilterId, savedDealFilters, activeDealFilterId, filterFields, filterContext])
 
   const detailDeal = useMemo(() => deals.find((d) => d.id === detailDealId), [deals, detailDealId])
+  const detailPerson = useMemo(() => people.find((person) => person.id === detailPersonId), [people, detailPersonId])
+  const detailOrganization = useMemo(() => organizations.find((org) => org.id === detailOrganizationId), [organizations, detailOrganizationId])
   const globalSearchResults = useMemo(() => buildGlobalSearchResults(globalSearch, deals, people, organizations, activities, history), [globalSearch, deals, people, organizations, activities, history])
 
   useEffect(() => {
@@ -823,9 +856,14 @@ function App() {
   }, [session])
 
   useEffect(() => {
-    const syncDealFromUrl = () => setDetailDealId(new URLSearchParams(window.location.search).get('deal') || '')
-    window.addEventListener('popstate', syncDealFromUrl)
-    return () => window.removeEventListener('popstate', syncDealFromUrl)
+    const syncDetailFromUrl = () => {
+      const params = new URLSearchParams(window.location.search)
+      setDetailDealId(params.get('deal') || '')
+      setDetailPersonId(params.get('person') || '')
+      setDetailOrganizationId(params.get('organization') || '')
+    }
+    window.addEventListener('popstate', syncDetailFromUrl)
+    return () => window.removeEventListener('popstate', syncDetailFromUrl)
   }, [])
 
   async function loadAll() {
@@ -891,7 +929,9 @@ function App() {
       let orgId: string | null = null
       let personId: string | null = null
 
-      if (newDeal.organization_name.trim()) {
+      if (newDeal.organization_id) {
+        orgId = newDeal.organization_id
+      } else if (newDeal.organization_name.trim()) {
         const { data: org, error: orgErr } = await supabase.from('organizations').insert({
           name: newDeal.organization_name.trim(),
           monthly_purchase: numberOrNull(newDeal.monthly_purchase),
@@ -902,7 +942,9 @@ function App() {
         orgId = org.id
       }
 
-      if (newDeal.contact_name.trim()) {
+      if (newDeal.contact_id) {
+        personId = newDeal.contact_id
+      } else if (newDeal.contact_name.trim()) {
         const { data: person, error: personErr } = await supabase.from('people').insert({
           full_name: newDeal.contact_name.trim(),
           email: newDeal.contact_email || null,
@@ -1133,6 +1175,8 @@ function App() {
       if (error) throw error
       if (data?.error) throw new Error(String(data.error))
       if (target === 'deal' && detailDealId === id) closeDealPage()
+      if (target === 'person' && detailPersonId === id) closeDetailPage()
+      if (target === 'organization' && detailOrganizationId === id) closeDetailPage()
       await loadAll()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -1149,7 +1193,27 @@ function App() {
   function openDealPage(id: string) {
     setSelectedId(id)
     setDetailDealId(id)
+    setDetailPersonId('')
+    setDetailOrganizationId('')
     const nextUrl = `${window.location.pathname}?deal=${encodeURIComponent(id)}`
+    window.history.pushState({}, '', nextUrl)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  function openPersonPage(id: string) {
+    setDetailPersonId(id)
+    setDetailDealId('')
+    setDetailOrganizationId('')
+    const nextUrl = `${window.location.pathname}?person=${encodeURIComponent(id)}`
+    window.history.pushState({}, '', nextUrl)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  function openOrganizationPage(id: string) {
+    setDetailOrganizationId(id)
+    setDetailDealId('')
+    setDetailPersonId('')
+    const nextUrl = `${window.location.pathname}?organization=${encodeURIComponent(id)}`
     window.history.pushState({}, '', nextUrl)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -1157,12 +1221,20 @@ function App() {
   function openSearchResult(result: GlobalSearchResult) {
     setGlobalSearch('')
     if (result.dealId) openDealPage(result.dealId)
+    else if (result.personId) openPersonPage(result.personId)
+    else if (result.organizationId) openOrganizationPage(result.organizationId)
     else if (result.view) setActiveView(result.view)
   }
 
-  function closeDealPage() {
+  function closeDetailPage() {
     setDetailDealId('')
+    setDetailPersonId('')
+    setDetailOrganizationId('')
     window.history.pushState({}, '', window.location.pathname)
+  }
+
+  function closeDealPage() {
+    closeDetailPage()
   }
 
   function persistDealFilters(next: SavedDealFilter[]) {
@@ -1309,7 +1381,13 @@ function App() {
 
   if (detailDealId) {
     const isAdmin = profile?.role === 'admin_vmarket'
-    return <DealPage key={detailDealId} deal={detailDeal} loading={loading} error={error} stages={stages} crmUsers={crmUsers} canEditOwner={isAdmin} canViewCustomFields={isAdmin} activities={activities.filter((a) => a.deal_id === detailDealId)} history={history.filter((h) => h.deal_id === detailDealId)} dealLabels={dealLabels} assignedLabels={dealLabelAssignments.filter((assignment) => assignment.deal_id === detailDealId)} closeDealPage={closeDealPage} saveDeal={saveDeal} createActivity={createActivityForDeal} createNote={createNoteForDeal} deleteDeal={(id, label) => deleteOneRecord('deal', id, label)} deleteActivity={(id, label) => deleteOneRecord('activity', id, label)} customFields={isAdmin ? customFields.filter((field) => field.entity === 'deal') : []} customFieldValues={isAdmin ? customFieldValues.filter((value) => value.entity_id === detailDealId) : []} completeActivity={completeActivity} updateActivity={updateActivity} createLabel={createDealLabel} deleteLabel={deleteDealLabel} updateDealLabels={updateDealLabels} />
+    return <DealPage key={detailDealId} deal={detailDeal} loading={loading} error={error} stages={stages} crmUsers={crmUsers} canEditOwner={isAdmin} canViewCustomFields={isAdmin} activities={activities.filter((a) => a.deal_id === detailDealId)} history={history.filter((h) => h.deal_id === detailDealId)} dealLabels={dealLabels} assignedLabels={dealLabelAssignments.filter((assignment) => assignment.deal_id === detailDealId)} closeDealPage={closeDealPage} saveDeal={saveDeal} createActivity={createActivityForDeal} createNote={createNoteForDeal} deleteDeal={(id, label) => deleteOneRecord('deal', id, label)} deleteActivity={(id, label) => deleteOneRecord('activity', id, label)} customFields={isAdmin ? customFields.filter((field) => field.entity === 'deal') : []} customFieldValues={isAdmin ? customFieldValues.filter((value) => value.entity_id === detailDealId) : []} completeActivity={completeActivity} updateActivity={updateActivity} createLabel={createDealLabel} deleteLabel={deleteDealLabel} updateDealLabels={updateDealLabels} openPersonPage={openPersonPage} openOrganizationPage={openOrganizationPage} />
+  }
+  if (detailPersonId) {
+    return <ContactPage key={detailPersonId} person={detailPerson} loading={loading} error={error} deals={deals} activities={activities} history={history} openDealPage={openDealPage} closeDetailPage={closeDetailPage} />
+  }
+  if (detailOrganizationId) {
+    return <CompanyPage key={detailOrganizationId} organization={detailOrganization} loading={loading} error={error} deals={deals} people={people} activities={activities} history={history} openDealPage={openDealPage} openPersonPage={openPersonPage} closeDetailPage={closeDetailPage} />
   }
 
   const navItems: Array<[View, ReactNode, string]> = [
@@ -1350,10 +1428,10 @@ function App() {
             {error && <div className="m-4 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><b>Erro:</b> {error}</div>}
             {loading ? <LoadingBpo /> : (
               <>
-                {activeView === 'pipeline' && <PipelineView stages={visibleStages} salesStages={salesStages} deals={visibleDeals} allDeals={deals} activities={activities} crmUsers={crmUsers} dealLabelAssignments={dealLabelAssignments} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} setDraggingId={setDraggingId} handleDrop={handleDrop} newDeal={newDeal} setNewDeal={setNewDeal} createDeal={createDeal} creating={creating} canAssignOwner={profile?.role === 'admin_vmarket'} activePipeline={activePipeline} setActivePipeline={setActivePipeline} pipelineNames={pipelineNames} pipelineView={pipelineView} setPipelineView={setPipelineView} savedDealFilters={savedDealFilters} activeDealFilterId={activeDealFilterId} setActiveDealFilterId={setActiveDealFilterId} activeOwnerFilterId={activeOwnerFilterId} setActiveOwnerFilterId={setActiveOwnerFilterId} filterFields={filterFields} filterContext={filterContext} saveDealFilter={saveDealFilter} deleteDealFilter={deleteDealFilter} />}
+                {activeView === 'pipeline' && <PipelineView stages={visibleStages} salesStages={salesStages} deals={visibleDeals} allDeals={deals} activities={activities} crmUsers={crmUsers} organizations={organizations} people={people} dealLabelAssignments={dealLabelAssignments} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} setDraggingId={setDraggingId} handleDrop={handleDrop} newDeal={newDeal} setNewDeal={setNewDeal} createDeal={createDeal} creating={creating} canAssignOwner={profile?.role === 'admin_vmarket'} activePipeline={activePipeline} setActivePipeline={setActivePipeline} pipelineNames={pipelineNames} pipelineView={pipelineView} setPipelineView={setPipelineView} savedDealFilters={savedDealFilters} activeDealFilterId={activeDealFilterId} setActiveDealFilterId={setActiveDealFilterId} activeOwnerFilterId={activeOwnerFilterId} setActiveOwnerFilterId={setActiveOwnerFilterId} filterFields={filterFields} filterContext={filterContext} saveDealFilter={saveDealFilter} deleteDealFilter={deleteDealFilter} />}
                 {activeView === 'plans-vmarket' && <VmarketPlansView />}
-                {activeView === 'contacts' && <ListView title="Contatos" icon={<Contact size={18}/>} rows={people.map((p) => ({ id: p.id, title: p.full_name, sub: `${p.role_title || 'Contato'} · ${p.email || 'sem email'}`, meta: p.phone || 'sem telefone' }))} canDelete={profile?.role === 'admin_vmarket'} onDelete={(id, label) => deleteOneRecord('person', id, label)} />}
-                {activeView === 'companies' && <ListView title="Empresas" icon={<Building2 size={18}/>} rows={organizations.map((o) => ({ id: o.id, title: o.name, sub: `${o.type ? businessTypeOptions.find(([id]) => id === o.type)?.[1] || o.type : 'Tipo não informado'} · ${o.city || ''} ${o.state || ''}`, meta: money(o.monthly_purchase) }))} canDelete={profile?.role === 'admin_vmarket'} onDelete={(id, label) => deleteOneRecord('organization', id, label)} />}
+                {activeView === 'contacts' && <ListView title="Contatos" icon={<Contact size={18}/>} rows={people.map((p) => ({ id: p.id, title: p.full_name, sub: `${p.role_title || 'Contato'} · ${p.email || 'sem email'}`, meta: p.phone || 'sem telefone' }))} canDelete={profile?.role === 'admin_vmarket'} onOpen={openPersonPage} onDelete={(id, label) => deleteOneRecord('person', id, label)} />}
+                {activeView === 'companies' && <ListView title="Empresas" icon={<Building2 size={18}/>} rows={organizations.map((o) => ({ id: o.id, title: o.name, sub: `${o.type ? businessTypeOptions.find(([id]) => id === o.type)?.[1] || o.type : 'Tipo não informado'} · ${o.city || ''} ${o.state || ''}`, meta: money(o.monthly_purchase) }))} canDelete={profile?.role === 'admin_vmarket'} onOpen={openOrganizationPage} onDelete={(id, label) => deleteOneRecord('organization', id, label)} />}
                 {activeView === 'activities' && <ActivitiesView activities={activities} deals={deals} completeActivity={completeActivity} updateActivity={updateActivity} canDelete={profile?.role === 'admin_vmarket'} deleteActivity={(id, label) => deleteOneRecord('activity', id, label)} />}
                 {activeView === 'warnings' && <WarningsView deals={deals} people={people} organizations={organizations} activities={activities} crmUsers={crmUsers} openDealPage={openDealPage} reload={loadAll} setError={setError} />}
                 {activeView === 'lead-distribution' && profile?.role === 'admin_vmarket' && <LeadDistributionView users={crmUsers} deals={deals} />}
@@ -1394,13 +1472,15 @@ function GlobalSearchBox({ value, onChange, results, onOpen }: { value: string; 
   </div>
 }
 
-function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUsers, dealLabelAssignments, selectedId, setSelectedId, openDealPage, setDraggingId, handleDrop, newDeal, setNewDeal, createDeal, creating, canAssignOwner, activePipeline, setActivePipeline, pipelineNames, pipelineView, setPipelineView, savedDealFilters, activeDealFilterId, setActiveDealFilterId, activeOwnerFilterId, setActiveOwnerFilterId, filterFields, filterContext, saveDealFilter, deleteDealFilter }: {
+function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUsers, organizations, people, dealLabelAssignments, selectedId, setSelectedId, openDealPage, setDraggingId, handleDrop, newDeal, setNewDeal, createDeal, creating, canAssignOwner, activePipeline, setActivePipeline, pipelineNames, pipelineView, setPipelineView, savedDealFilters, activeDealFilterId, setActiveDealFilterId, activeOwnerFilterId, setActiveOwnerFilterId, filterFields, filterContext, saveDealFilter, deleteDealFilter }: {
   stages: Stage[]
   salesStages: Stage[]
   deals: Deal[]
   allDeals: Deal[]
   activities: ActivityRow[]
   crmUsers: CrmUser[]
+  organizations: Organization[]
+  people: Person[]
   dealLabelAssignments: DealLabelAssignment[]
   selectedId?: string
   setSelectedId: (id: string) => void
@@ -1559,7 +1639,7 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
       </div>
     </div> : pipelineView === 'list' ? <ListViewDeals deals={deals} stages={stages} dealLabelAssignments={dealLabelAssignments} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} /> : <ForecastView deals={deals} stages={stages} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} />}
 
-    {showCreateDeal && <CreateDealModal salesStages={salesStages} crmUsers={crmUsers} canAssignOwner={canAssignOwner} newDeal={newDeal} setNewDeal={setNewDeal} createDeal={submitCreateDeal} creating={creating} close={() => { setShowCreateDeal(false); setNewDeal(blankNewDeal()) }} />}
+    {showCreateDeal && <CreateDealModal salesStages={salesStages} crmUsers={crmUsers} organizations={organizations} people={people} canAssignOwner={canAssignOwner} newDeal={newDeal} setNewDeal={setNewDeal} createDeal={submitCreateDeal} creating={creating} close={() => { setShowCreateDeal(false); setNewDeal(blankNewDeal()) }} />}
     {editingFilter && <DealFilterBuilderModal
       draft={editingFilter}
       setDraft={setEditingFilter}
@@ -1722,9 +1802,11 @@ function DealFilterBuilderModal({ draft, setDraft, fields, deals, context, onClo
   </div>
 }
 
-function CreateDealModal({ salesStages, crmUsers, canAssignOwner, newDeal, setNewDeal, createDeal, creating, close }: {
+function CreateDealModal({ salesStages, crmUsers, organizations, people, canAssignOwner, newDeal, setNewDeal, createDeal, creating, close }: {
   salesStages: Stage[]
   crmUsers: CrmUser[]
+  organizations: Organization[]
+  people: Person[]
   canAssignOwner: boolean
   newDeal: NewDeal
   setNewDeal: (deal: NewDeal) => void
@@ -1732,6 +1814,14 @@ function CreateDealModal({ salesStages, crmUsers, canAssignOwner, newDeal, setNe
   creating: boolean
   close: () => void
 }) {
+  const organizationSuggestions = similarRecords(newDeal.organization_name, organizations, (org) => org.name)
+    .filter((org) => org.id !== newDeal.organization_id)
+  const contactSuggestions = similarRecords(newDeal.contact_name, people, (person) => person.full_name)
+    .filter((person) => person.id !== newDeal.contact_id)
+  const selectedOrganization = organizations.find((org) => org.id === newDeal.organization_id)
+  const selectedContact = people.find((person) => person.id === newDeal.contact_id)
+  const chooseOrganization = (org: Organization) => setNewDeal({ ...newDeal, organization_id: org.id, organization_name: org.name, monthly_purchase: newDeal.monthly_purchase || String(org.monthly_purchase ?? '') })
+  const choosePerson = (person: Person) => setNewDeal({ ...newDeal, contact_id: person.id, contact_name: person.full_name, contact_email: person.email || newDeal.contact_email, contact_phone: person.phone || newDeal.contact_phone, organization_id: newDeal.organization_id || person.organization_id || '', organization_name: newDeal.organization_name || organizations.find((org) => org.id === person.organization_id)?.name || '' })
   return <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 p-4 backdrop-blur-sm">
     <div className="w-full max-w-3xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
       <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
@@ -1743,8 +1833,22 @@ function CreateDealModal({ salesStages, crmUsers, canAssignOwner, newDeal, setNe
       </div>
       <form onSubmit={createDeal} className="grid gap-4 p-5 md:grid-cols-2">
         <EditInput label="Título do negócio" value={newDeal.title} onChange={(v) => setNewDeal({ ...newDeal, title: v })} className="md:col-span-2" />
-        <EditInput label="Empresa" value={newDeal.organization_name} onChange={(v) => setNewDeal({ ...newDeal, organization_name: v })} />
-        <EditInput label="Contato" value={newDeal.contact_name} onChange={(v) => setNewDeal({ ...newDeal, contact_name: v })} />
+        <div>
+          <EditInput label="Empresa" value={newDeal.organization_name} onChange={(v) => setNewDeal({ ...newDeal, organization_name: v, organization_id: '' })} />
+          {selectedOrganization && <p className="mt-1 rounded bg-emerald-50 px-2 py-1 text-xs font-bold text-emerald-700">Empresa selecionada: {selectedOrganization.name}</p>}
+          {!selectedOrganization && organizationSuggestions.length > 0 && <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2">
+            <p className="mb-1 text-[11px] font-black uppercase tracking-wide text-amber-700">Empresas parecidas encontradas</p>
+            {organizationSuggestions.map((org) => <button key={org.id} type="button" onClick={() => chooseOrganization(org)} className="block w-full rounded px-2 py-1.5 text-left text-xs hover:bg-white"><b>{org.name}</b><span className="block text-slate-500">{org.state || 'UF não informada'} · GMV {money(org.monthly_purchase)}</span></button>)}
+          </div>}
+        </div>
+        <div>
+          <EditInput label="Nome do Contato" value={newDeal.contact_name} onChange={(v) => setNewDeal({ ...newDeal, contact_name: v, contact_id: '' })} />
+          {selectedContact && <p className="mt-1 rounded bg-emerald-50 px-2 py-1 text-xs font-bold text-emerald-700">Contato selecionado: {selectedContact.full_name} · {selectedContact.phone || 'sem telefone'}</p>}
+          {!selectedContact && contactSuggestions.length > 0 && <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2">
+            <p className="mb-1 text-[11px] font-black uppercase tracking-wide text-amber-700">Contatos parecidos encontrados</p>
+            {contactSuggestions.map((person) => <button key={person.id} type="button" onClick={() => choosePerson(person)} className="block w-full rounded px-2 py-1.5 text-left text-xs hover:bg-white"><b>{person.full_name}</b><span className="block text-slate-500">{person.phone || 'sem telefone'} · {person.email || 'sem email'}</span></button>)}
+          </div>}
+        </div>
         <EditInput label="Email" value={newDeal.contact_email} onChange={(v) => setNewDeal({ ...newDeal, contact_email: v })} type="email" />
         <EditInput label="Telefone" value={newDeal.contact_phone} onChange={(v) => setNewDeal({ ...newDeal, contact_phone: v })} />
         <EditInput label="Valor do negócio" value={newDeal.value} onChange={(v) => setNewDeal({ ...newDeal, value: v })} type="number" />
@@ -1832,7 +1936,78 @@ function LostReasonModal({ onCancel, onConfirm }: { onCancel: () => void; onConf
   </div>
 }
 
-function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canViewCustomFields, activities, history, customFields, customFieldValues, dealLabels, assignedLabels, closeDealPage, saveDeal, createActivity, createNote, deleteDeal, deleteActivity, completeActivity, updateActivity, createLabel, deleteLabel, updateDealLabels }: {
+function EntityDealsSummary({ deals, openDealPage }: { deals: Deal[]; openDealPage: (id: string) => void }) {
+  const [statusFilter, setStatusFilter] = useState<'aberto' | 'ganho' | 'perdido' | null>(null)
+  const counts = dealStatusCounts(deals)
+  const filteredDeals = statusFilter ? deals.filter((deal) => statusFilter === 'aberto' ? (deal.status === 'aberto' || !deal.status || !statusLabel[deal.status]) : deal.status === statusFilter) : []
+  const summaryItems: Array<['aberto' | 'ganho' | 'perdido', string, string]> = [
+    ['aberto', 'Abertos', 'bg-blue-50 text-blue-700 border-blue-100'],
+    ['ganho', 'Ganhos', 'bg-emerald-50 text-emerald-700 border-emerald-100'],
+    ['perdido', 'Perdidos', 'bg-slate-100 text-slate-700 border-slate-200'],
+  ]
+  return <Panel className="overflow-hidden">
+    <div className="border-b border-slate-200 bg-white p-4"><h2 className="font-bold">Somatório de negócios</h2><p className="mt-1 text-xs text-slate-500">Clique em um status para abrir a lista.</p></div>
+    <div className="grid gap-2 p-3">
+      {summaryItems.map(([key, label, tone]) => <button key={key} type="button" onClick={() => setStatusFilter(key)} className={cn('flex items-center justify-between rounded-lg border px-3 py-2 text-left text-sm font-bold', tone)}><span>{label}</span><span>{counts[key]}</span></button>)}
+    </div>
+    {statusFilter && <div className="fixed inset-0 z-[80] grid place-items-center bg-slate-950/40 p-4 backdrop-blur-sm" onClick={() => setStatusFilter(null)}>
+      <div className="w-full max-w-3xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-slate-200 p-5"><div><h2 className="text-lg font-black text-slate-950">Negócios {statusLabel[statusFilter].toLowerCase()}</h2><p className="mt-1 text-sm text-slate-500">{filteredDeals.length} registros encontrados.</p></div><button type="button" onClick={() => setStatusFilter(null)} className="grid h-9 w-9 place-items-center rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50">×</button></div>
+        <div className="max-h-[70vh] divide-y divide-slate-100 overflow-y-auto">
+          {filteredDeals.map((deal) => <button key={deal.id} type="button" onClick={() => openDealPage(deal.id)} className="grid w-full gap-1 p-4 text-left text-sm hover:bg-blue-50 md:grid-cols-[1fr_160px_140px]"><b className="text-blue-700">{deal.title}</b><span className="text-slate-600">{deal.pipeline_stages?.name || 'Sem etapa'}</span><span className="font-bold text-slate-800">{money(getDealTotalValue(deal))}</span></button>)}
+          {!filteredDeals.length && <p className="p-8 text-center text-sm text-slate-400">Nenhum negócio neste status.</p>}
+        </div>
+      </div>
+    </div>}
+  </Panel>
+}
+
+function LinkedTimeline({ deals, activities, history, openDealPage }: { deals: Deal[]; activities: ActivityRow[]; history: HistoryRow[]; openDealPage: (id: string) => void }) {
+  const dealIds = new Set(deals.map((deal) => deal.id))
+  const timeline = ([
+    ...activities.filter((activity) => activity.deal_id && dealIds.has(activity.deal_id)).map((activity) => ({ id: `activity-${activity.id}`, kind: 'Atividade', title: activity.title, description: activity.note, date: activity.due_at || activity.created_at || null, status: activity.status, dealId: activity.deal_id, activity })),
+    ...history.filter((row) => dealIds.has(row.deal_id)).map((row) => ({ id: `history-${row.id}`, kind: row.event_type, title: row.title, description: row.description, date: row.created_at, status: '', dealId: row.deal_id, activity: undefined })),
+  ] as Array<{ id: string; kind: string; title: string; description: string | null; date: string | null; status: string; dealId?: string | null; activity?: ActivityRow }>).sort((a, b) => new Date(b.date || '1900-01-01').getTime() - new Date(a.date || '1900-01-01').getTime())
+  const dealName = (id?: string | null) => deals.find((deal) => deal.id === id)?.title || 'Negócio não localizado'
+  return <Panel className="overflow-hidden">
+    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white p-4"><div><h2 className="text-lg font-bold">Histórico</h2><p className="mt-1 text-xs text-slate-500">Atividades e alterações de todos os negócios vinculados.</p></div><Badge tone="bg-slate-100 text-slate-700">{timeline.length} registros</Badge></div>
+    <div className="min-h-[420px] space-y-0 p-4">
+      {timeline.map((item) => <div key={item.id} className="grid grid-cols-[40px_1fr] gap-3 pb-5 text-sm last:pb-0">
+        <div className="relative flex justify-center"><TimelineIcon item={item} /><span className="absolute top-10 h-full w-px bg-slate-200" /></div>
+        <div className="rounded border border-slate-200 bg-white p-3 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-2"><div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{item.kind}</p><b className="text-slate-900">{item.title}</b><button type="button" onClick={() => item.dealId && openDealPage(item.dealId)} className="mt-1 block text-left text-xs font-bold text-blue-700 hover:underline">{dealName(item.dealId)}</button></div><div className="flex items-center gap-2">{item.activity?.status === 'done' && <span className="text-xs font-bold text-emerald-700">Concluído</span>}{item.date && <span className="text-xs text-slate-500">{formatDateTime(item.date)}</span>}</div></div>
+          {item.description && <p className="mt-2 whitespace-pre-wrap text-slate-600">{item.description}</p>}
+        </div>
+      </div>)}
+      {!timeline.length && <p className="rounded border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">Sem histórico ainda.</p>}
+    </div>
+  </Panel>
+}
+
+function ContactPage({ person, loading, error, deals, activities, history, openDealPage, closeDetailPage }: { person?: Person; loading: boolean; error: string; deals: Deal[]; activities: ActivityRow[]; history: HistoryRow[]; openDealPage: (id: string) => void; closeDetailPage: () => void }) {
+  if (loading) return <main className="min-h-screen bg-[#f4f5f7] p-5 text-slate-900"><LoadingBpo /></main>
+  if (!person) return <main className="min-h-screen bg-[#f4f5f7] p-5 text-slate-900"><div className="rounded bg-white p-6 shadow-sm"><h1 className="text-xl font-bold">Contato não encontrado</h1><button onClick={closeDetailPage} className="mt-4 rounded bg-[#238847] px-4 py-2 text-sm font-bold text-white">Voltar</button></div></main>
+  const linkedDeals = deals.filter((deal) => deal.person_id === person.id)
+  return <main className="min-h-screen bg-[#f4f5f7] text-slate-900">
+    <header className="sticky top-0 z-30 border-b border-slate-200 bg-white shadow-sm"><div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-3 px-4 py-3"><button onClick={closeDetailPage} className="rounded border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">← Voltar</button><div className="min-w-0 flex-1"><h1 className="truncate text-2xl font-semibold tracking-[-0.03em] text-slate-950">{person.full_name}</h1><p className="mt-1 truncate text-sm font-semibold text-slate-600">{person.phone || 'sem telefone'} · {person.email || 'sem email'}</p></div><Badge tone="bg-blue-100 text-blue-700">Ficha de contato</Badge></div></header>
+    <div className="mx-auto grid max-w-[1600px] gap-4 p-4 xl:grid-cols-[360px_minmax(0,1fr)]">{error && <div className="xl:col-span-2 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><b>Erro:</b> {error}</div>}<aside className="space-y-4"><CollapsibleSection title="Detalhes" defaultOpen><div className="divide-y divide-slate-100"><ReadOnlyField label="Nome do Contato" value={person.full_name} /><ReadOnlyField label="Cargo" value={person.role_title || '-'} /><ReadOnlyField label="Email" value={person.email || '-'} /><ReadOnlyField label="Telefone" value={person.phone || '-'} /><ReadOnlyField label="DDD" value={person.ddd_prefix || '-'} /><ReadOnlyField label="Estado DDD" value={person.ddd_state || '-'} /></div></CollapsibleSection><EntityDealsSummary deals={linkedDeals} openDealPage={openDealPage} /></aside><section><LinkedTimeline deals={linkedDeals} activities={activities} history={history} openDealPage={openDealPage} /></section></div>
+  </main>
+}
+
+function CompanyPage({ organization, loading, error, deals, people, activities, history, openDealPage, openPersonPage, closeDetailPage }: { organization?: Organization; loading: boolean; error: string; deals: Deal[]; people: Person[]; activities: ActivityRow[]; history: HistoryRow[]; openDealPage: (id: string) => void; openPersonPage: (id: string) => void; closeDetailPage: () => void }) {
+  if (loading) return <main className="min-h-screen bg-[#f4f5f7] p-5 text-slate-900"><LoadingBpo /></main>
+  if (!organization) return <main className="min-h-screen bg-[#f4f5f7] p-5 text-slate-900"><div className="rounded bg-white p-6 shadow-sm"><h1 className="text-xl font-bold">Empresa não encontrada</h1><button onClick={closeDetailPage} className="mt-4 rounded bg-[#238847] px-4 py-2 text-sm font-bold text-white">Voltar</button></div></main>
+  const companyPeople = people.filter((person) => person.organization_id === organization.id)
+  const personIds = new Set(companyPeople.map((person) => person.id))
+  const linkedDeals = deals.filter((deal) => deal.organization_id === organization.id || (deal.person_id && personIds.has(deal.person_id)))
+  return <main className="min-h-screen bg-[#f4f5f7] text-slate-900">
+    <header className="sticky top-0 z-30 border-b border-slate-200 bg-white shadow-sm"><div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-3 px-4 py-3"><button onClick={closeDetailPage} className="rounded border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">← Voltar</button><div className="min-w-0 flex-1"><h1 className="truncate text-2xl font-semibold tracking-[-0.03em] text-slate-950">{organization.name}</h1><p className="mt-1 truncate text-sm font-semibold text-slate-600">CNPJs: {organization.cnpjs || '-'} / GMV: {money(organization.monthly_purchase)} / UF: {organization.state || '-'}</p></div><Badge tone="bg-emerald-100 text-emerald-700">Ficha de empresa</Badge></div></header>
+    <div className="mx-auto grid max-w-[1600px] gap-4 p-4 xl:grid-cols-[360px_minmax(0,1fr)]">{error && <div className="xl:col-span-2 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><b>Erro:</b> {error}</div>}<aside className="space-y-4"><CollapsibleSection title="Detalhes" defaultOpen><div className="divide-y divide-slate-100"><ReadOnlyField label="Empresa" value={organization.name} /><ReadOnlyField label="Tipo" value={businessTypeOptions.find(([id]) => id === organization.type)?.[1] || organization.type || '-'} /><ReadOnlyField label="Estado" value={organization.state || '-'} /><ReadOnlyField label="Quantidade de CNPJs" value={String(organization.cnpjs ?? '-')} /><ReadOnlyField label="GMV mensal total" value={money(organization.monthly_purchase)} /></div></CollapsibleSection><EntityDealsSummary deals={linkedDeals} openDealPage={openDealPage} /><Panel className="overflow-hidden"><div className="border-b border-slate-200 bg-white p-4"><h2 className="font-bold">Contatos vinculados</h2></div><div className="divide-y divide-slate-100">{companyPeople.map((person) => <button key={person.id} type="button" onClick={() => openPersonPage(person.id)} className="block w-full p-3 text-left text-sm hover:bg-blue-50"><b className="text-blue-700">{person.full_name}</b><p className="text-xs text-slate-500">{person.phone || 'sem telefone'} · {person.email || 'sem email'}</p></button>)}{!companyPeople.length && <p className="p-4 text-sm text-slate-400">Nenhum contato vinculado.</p>}</div></Panel></aside><section><LinkedTimeline deals={linkedDeals} activities={activities} history={history} openDealPage={openDealPage} /></section></div>
+  </main>
+}
+
+
+function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canViewCustomFields, activities, history, customFields, customFieldValues, dealLabels, assignedLabels, closeDealPage, saveDeal, createActivity, createNote, deleteDeal, deleteActivity, completeActivity, updateActivity, createLabel, deleteLabel, updateDealLabels, openPersonPage, openOrganizationPage }: {
   deal?: Deal
   loading: boolean
   error: string
@@ -1857,6 +2032,8 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
   createLabel: (name: string, color: string) => Promise<DealLabel>
   deleteLabel: (label: DealLabel) => Promise<void>
   updateDealLabels: (dealId: string, labelIds: string[]) => Promise<void>
+  openPersonPage: (id: string) => void
+  openOrganizationPage: (id: string) => void
 }) {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -2025,6 +2202,7 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
         <CollapsibleSection title="Empresa" defaultOpen>
           <div className="divide-y divide-slate-100">
             <InlineField label="Empresa" value={form.organization_name} onChange={(v) => update('organization_name', v)} />
+            {deal.organization_id && <ReadOnlyField label="Ficha da empresa" value="Abrir cadastro completo" action={<button type="button" onClick={() => deal.organization_id && openOrganizationPage(deal.organization_id)} className="text-xs font-bold text-blue-600 hover:text-blue-700">Abrir</button>} />}
             <InlineSelect label="Tipo" value={form.organization_type} onChange={(v) => update('organization_type', v)} options={businessTypeOptions} />
             <InlineSelect label="Estado" value={form.organization_state} onChange={(v) => update('organization_state', v)} options={dddStateOptions} />
             <InlineField label="Quantidade de CNPJs" value={form.organization_cnpjs} onChange={(v) => update('organization_cnpjs', v)} type="number" />
@@ -2035,6 +2213,7 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
         <CollapsibleSection title="Contato" defaultOpen>
           <div className="divide-y divide-slate-100">
             <InlineField label="Nome" value={form.person_name} onChange={(v) => update('person_name', v)} />
+            {deal.person_id && <ReadOnlyField label="Ficha do contato" value="Abrir cadastro completo" action={<button type="button" onClick={() => deal.person_id && openPersonPage(deal.person_id)} className="text-xs font-bold text-blue-600 hover:text-blue-700">Abrir</button>} />}
             <InlineField label="Cargo" value={form.person_role} onChange={(v) => update('person_role', v)} />
             <InlineField label="Email" value={form.person_email} onChange={(v) => update('person_email', v)} type="email" />
             <InlineField label="Telefone" value={form.person_phone} onChange={(v) => update('person_phone', v)} />
@@ -2615,8 +2794,8 @@ function EditInput({ label, value, onChange, type = 'text', className }: { label
 }
 
 
-function ListView({ title, icon, rows, canDelete = false, onDelete }: { title: string; icon: ReactNode; rows: Array<{ id: string; title: string; sub: string; meta: string }>; canDelete?: boolean; onDelete?: (id: string, label: string) => void }) {
-  return <div className="h-full overflow-y-auto p-5"><Panel><div className="flex items-center gap-2 border-b border-slate-200 p-4"><span className="text-[#6f5cf6]">{icon}</span><h2 className="text-lg font-bold">{title}</h2></div><div className="divide-y divide-slate-100">{rows.map((row) => <div key={row.id} className="grid gap-2 p-4 text-sm hover:bg-slate-50 md:grid-cols-[1fr_1fr_160px_100px]"><b>{row.title}</b><span className="text-slate-500">{row.sub}</span><span className="font-semibold text-slate-700">{row.meta}</span>{canDelete && <button type="button" onClick={() => onDelete?.(row.id, row.title)} className="rounded border border-rose-200 px-3 py-2 text-xs font-bold text-rose-600 hover:bg-rose-50">Apagar</button>}</div>)}</div></Panel></div>
+function ListView({ title, icon, rows, canDelete = false, onOpen, onDelete }: { title: string; icon: ReactNode; rows: Array<{ id: string; title: string; sub: string; meta: string }>; canDelete?: boolean; onOpen?: (id: string) => void; onDelete?: (id: string, label: string) => void }) {
+  return <div className="h-full overflow-y-auto p-5"><Panel><div className="flex items-center gap-2 border-b border-slate-200 p-4"><span className="text-[#6f5cf6]">{icon}</span><h2 className="text-lg font-bold">{title}</h2></div><div className="divide-y divide-slate-100">{rows.map((row) => <div key={row.id} className="grid gap-2 p-4 text-sm hover:bg-slate-50 md:grid-cols-[1fr_1fr_160px_100px]"><button type="button" onClick={() => onOpen?.(row.id)} className="text-left font-bold text-blue-700 hover:underline">{row.title}</button><span className="text-slate-500">{row.sub}</span><span className="font-semibold text-slate-700">{row.meta}</span>{canDelete && <button type="button" onClick={() => onDelete?.(row.id, row.title)} className="rounded border border-rose-200 px-3 py-2 text-xs font-bold text-rose-600 hover:bg-rose-50">Apagar</button>}</div>)}</div></Panel></div>
 }
 
 function ActivitiesView({ activities, deals, completeActivity, updateActivity, canDelete = false, deleteActivity }: { activities: ActivityRow[]; deals: Deal[]; completeActivity: (id: string) => Promise<void>; updateActivity: (activityId: string, draft: ActivityEditDraft) => Promise<void>; canDelete?: boolean; deleteActivity?: (id: string, label: string) => void }) {
