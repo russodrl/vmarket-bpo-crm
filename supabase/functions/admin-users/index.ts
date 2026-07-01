@@ -34,6 +34,15 @@ function cleanEmail(email: unknown) {
   return String(email || '').trim().toLowerCase()
 }
 
+const permissionOptions = ['Admin', 'BPO', 'Vendas', 'Teste'] as const
+function cleanPermission(value: unknown) {
+  const permission = String(value || 'BPO').trim()
+  return permissionOptions.includes(permission as typeof permissionOptions[number]) ? permission : 'BPO'
+}
+function profileRoleForPermission(permission: string) {
+  return permission === 'Admin' ? 'admin_vmarket' : 'bpo_partner'
+}
+
 function cleanText(value: unknown) {
   const text = String(value || '').trim()
   return text || null
@@ -151,6 +160,7 @@ async function upsertCrmUser(body: Record<string, unknown>) {
   const fullName = String(body.full_name || '').trim()
   const email = cleanEmail(body.email)
   const companyName = String(body.company_name || '').trim()
+  const permission = cleanPermission(body.permission)
   if (!fullName || !email || !companyName) throw new Error('full_name_email_company_required')
 
   const { data: company, error: companyError } = await admin
@@ -169,6 +179,7 @@ async function upsertCrmUser(body: Record<string, unknown>) {
       company_id: company.id,
       auth_user_id: existingAuthUser?.id || null,
       status: existingAuthUser ? 'active' : 'pending',
+      permission,
       ...crmUserDetailsPayload(body),
     }, { onConflict: 'email' })
     .select('*, crm_companies(*)')
@@ -181,7 +192,7 @@ async function upsertCrmUser(body: Record<string, unknown>) {
       .upsert({
         id: existingAuthUser.id,
         full_name: fullName,
-        role: 'bpo_partner',
+        role: profileRoleForPermission(permission),
         crm_user_id: crmUser.id,
         crm_company_id: company.id,
       }, { onConflict: 'id' })
@@ -263,7 +274,7 @@ async function sendAccessEmail(body: Record<string, unknown>) {
       .upsert({
         id: authUserId,
         full_name: crmUser.full_name,
-        role: 'bpo_partner',
+        role: profileRoleForPermission(crmUser.permission),
         crm_user_id: crmUser.id,
         crm_company_id: crmUser.company_id,
       }, { onConflict: 'id' })
@@ -327,7 +338,7 @@ async function setInitialPassword(body: Record<string, unknown>) {
       .upsert({
         id: authUserId,
         full_name: crmUser.full_name,
-        role: 'bpo_partner',
+        role: profileRoleForPermission(crmUser.permission),
         crm_user_id: crmUser.id,
         crm_company_id: crmUser.company_id,
       }, { onConflict: 'id' })

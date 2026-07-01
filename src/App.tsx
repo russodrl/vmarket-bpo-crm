@@ -982,6 +982,7 @@ function App() {
   const [people, setPeople] = useState<Person[]>([])
   const [crmUsers, setCrmUsers] = useState<CrmUser[]>([])
   const [crmCompanies, setCrmCompanies] = useState<CrmCompany[]>([])
+  void crmCompanies
   const [selectedId, setSelectedId] = useState<string>('')
   const [activeView, setActiveView] = useState<View>('pipeline')
   const [activePipeline, setActivePipeline] = useState('Pipeline de Vendas')
@@ -1712,7 +1713,7 @@ function App() {
                 {activeView === 'automations' && profile?.role === 'admin_vmarket' && <AutomationsView rules={automationRules} executions={automationExecutions} changes={automationChanges} />}
                 {activeView === 'audit' && profile?.role === 'admin_vmarket' && <AuditLogView logs={auditLogs} />}
                 {activeView === 'fields' && profile?.role === 'admin_vmarket' && <FieldsConfigView fields={customFields} setError={setError} reload={loadAll} />}
-                {activeView === 'admin' && profile?.role === 'admin_vmarket' && <AdminUsersView users={crmUsers} companies={crmCompanies} dealsCount={deals.length} activitiesCount={activities.length} peopleCount={people.length} organizationsCount={organizations.length} reload={loadAll} setError={setError} />}
+                {activeView === 'admin' && profile?.role === 'admin_vmarket' && <AdminUsersView users={crmUsers} session={session} profile={profile} reload={loadAll} setError={setError} />}
               </>
             )}
           </section>
@@ -4393,17 +4394,6 @@ function AuditLogView({ logs }: { logs: AuditLog[] }) {
   </div>
 }
 
-type CleanupTarget = 'deals' | 'activities' | 'people' | 'organizations' | 'users'
-
-type CleanupResult = {
-  target: CleanupTarget
-  before?: number
-  deleted?: number
-  auth_deleted?: number
-  custom_values_deleted?: number
-  after?: number
-}
-
 function UserDetailField({ label, value }: { label: string; value?: string | number | boolean | string[] | null }) {
   const display = Array.isArray(value) ? value.join(', ') : typeof value === 'boolean' ? (value ? 'Sim' : 'Não') : value
   return <div className="rounded-lg border border-slate-100 bg-white p-3">
@@ -4464,35 +4454,28 @@ function CrmUserTallyDetails({ user }: { user: CrmUser }) {
   </div>
 }
 
-function AdminUsersView({ users, companies, dealsCount, activitiesCount, peopleCount, organizationsCount, reload, setError }: {
+type CrmPermission = 'Admin' | 'BPO' | 'Vendas' | 'Teste'
+const crmPermissionOptions: CrmPermission[] = ['Admin', 'BPO', 'Vendas', 'Teste']
+const crmStatusLabel: Record<CrmUser['status'], string> = { active: 'Ativo', pending: 'Pendente', invited: 'Convidado', disabled: 'Desativado', deleted: 'Deletado' }
+const crmPermissionLabel = (user: CrmUser) => user.permission || (user.email?.toLowerCase().includes('teste') ? 'Teste' : 'BPO')
+
+function AdminUsersView({ users, session, profile, reload, setError }: {
   users: CrmUser[]
-  companies: CrmCompany[]
-  dealsCount: number
-  activitiesCount: number
-  peopleCount: number
-  organizationsCount: number
+  session: Session | null
+  profile: Profile | null
   reload: () => Promise<void>
   setError: (error: string) => void
 }) {
   const [busyId, setBusyId] = useState<string>('')
   const [message, setMessage] = useState('')
-  const [newUser, setNewUser] = useState({ full_name: '', email: '', company_name: '' })
+  const [newUser, setNewUser] = useState<{ full_name: string; email: string; company_name: string; permission: CrmPermission }>({ full_name: '', email: '', company_name: '', permission: 'BPO' })
   const [passwordDrafts, setPasswordDrafts] = useState<Record<string, string>>({})
-  const [cleanupConfirm, setCleanupConfirm] = useState<Record<CleanupTarget, string>>({ deals: '', activities: '', people: '', organizations: '', users: '' })
   const [selectedTallyUserId, setSelectedTallyUserId] = useState<string>('')
   const [adminUsersViewMode, setAdminUsersViewMode] = useState<'cards' | 'list'>('cards')
   const [userSearch, setUserSearch] = useState('')
   const [userStatusFilter, setUserStatusFilter] = useState<'all' | CrmUser['status']>('all')
   const [userCompanyFilter, setUserCompanyFilter] = useState('all')
   const [userDddStateFilter, setUserDddStateFilter] = useState('all')
-
-  const cleanupItems: Array<{ target: CleanupTarget; label: string; count: number; description: string }> = [
-    { target: 'deals', label: 'Apagar negócios', count: dealsCount, description: 'Remove negócios, histórico e atividades vinculadas aos negócios.' },
-    { target: 'activities', label: 'Apagar atividades', count: activitiesCount, description: 'Remove apenas as atividades registradas.' },
-    { target: 'people', label: 'Apagar contatos', count: peopleCount, description: 'Remove contatos e desvincula contato dos negócios.' },
-    { target: 'organizations', label: 'Apagar empresas', count: organizationsCount, description: 'Remove empresas dos negócios e desvincula empresas de contatos e negócios.' },
-    { target: 'users', label: 'Apagar usuários', count: users.length, description: 'Remove usuários do CRM e Auth vinculados, preservando o admin logado.' },
-  ]
 
   async function callAdminFunction(body: Record<string, unknown>) {
     const { data, error } = await supabase.functions.invoke('admin-users', { body })
@@ -4508,7 +4491,7 @@ function AdminUsersView({ users, companies, dealsCount, activitiesCount, peopleC
     setError('')
     try {
       await callAdminFunction({ action: 'create-crm-user', ...newUser })
-      setNewUser({ full_name: '', email: '', company_name: '' })
+      setNewUser({ full_name: '', email: '', company_name: '', permission: 'BPO' })
       setMessage('Usuário cadastrado. Agora você pode enviar o email de acesso.')
       await reload()
     } catch (e) {
@@ -4571,41 +4554,39 @@ function AdminUsersView({ users, companies, dealsCount, activitiesCount, peopleC
     }
   }
 
-  async function cleanupData(target: CleanupTarget) {
-    setBusyId(`cleanup-${target}`)
-    setMessage('')
-    setError('')
-    try {
-      const data = await callAdminFunction({ action: 'cleanup-data', target, confirm: cleanupConfirm[target] }) as CleanupResult
-      setCleanupConfirm((current) => ({ ...current, [target]: '' }))
-      const extra = data.auth_deleted ? ` Também apagou ${data.auth_deleted} usuários de acesso.` : ''
-      const custom = data.custom_values_deleted ? ` Limpou ${data.custom_values_deleted} valores customizados.` : ''
-      setMessage(`${data.deleted ?? 0} registros apagados de ${cleanupItems.find((item) => item.target === target)?.label.toLowerCase()}.${extra}${custom}`)
-      await reload()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setBusyId('')
-    }
-  }
-
-  const selectedTallyUser = users.find((user) => user.id === selectedTallyUserId)
   const resetStatusBadge = (user: CrmUser) => {
     if (user.password_reset_completed_at && user.password_reset_sent_at && new Date(user.password_reset_completed_at).getTime() >= new Date(user.password_reset_sent_at).getTime()) return <Badge tone="bg-emerald-100 text-emerald-700">Redefinição feita pelo Usuário</Badge>
     if (user.password_reset_sent_at) return <Badge tone="bg-purple-100 text-purple-700">Redefinição Enviada</Badge>
     return null
   }
+  const currentAdminInUsers = Boolean(session?.user?.id && users.some((user) => user.auth_user_id === session.user.id || user.email?.toLowerCase() === session.user.email?.toLowerCase()))
+  const adminListUser: CrmUser | null = session?.user && profile && !currentAdminInUsers ? {
+    id: profile.crm_user_id || session.user.id,
+    full_name: profile.full_name || session.user.user_metadata?.full_name || session.user.email || 'Admin',
+    email: session.user.email || '',
+    company_id: profile.bpo_id || 'admin',
+    auth_user_id: session.user.id,
+    status: 'active',
+    last_invited_at: null,
+    permission: 'Admin',
+    crm_companies: { id: profile.bpo_id || 'admin', name: 'VMarket Admin', created_at: '', updated_at: '' },
+  } as CrmUser : null
+  const displayUsers = adminListUser ? [adminListUser, ...users] : users
+  const selectedTallyUser = displayUsers.find((user) => user.id === selectedTallyUserId)
   const statusOptions: CrmUser['status'][] = ['active', 'pending', 'invited', 'disabled', 'deleted']
-  const companyOptions = [...new Set(users.map((user) => user.crm_companies?.name || 'Sem empresa'))].sort((a, b) => a.localeCompare(b, 'pt-BR'))
-  const dddStateOptions = [...new Set(users.map((user) => user.ddd_state).filter((state): state is string => Boolean(state)))].sort((a, b) => a.localeCompare(b, 'pt-BR'))
+  const activeCompanyOptions = [...new Set(users.filter((user) => user.status === 'active' && user.crm_companies?.name).map((user) => user.crm_companies?.name as string))].sort((a, b) => a.localeCompare(b, 'pt-BR'))
+  const companyOptions = [...new Set(displayUsers.map((user) => user.crm_companies?.name || 'Sem empresa'))].sort((a, b) => a.localeCompare(b, 'pt-BR'))
+  const dddStateOptions = [...new Set(displayUsers.map((user) => user.ddd_state).filter((state): state is string => Boolean(state)))].sort((a, b) => a.localeCompare(b, 'pt-BR'))
   const normalizedUserSearch = normalizeKey(userSearch)
-  const filteredUsers = users.filter((user) => {
+  const filteredUsers = displayUsers.filter((user) => {
     const companyName = user.crm_companies?.name || 'Sem empresa'
     const searchable = normalizeKey([
       user.full_name,
       user.email,
       companyName,
       user.status,
+      crmStatusLabel[user.status],
+      crmPermissionLabel(user),
       user.legal_company_name,
       user.cnpj,
       user.primary_email,
@@ -4634,8 +4615,8 @@ function AdminUsersView({ users, companies, dealsCount, activitiesCount, peopleC
               <p className="mt-1 text-sm text-slate-500">Dados do cadastro Tally, somente leitura</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Badge tone={crmOwnerBadgeTone(selectedTallyUser.status)}>{selectedTallyUser.status}</Badge>
-              <Badge tone="bg-slate-100 text-slate-700">{selectedTallyUser.crm_companies?.name || 'Sem empresa'}</Badge>
+              <Badge tone={crmOwnerBadgeTone(selectedTallyUser.status)}>{crmStatusLabel[selectedTallyUser.status]}</Badge>
+              <Badge tone="bg-slate-100 text-slate-700">{selectedTallyUser.crm_companies?.name || 'Sem empresa'}</Badge><Badge tone="bg-purple-100 text-purple-700">Permissão: {crmPermissionLabel(selectedTallyUser)}</Badge>
               <Badge tone="bg-slate-100 text-slate-700">ID usuário: {selectedTallyUser.id}</Badge>
               <Badge tone="bg-slate-100 text-slate-700">ID empresa: {selectedTallyUser.company_id}</Badge>
               {resetStatusBadge(selectedTallyUser)}
@@ -4656,17 +4637,18 @@ function AdminUsersView({ users, companies, dealsCount, activitiesCount, peopleC
         <div className="border-b border-slate-200 bg-white p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2"><Settings size={18} className="text-[#6f5cf6]"/><h2 className="text-lg font-bold">Admin de usuários</h2></div>
-            <div className="flex gap-2 text-xs font-semibold"><Badge tone="bg-blue-100 text-blue-700">{users.length} usuários</Badge><Badge tone="bg-emerald-100 text-emerald-700">{companies.length} empresas de acesso</Badge></div>
+            <div className="flex gap-2 text-xs font-semibold"><Badge tone="bg-blue-100 text-blue-700">{displayUsers.length} usuários</Badge><Badge tone="bg-emerald-100 text-emerald-700">{activeCompanyOptions.length} empresas ativas</Badge></div>
           </div>
           <p className="mt-2 text-sm text-slate-500">Crie usuários do BPO CRM, associe cada um a uma empresa e envie o email para definição de senha. Cada negócio deve ter um proprietário e usuários comuns enxergam apenas os negócios deles.</p>
           {message && <p className="mt-3 rounded border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">{message}</p>}
         </div>
 
-        <form onSubmit={createUser} className="grid gap-3 border-b border-slate-200 bg-slate-50 p-4 md:grid-cols-[1fr_1fr_1fr_150px]">
+        <form onSubmit={createUser} className="grid gap-3 border-b border-slate-200 bg-slate-50 p-4 md:grid-cols-[1fr_1fr_1fr_170px_150px]">
           <input value={newUser.full_name} onChange={(e) => setNewUser({ ...newUser, full_name: e.target.value })} className="rounded border border-slate-300 px-3 py-2 text-sm" placeholder="Nome do usuário" required />
           <input value={newUser.email} onChange={(e) => setNewUser({ ...newUser, email: e.target.value })} className="rounded border border-slate-300 px-3 py-2 text-sm" placeholder="email@empresa.com" type="email" required />
           <input value={newUser.company_name} onChange={(e) => setNewUser({ ...newUser, company_name: e.target.value })} className="rounded border border-slate-300 px-3 py-2 text-sm" placeholder="Empresa" list="crm-companies-list" required />
-          <datalist id="crm-companies-list">{companies.map((company) => <option key={company.id} value={company.name} />)}</datalist>
+          <datalist id="crm-companies-list">{activeCompanyOptions.map((company) => <option key={company} value={company} />)}</datalist>
+          <select value={newUser.permission} onChange={(e) => setNewUser({ ...newUser, permission: e.target.value as CrmPermission })} className="rounded border border-slate-300 px-3 py-2 text-sm" aria-label="Permissões">{crmPermissionOptions.map((permission) => <option key={permission} value={permission}>{permission}</option>)}</select>
           <button disabled={busyId === 'create'} className="rounded bg-[#238847] px-3 py-2 text-sm font-bold text-white disabled:opacity-60">{busyId === 'create' ? 'Criando...' : 'Criar usuário'}</button>
         </form>
 
@@ -4678,7 +4660,7 @@ function AdminUsersView({ users, companies, dealsCount, activitiesCount, peopleC
             </div>
             <select value={userStatusFilter} onChange={(e) => setUserStatusFilter(e.target.value as 'all' | CrmUser['status'])} className="rounded border border-slate-300 px-3 py-2 text-sm">
               <option value="all">Todos os status</option>
-              {statusOptions.map((status) => <option key={status} value={status}>{status}</option>)}
+              {statusOptions.map((status) => <option key={status} value={status}>{crmStatusLabel[status]}</option>)}
             </select>
             <select value={userCompanyFilter} onChange={(e) => setUserCompanyFilter(e.target.value)} className="rounded border border-slate-300 px-3 py-2 text-sm">
               <option value="all">Todas empresas</option>
@@ -4694,21 +4676,24 @@ function AdminUsersView({ users, companies, dealsCount, activitiesCount, peopleC
               <button type="button" onClick={() => setAdminUsersViewMode('list')} className={cn('rounded px-3 py-1.5 text-xs font-bold', adminUsersViewMode === 'list' ? 'bg-[#6f5cf6] text-white' : 'text-slate-600 hover:bg-slate-50')}><List size={14} className="mr-1 inline"/>Lista</button>
             </div>
           </div>
-          <p className="mt-2 text-xs font-semibold text-slate-500">{filteredUsers.length} de {users.length} usuários</p>
+          <p className="mt-2 text-xs font-semibold text-slate-500">{filteredUsers.length} de {displayUsers.length} usuários</p>
         </div>
 
         {adminUsersViewMode === 'cards' ? <div className="divide-y divide-slate-100">
+          <div className="hidden bg-slate-50 px-4 py-2 text-[11px] font-semibold uppercase text-slate-500 md:grid md:grid-cols-[1.1fr_1.1fr_1fr_110px_110px_120px_1fr_150px_150px_100px] md:gap-3"><span>Usuário</span><span>Email</span><span>Empresa</span><span>Status</span><span>Permissões</span><span>DDD</span><span>Senha</span><span>Acesso</span><span>Redefinição</span><span>Ação</span></div>
           {filteredUsers.map((user) => <div key={user.id} className="p-4 text-sm hover:bg-slate-50">
-            <div className="grid gap-3 md:grid-cols-[1.2fr_1.1fr_1fr_120px_150px_1fr_150px_150px_100px]">
+            <div className="grid gap-3 md:grid-cols-[1.1fr_1.1fr_1fr_110px_110px_120px_1fr_150px_150px_100px]">
               <div><button type="button" onClick={() => setSelectedTallyUserId(user.id)} className="text-left font-black text-slate-900 underline-offset-4 hover:text-[#6f5cf6] hover:underline">{user.full_name}</button></div>
               <div className="text-slate-600">{user.email}</div>
               <div><b>{user.crm_companies?.name || 'Sem empresa'}</b></div>
-              <div className="flex flex-wrap gap-1"><Badge tone={crmOwnerBadgeTone(user.status)}>{user.status}</Badge>{resetStatusBadge(user)}</div>
+              <div className="flex flex-wrap gap-1"><Badge tone={crmOwnerBadgeTone(user.status)}>{crmStatusLabel[user.status]}</Badge></div>
+              <div><Badge tone="bg-purple-100 text-purple-700">{crmPermissionLabel(user)}</Badge></div>
               <div><b>DDD {user.ddd_prefix || '-'}</b><p className="mt-1 text-xs text-slate-500">{user.ddd_state || 'Estado não informado'}</p></div>
               <input value={passwordDrafts[user.id] || ''} onChange={(e) => setPasswordDrafts((current) => ({ ...current, [user.id]: e.target.value }))} className="rounded border border-slate-300 px-3 py-2 text-sm" placeholder="Senha inicial" type="text" autoComplete="new-password" />
-              <button onClick={() => void setInitialPassword(user)} disabled={busyId === `password-${user.id}` || !(passwordDrafts[user.id] || '').trim()} className="rounded border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-60">{busyId === `password-${user.id}` ? 'Salvando...' : 'Definir senha'}</button>
-              <button onClick={() => void sendAccessEmail(user)} disabled={busyId === user.id} className="rounded border border-[#238847] px-3 py-2 text-sm font-bold text-[#238847] hover:bg-emerald-50 disabled:opacity-60">{busyId === user.id ? 'Enviando...' : user.auth_user_id ? 'Redefinir senha' : 'Enviar acesso'}</button>
-              <button type="button" onClick={() => void deleteUser(user)} disabled={busyId === `delete-${user.id}`} className="rounded border border-rose-200 px-3 py-2 text-sm font-bold text-rose-600 hover:bg-rose-50 disabled:opacity-60">{busyId === `delete-${user.id}` ? 'Apagando...' : 'Apagar'}</button>
+              <button onClick={() => void setInitialPassword(user)} disabled={busyId === `password-${user.id}` || crmPermissionLabel(user) === 'Admin' || !(passwordDrafts[user.id] || '').trim()} className="rounded border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-60">{busyId === `password-${user.id}` ? 'Salvando...' : 'Definir senha'}</button>
+              <button onClick={() => void sendAccessEmail(user)} disabled={busyId === user.id || crmPermissionLabel(user) === 'Admin'} className="rounded border border-[#238847] px-3 py-2 text-sm font-bold text-[#238847] hover:bg-emerald-50 disabled:opacity-60">{busyId === user.id ? 'Enviando...' : user.auth_user_id ? 'Redefinir senha' : 'Enviar acesso'}</button>
+              <div className="flex flex-wrap gap-1">{resetStatusBadge(user) || '-'}</div>
+              <button type="button" onClick={() => void deleteUser(user)} disabled={busyId === `delete-${user.id}` || crmPermissionLabel(user) === 'Admin'} className="rounded border border-rose-200 px-3 py-2 text-sm font-bold text-rose-600 hover:bg-rose-50 disabled:opacity-60">{busyId === `delete-${user.id}` ? 'Apagando...' : 'Apagar'}</button>
             </div>
           </div>)}
           {!filteredUsers.length && <div className="p-8 text-center text-slate-400">Nenhum usuário encontrado.</div>}
@@ -4716,7 +4701,7 @@ function AdminUsersView({ users, companies, dealsCount, activitiesCount, peopleC
           <table className="w-full min-w-[1600px] text-sm">
             <thead className="sticky top-0 bg-white">
               <tr className="border-b border-slate-200 text-left text-[11px] font-semibold uppercase text-slate-500">
-                <th className="px-4 py-3">Usuário</th><th className="px-4 py-3">ID usuário</th><th className="px-4 py-3">Email acesso</th><th className="px-4 py-3">Empresa acesso</th><th className="px-4 py-3">ID empresa</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Redefinição</th><th className="px-4 py-3">DDD</th><th className="px-4 py-3">Estado</th><th className="px-4 py-3">Telefone CRM</th><th className="px-4 py-3">Razão social</th><th className="px-4 py-3">CNPJ</th><th className="px-4 py-3">Email principal</th><th className="px-4 py-3">Regiões</th><th className="px-4 py-3">Serviços</th><th className="px-4 py-3">Ações</th>
+                <th className="px-4 py-3">Usuário</th><th className="px-4 py-3">ID usuário</th><th className="px-4 py-3">Email acesso</th><th className="px-4 py-3">Empresa acesso</th><th className="px-4 py-3">ID empresa</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Permissões</th><th className="px-4 py-3">Redefinição</th><th className="px-4 py-3">DDD</th><th className="px-4 py-3">Estado</th><th className="px-4 py-3">Telefone CRM</th><th className="px-4 py-3">Razão social</th><th className="px-4 py-3">CNPJ</th><th className="px-4 py-3">Email principal</th><th className="px-4 py-3">Regiões</th><th className="px-4 py-3">Serviços</th><th className="px-4 py-3">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -4726,7 +4711,8 @@ function AdminUsersView({ users, companies, dealsCount, activitiesCount, peopleC
                 <td className="px-4 py-3 text-slate-600">{user.email}</td>
                 <td className="px-4 py-3 text-slate-700">{user.crm_companies?.name || 'Sem empresa'}</td>
                 <td className="max-w-[220px] px-4 py-3 text-xs text-slate-500"><code>{user.company_id}</code></td>
-                <td className="px-4 py-3"><Badge tone={crmOwnerBadgeTone(user.status)}>{user.status}</Badge></td>
+                <td className="px-4 py-3"><Badge tone={crmOwnerBadgeTone(user.status)}>{crmStatusLabel[user.status]}</Badge></td>
+                <td className="px-4 py-3"><Badge tone="bg-purple-100 text-purple-700">{crmPermissionLabel(user)}</Badge></td>
                 <td className="px-4 py-3">{resetStatusBadge(user) || '-'}</td>
                 <td className="px-4 py-3 font-semibold text-slate-800">{user.ddd_prefix || '-'}</td>
                 <td className="px-4 py-3 text-slate-700">{user.ddd_state || '-'}</td>
@@ -4736,30 +4722,12 @@ function AdminUsersView({ users, companies, dealsCount, activitiesCount, peopleC
                 <td className="px-4 py-3 text-slate-700">{user.primary_email || '-'}</td>
                 <td className="max-w-[240px] px-4 py-3 text-slate-700"><span className="line-clamp-2">{user.service_regions || '-'}</span></td>
                 <td className="max-w-[240px] px-4 py-3 text-slate-700"><span className="line-clamp-2">{(user.offered_services || []).join(', ') || '-'}</span></td>
-                <td className="px-4 py-3"><button type="button" onClick={() => void deleteUser(user)} disabled={busyId === `delete-${user.id}`} className="rounded border border-rose-200 px-3 py-1.5 text-xs font-bold text-rose-600 hover:bg-rose-50 disabled:opacity-60">Apagar</button></td>
+                <td className="px-4 py-3"><button type="button" onClick={() => void deleteUser(user)} disabled={busyId === `delete-${user.id}` || crmPermissionLabel(user) === 'Admin'} className="rounded border border-rose-200 px-3 py-1.5 text-xs font-bold text-rose-600 hover:bg-rose-50 disabled:opacity-60">Apagar</button></td>
               </tr>)}
             </tbody>
           </table>
           {!filteredUsers.length && <div className="p-8 text-center text-slate-400">Nenhum usuário encontrado.</div>}
         </div>}
-      </Panel>
-
-      <Panel className="overflow-hidden border-rose-200">
-        <div className="border-b border-rose-200 bg-rose-50 p-4">
-          <h2 className="text-lg font-bold text-rose-900">Limpeza de dados</h2>
-          <p className="mt-2 text-sm text-rose-800">Ação irreversível. Para habilitar um botão, digite <b>APAGAR</b> no campo daquela linha. Cada botão apaga apenas o tipo de dado indicado.</p>
-        </div>
-        <div className="divide-y divide-rose-100">
-          {cleanupItems.map((item) => <div key={item.target} className="grid gap-3 p-4 text-sm md:grid-cols-[1fr_110px_160px_160px]">
-            <div>
-              <b className="text-slate-900">{item.label}</b>
-              <p className="mt-1 text-xs text-slate-500">{item.description}</p>
-            </div>
-            <Badge tone="bg-slate-100 text-slate-700">{item.count} registros</Badge>
-            <input value={cleanupConfirm[item.target]} onChange={(e) => setCleanupConfirm((current) => ({ ...current, [item.target]: e.target.value }))} className="rounded border border-rose-200 px-3 py-2 text-sm outline-none focus:border-rose-500 focus:ring-4 focus:ring-rose-100" placeholder="APAGAR" />
-            <button type="button" onClick={() => void cleanupData(item.target)} disabled={busyId === `cleanup-${item.target}` || cleanupConfirm[item.target] !== 'APAGAR'} className="rounded bg-rose-600 px-3 py-2 text-sm font-bold text-white hover:bg-rose-700 disabled:opacity-50">{busyId === `cleanup-${item.target}` ? 'Apagando...' : item.label}</button>
-          </div>)}
-        </div>
       </Panel>
     </div>
   </div>

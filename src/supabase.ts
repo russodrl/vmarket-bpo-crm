@@ -41,6 +41,7 @@ export type CrmUser = {
   company_id: string
   auth_user_id: string | null
   status: 'pending' | 'invited' | 'active' | 'disabled' | 'deleted'
+  permission?: 'Admin' | 'BPO' | 'Vendas' | 'Teste' | null
   last_invited_at: string | null
   password_reset_sent_at?: string | null
   password_reset_completed_at?: string | null
