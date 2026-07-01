@@ -4220,7 +4220,7 @@ function WarningsView({ deals, people, organizations, activities, crmUsers, open
 }
 
 function LeadDistributionView({ users, deals }: { users: CrmUser[]; deals: Deal[] }) {
-  const activeUsers = users.filter((user) => user.status === 'active' && user.auth_user_id && !normalizeKey(`${user.full_name} ${user.email}`).includes('aspalamar'))
+  const activeUsers = users.filter((user) => user.status === 'active' && user.auth_user_id && !['Admin', 'Teste'].includes(crmPermissionLabel(user)) && !normalizeKey(`${user.full_name} ${user.email}`).includes('aspalamar'))
   const isDistributionOpenDeal = (deal: Deal) => (deal.status === 'aberto' || !deal.status || !statusLabel[deal.status]) && deal.pipeline_stages?.pipeline_name === 'Pipeline de Vendas'
   const companyNameForUser = (user: CrmUser) => user.crm_companies?.name || 'Sem empresa'
   const statsForUser = (user: CrmUser) => {
@@ -4270,7 +4270,7 @@ function LeadDistributionView({ users, deals }: { users: CrmUser[]; deals: Deal[
   return <div className="h-full overflow-auto p-4">
     <div className="mb-4">
       <h2 className="text-2xl font-black tracking-[-0.04em] text-slate-950">Distribuição de Leads</h2>
-      <p className="mt-1 text-sm text-slate-500">Ordem de distribuição: primeiro escolhe a empresa com menor carga na fila. Depois entrega para o próximo usuário ativo dentro dessa empresa. A fila exclui usuários de teste, desativados e deletados.</p>
+      <p className="mt-1 text-sm text-slate-500">Ordem de distribuição: primeiro escolhe a empresa com menor carga na fila. Depois entrega para o próximo usuário ativo dentro dessa empresa. A fila exclui usuários com permissão Admin ou Teste, usuários desativados, deletados e contas de teste.</p>
     </div>
     <div className="grid gap-4 xl:grid-cols-[1fr_2fr]">
       <Panel className="overflow-hidden">
