@@ -89,6 +89,7 @@ type SavedDealFilter = {
   favorite: boolean
   visibility: 'private'
   rules: FilterRule[]
+  columns?: string[]
   createdAt: string
 }
 type GlobalSearchResult = {
@@ -107,6 +108,27 @@ type FilterDraft = {
   name: string
   favorite: boolean
   rules: FilterRule[]
+  columns?: string[]
+}
+
+type ColumnEntity = 'deal' | 'person' | 'organization'
+type ColumnDef = {
+  id: string
+  entity: ColumnEntity
+  label: string
+  value: (row: ListRowContext) => ReactNode
+  className?: string
+}
+type ListRowContext = {
+  deal?: Deal
+  person?: Person
+  organization?: Organization
+  deals: Deal[]
+  people: Person[]
+  organizations: Organization[]
+  stages: Stage[]
+  crmUsers: CrmUser[]
+  dealLabelAssignments: DealLabelAssignment[]
 }
 
 type FilterContext = {
@@ -114,6 +136,7 @@ type FilterContext = {
   activities: ActivityRow[]
   customFields: CustomField[]
   customFieldValues: CustomFieldValue[]
+  crmUsers: CrmUser[]
 }
 
 const filterEntityLabel: Record<FilterEntity, string> = {
@@ -173,11 +196,17 @@ function getFilterRawValue(deal: Deal, rule: FilterRule, fields: FilterField[], 
   if (field.entity === 'deal') {
     if (field.key === 'stage') return context.stages.find((stage) => stage.id === deal.stage_id)?.name || deal.pipeline_stages?.name || ''
     if (field.key === 'pipeline') return context.stages.find((stage) => stage.id === deal.stage_id)?.pipeline_name || deal.pipeline_stages?.pipeline_name || ''
-    if (field.key === 'owner') return deal.pipedrive_owner_name || deal.bpo_partners?.name || deal.owner_id || ''
+    if (field.key === 'owner') return crmOwnerDisplay(context.crmUsers, deal.owner_id, deal.pipedrive_owner_name || deal.bpo_partners?.name || deal.owner_id || '')
     return (deal as unknown as Record<string, unknown>)[field.key]
   }
-  if (field.entity === 'person') return (deal.people as unknown as Record<string, unknown> | undefined)?.[field.key]
-  if (field.entity === 'organization') return (deal.organizations as unknown as Record<string, unknown> | undefined)?.[field.key]
+  if (field.entity === 'person') {
+    if (field.key === 'owner_id') return crmOwnerDisplay(context.crmUsers, (deal.people as Person | undefined)?.owner_id, (deal.people as Person | undefined)?.owner_id || '')
+    return (deal.people as unknown as Record<string, unknown> | undefined)?.[field.key]
+  }
+  if (field.entity === 'organization') {
+    if (field.key === 'owner_id') return crmOwnerDisplay(context.crmUsers, (deal.organizations as Organization | undefined)?.owner_id, (deal.organizations as Organization | undefined)?.owner_id || '')
+    return (deal.organizations as unknown as Record<string, unknown> | undefined)?.[field.key]
+  }
   const values = context.activities.filter((activity) => activity.deal_id === deal.id).map((activity) => {
     if (field.key === 'display_status') return activityDisplayStatus(activity)
     return (activity as unknown as Record<string, unknown>)[field.key]
@@ -241,10 +270,15 @@ function buildFilterFields(customFields: CustomField[]): FilterField[] {
     { id: 'deal:created_at', entity: 'deal', key: 'created_at', label: 'Criado em', type: 'date' },
     { id: 'deal:updated_at', entity: 'deal', key: 'updated_at', label: 'Atualizado em', type: 'date' },
     { id: 'person:full_name', entity: 'person', key: 'full_name', label: 'Nome da pessoa', type: 'text' },
+    { id: 'person:owner_id', entity: 'person', key: 'owner_id', label: 'Proprietário do contato', type: 'text' },
     { id: 'person:role_title', entity: 'person', key: 'role_title', label: 'Cargo da pessoa', type: 'text' },
     { id: 'person:email', entity: 'person', key: 'email', label: 'Email da pessoa', type: 'text' },
     { id: 'person:phone', entity: 'person', key: 'phone', label: 'Telefone da pessoa', type: 'text' },
+    { id: 'person:ddd_prefix', entity: 'person', key: 'ddd_prefix', label: 'DDD da pessoa', type: 'text' },
+    { id: 'person:ddd_state', entity: 'person', key: 'ddd_state', label: 'Estado da pessoa', type: 'text' },
     { id: 'organization:name', entity: 'organization', key: 'name', label: 'Nome da empresa', type: 'text' },
+    { id: 'organization:owner_id', entity: 'organization', key: 'owner_id', label: 'Proprietário da empresa', type: 'text' },
+    { id: 'organization:type', entity: 'organization', key: 'type', label: 'Tipo da empresa', type: 'option' },
     { id: 'organization:state', entity: 'organization', key: 'state', label: 'Estado da empresa', type: 'text' },
     { id: 'organization:cnpjs', entity: 'organization', key: 'cnpjs', label: 'CNPJs', type: 'number' },
     { id: 'organization:monthly_purchase', entity: 'organization', key: 'monthly_purchase', label: 'Compra mensal', type: 'number' },
@@ -565,6 +599,87 @@ function Panel({ children, className }: { children: ReactNode; className?: strin
   return <section className={cn('rounded border border-slate-200 bg-white', className)}>{children}</section>
 }
 
+const columnGroupLabels: Record<ColumnEntity, string> = { deal: 'Negócio', organization: 'Organização', person: 'Contato' }
+const defaultDealListColumns = ['deal:title', 'organization:name', 'deal:labels', 'person:full_name', 'deal:stage', 'deal:total_value', 'deal:owner', 'deal:status', 'deal:expected_close_date']
+const defaultPersonListColumns = ['person:full_name', 'person:owner', 'person:role_title', 'person:email', 'person:phone', 'organization:name', 'person:ddd_state']
+const defaultOrganizationListColumns = ['organization:name', 'organization:owner', 'organization:type', 'organization:city', 'organization:state', 'organization:monthly_purchase', 'organization:cnpjs']
+
+function loadVisibleColumns(key: string, defaults: string[]) {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(key) || '[]')
+    return Array.isArray(parsed) && parsed.length ? parsed.filter((item): item is string => typeof item === 'string') : defaults
+  } catch {
+    return defaults
+  }
+}
+function saveVisibleColumns(key: string, columns: string[]) {
+  window.localStorage.setItem(key, JSON.stringify(columns))
+}
+function businessTypeLabel(value?: string | null) {
+  return businessTypeOptions.find(([id]) => id === value)?.[1] || value || '-'
+}
+function stageNameFor(stages: Stage[], id?: string | null) {
+  return stages.find((stage) => stage.id === id)?.name || '-'
+}
+function relatedDealsForPerson(deals: Deal[], personId: string) {
+  return deals.filter((deal) => deal.person_id === personId)
+}
+function relatedDealsForOrganization(deals: Deal[], organizationId: string) {
+  return deals.filter((deal) => deal.organization_id === organizationId)
+}
+function filterPeopleBySavedFilter(people: Person[], deals: Deal[], savedFilter: SavedDealFilter | undefined, fields: FilterField[], context: FilterContext) {
+  if (!savedFilter || !savedFilter.rules.length) return people
+  return people.filter((person) => {
+    const relatedDeals = relatedDealsForPerson(deals, person.id)
+    if (relatedDeals.length) return filterDealsBySavedFilter(relatedDeals, savedFilter, fields, context).length > 0
+    const fauxDeal = { id: `person-${person.id}`, title: person.full_name, person_id: person.id, people: person, organization_id: person.organization_id } as unknown as Deal
+    return filterDealsBySavedFilter([fauxDeal], savedFilter, fields, context).length > 0
+  })
+}
+function filterOrganizationsBySavedFilter(organizations: Organization[], deals: Deal[], savedFilter: SavedDealFilter | undefined, fields: FilterField[], context: FilterContext) {
+  if (!savedFilter || !savedFilter.rules.length) return organizations
+  return organizations.filter((organization) => {
+    const relatedDeals = relatedDealsForOrganization(deals, organization.id)
+    if (relatedDeals.length) return filterDealsBySavedFilter(relatedDeals, savedFilter, fields, context).length > 0
+    const fauxDeal = { id: `organization-${organization.id}`, title: organization.name, organization_id: organization.id, organizations: organization } as unknown as Deal
+    return filterDealsBySavedFilter([fauxDeal], savedFilter, fields, context).length > 0
+  })
+}
+
+function buildListColumns(): ColumnDef[] {
+  return [
+    { id: 'deal:title', entity: 'deal', label: 'Negócio', value: ({ deal }) => deal?.title || '-' },
+    { id: 'deal:owner', entity: 'deal', label: 'Proprietário do negócio', value: ({ deal, crmUsers }) => crmOwnerDisplay(crmUsers, deal?.owner_id, '-') },
+    { id: 'deal:labels', entity: 'deal', label: 'Etiquetas', value: ({ deal, dealLabelAssignments }) => deal ? <DealLabelPills labels={dealLabelAssignments.filter((assignment) => assignment.deal_id === deal.id && assignment.deal_labels).map((assignment) => assignment.deal_labels as DealLabel)} /> : '-' },
+    { id: 'deal:stage', entity: 'deal', label: 'Etapa', value: ({ deal, stages }) => <span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-700">{stageNameFor(stages, deal?.stage_id)}</span> },
+    { id: 'deal:pipeline', entity: 'deal', label: 'Funil', value: ({ deal, stages }) => stages.find((stage) => stage.id === deal?.stage_id)?.pipeline_name || deal?.pipeline_stages?.pipeline_name || '-' },
+    { id: 'deal:total_value', entity: 'deal', label: 'Valor', value: ({ deal }) => money(deal ? getDealTotalValue(deal) : 0), className: 'font-semibold text-slate-800' },
+    { id: 'deal:value', entity: 'deal', label: 'Valor VMarket', value: ({ deal }) => money(deal?.value), className: 'font-semibold text-slate-800' },
+    { id: 'deal:partner_value', entity: 'deal', label: 'Valor Parceiro', value: ({ deal }) => money(deal?.partner_value), className: 'font-semibold text-slate-800' },
+    { id: 'deal:monthly_purchase', entity: 'deal', label: 'GMV mensal', value: ({ deal }) => money(deal?.monthly_purchase) },
+    { id: 'deal:status', entity: 'deal', label: 'Status', value: ({ deal }) => <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-bold uppercase', deal?.status === 'ganho' ? 'bg-green-100 text-green-700' : deal?.status === 'perdido' ? 'bg-slate-200 text-slate-700' : 'bg-blue-100 text-blue-700')}>{statusLabel[deal?.status || 'aberto'] || 'Aberto'}</span> },
+    { id: 'deal:expected_close_date', entity: 'deal', label: 'Data esperada de Fechamento', value: ({ deal }) => formatShortDate(deal?.expected_close_date), className: 'text-slate-500' },
+    { id: 'deal:source', entity: 'deal', label: 'Preenchimento', value: ({ deal }) => fillingSourceLabel[deal?.source || ''] || deal?.source || '-' },
+    { id: 'deal:lead_source', entity: 'deal', label: 'Fonte do Lead', value: ({ deal }) => deal?.lead_source === 'parceiro' ? 'Parceiro' : deal?.lead_source === 'vmarket' ? 'VMarket' : '-' },
+    { id: 'organization:name', entity: 'organization', label: 'Empresa', value: ({ deal, organization }) => organization?.name || deal?.organizations?.name || '-' },
+    { id: 'organization:owner', entity: 'organization', label: 'Proprietário da empresa', value: ({ organization, deal, crmUsers }) => crmOwnerDisplay(crmUsers, organization?.owner_id || deal?.organizations?.owner_id, '-') },
+    { id: 'organization:type', entity: 'organization', label: 'Tipo da empresa', value: ({ organization, deal }) => businessTypeLabel(organization?.type || deal?.organizations?.type) },
+    { id: 'organization:city', entity: 'organization', label: 'Cidade', value: ({ organization, deal }) => organization?.city || deal?.organizations?.city || '-' },
+    { id: 'organization:state', entity: 'organization', label: 'Estado', value: ({ organization, deal }) => organization?.state || deal?.organizations?.state || '-' },
+    { id: 'organization:cnpjs', entity: 'organization', label: 'CNPJs', value: ({ organization, deal }) => organization?.cnpjs ?? deal?.organizations?.cnpjs ?? '-' },
+    { id: 'organization:monthly_purchase', entity: 'organization', label: 'Compra mensal', value: ({ organization, deal }) => money(organization?.monthly_purchase ?? deal?.organizations?.monthly_purchase) },
+    { id: 'organization:supplier_count', entity: 'organization', label: 'Fornecedores', value: ({ organization, deal }) => organization?.supplier_count ?? deal?.organizations?.supplier_count ?? '-' },
+    { id: 'person:full_name', entity: 'person', label: 'Contato', value: ({ deal, person }) => person?.full_name || deal?.people?.full_name || '-' },
+    { id: 'person:owner', entity: 'person', label: 'Proprietário do contato', value: ({ person, deal, crmUsers }) => crmOwnerDisplay(crmUsers, person?.owner_id || deal?.people?.owner_id, '-') },
+    { id: 'person:role_title', entity: 'person', label: 'Cargo', value: ({ person, deal }) => person?.role_title || deal?.people?.role_title || '-' },
+    { id: 'person:email', entity: 'person', label: 'Email', value: ({ person, deal }) => person?.email || deal?.people?.email || '-' },
+    { id: 'person:phone', entity: 'person', label: 'Telefone', value: ({ person, deal }) => person?.phone || deal?.people?.phone || '-' },
+    { id: 'person:ddd_prefix', entity: 'person', label: 'DDD', value: ({ person, deal }) => person?.ddd_prefix || deal?.people?.ddd_prefix || '-' },
+    { id: 'person:ddd_state', entity: 'person', label: 'Estado do contato', value: ({ person, deal }) => person?.ddd_state || deal?.people?.ddd_state || '-' },
+    { id: 'person:ddd_region', entity: 'person', label: 'Região do contato', value: ({ person, deal }) => person?.ddd_region || deal?.people?.ddd_region || '-' },
+  ]
+}
+
 function Login() {
   const [email, setEmail] = useState(() => window.localStorage.getItem('vmarket-crm-email') || '')
   const [password, setPassword] = useState('')
@@ -816,6 +931,9 @@ function App() {
   const [savedDealFilters, setSavedDealFilters] = useState<SavedDealFilter[]>(() => loadSavedDealFilters())
   const [activeDealFilterId, setActiveDealFilterId] = useState('')
   const [activeOwnerFilterId, setActiveOwnerFilterId] = useState('')
+  const [dealListColumns, setDealListColumns] = useState<string[]>(() => loadVisibleColumns('vmarket-crm-deal-list-columns', defaultDealListColumns))
+  const [personListColumns, setPersonListColumns] = useState<string[]>(() => loadVisibleColumns('vmarket-crm-person-list-columns', defaultPersonListColumns))
+  const [organizationListColumns, setOrganizationListColumns] = useState<string[]>(() => loadVisibleColumns('vmarket-crm-organization-list-columns', defaultOrganizationListColumns))
   const [globalSearch, setGlobalSearch] = useState('')
   const [detailDealId, setDetailDealId] = useState(() => new URLSearchParams(window.location.search).get('deal') || '')
   const [detailPersonId, setDetailPersonId] = useState(() => new URLSearchParams(window.location.search).get('person') || '')
@@ -831,7 +949,7 @@ function App() {
   }, [stages, pipelineNames, activePipeline])
   const salesStages = useMemo(() => stages.filter((stage) => stage.pipeline_name === 'Pipeline de Vendas'), [stages])
   const filterFields = useMemo(() => buildFilterFields(customFields), [customFields])
-  const filterContext = useMemo(() => ({ stages, activities, customFields, customFieldValues }), [stages, activities, customFields, customFieldValues])
+  const filterContext = useMemo(() => ({ stages, activities, customFields, customFieldValues, crmUsers }), [stages, activities, customFields, customFieldValues, crmUsers])
   const visibleDeals = useMemo(() => {
     const visibleStageIds = new Set(visibleStages.map((stage) => stage.id))
     const activeSavedFilter = savedDealFilters.find((filter) => filter.id === activeDealFilterId)
@@ -841,6 +959,15 @@ function App() {
     const ownerDeals = activeOwnerFilterId ? openPipelineDeals.filter((deal) => deal.owner_id === activeOwnerFilterId) : openPipelineDeals
     return filterDealsBySavedFilter(ownerDeals, activeSavedFilter, filterFields, filterContext)
   }, [deals, visibleStages, activeOwnerFilterId, savedDealFilters, activeDealFilterId, filterFields, filterContext])
+  const activeSavedFilter = useMemo(() => savedDealFilters.find((filter) => filter.id === activeDealFilterId), [savedDealFilters, activeDealFilterId])
+  const visiblePeople = useMemo(() => {
+    const ownerRows = activeOwnerFilterId ? people.filter((person) => person.owner_id === activeOwnerFilterId) : people
+    return filterPeopleBySavedFilter(ownerRows, deals, activeSavedFilter, filterFields, filterContext)
+  }, [people, deals, activeOwnerFilterId, activeSavedFilter, filterFields, filterContext])
+  const visibleOrganizations = useMemo(() => {
+    const ownerRows = activeOwnerFilterId ? organizations.filter((org) => org.owner_id === activeOwnerFilterId) : organizations
+    return filterOrganizationsBySavedFilter(ownerRows, deals, activeSavedFilter, filterFields, filterContext)
+  }, [organizations, deals, activeOwnerFilterId, activeSavedFilter, filterFields, filterContext])
 
   const detailDeal = useMemo(() => deals.find((d) => d.id === detailDealId), [deals, detailDealId])
   const detailPerson = useMemo(() => people.find((person) => person.id === detailPersonId), [people, detailPersonId])
@@ -1264,6 +1391,7 @@ function App() {
       favorite: draft.favorite,
       visibility: 'private',
       rules,
+      columns: draft.columns,
       createdAt: new Date().toISOString(),
     }
     const next = savedDealFilters.some((filter) => filter.id === saved.id)
@@ -1272,6 +1400,26 @@ function App() {
     persistDealFilters(next)
     setActiveDealFilterId(saved.id)
     setActiveOwnerFilterId('')
+  }
+
+  function applyFilterColumns(filter?: SavedDealFilter) {
+    if (!filter?.columns?.length) return
+    if (activeView === 'contacts') setPersonColumns(filter.columns)
+    else if (activeView === 'companies') setOrganizationColumns(filter.columns)
+    else setDealColumns(filter.columns)
+  }
+
+  function setDealColumns(columns: string[]) {
+    setDealListColumns(columns)
+    saveVisibleColumns('vmarket-crm-deal-list-columns', columns)
+  }
+  function setPersonColumns(columns: string[]) {
+    setPersonListColumns(columns)
+    saveVisibleColumns('vmarket-crm-person-list-columns', columns)
+  }
+  function setOrganizationColumns(columns: string[]) {
+    setOrganizationListColumns(columns)
+    saveVisibleColumns('vmarket-crm-organization-list-columns', columns)
   }
 
   function deleteDealFilter(id: string) {
@@ -1475,11 +1623,11 @@ function App() {
             {error && <div className="m-4 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><b>Erro:</b> {error}</div>}
             {loading ? <LoadingBpo /> : (
               <>
-                {activeView === 'pipeline' && <PipelineView stages={visibleStages} salesStages={salesStages} deals={visibleDeals} allDeals={deals} activities={activities} crmUsers={crmUsers} organizations={organizations} people={people} dealLabelAssignments={dealLabelAssignments} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} setDraggingId={setDraggingId} handleDrop={handleDrop} newDeal={newDeal} setNewDeal={setNewDeal} createDeal={createDeal} creating={creating} canAssignOwner={profile?.role === 'admin_vmarket'} activePipeline={activePipeline} setActivePipeline={setActivePipeline} pipelineNames={pipelineNames} pipelineView={pipelineView} setPipelineView={setPipelineView} savedDealFilters={savedDealFilters} activeDealFilterId={activeDealFilterId} setActiveDealFilterId={setActiveDealFilterId} activeOwnerFilterId={activeOwnerFilterId} setActiveOwnerFilterId={setActiveOwnerFilterId} filterFields={filterFields} filterContext={filterContext} saveDealFilter={saveDealFilter} deleteDealFilter={deleteDealFilter} />}
+                {activeView === 'pipeline' && <PipelineView stages={visibleStages} salesStages={salesStages} deals={visibleDeals} allDeals={deals} activities={activities} crmUsers={crmUsers} organizations={organizations} people={people} dealLabelAssignments={dealLabelAssignments} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} setDraggingId={setDraggingId} handleDrop={handleDrop} newDeal={newDeal} setNewDeal={setNewDeal} createDeal={createDeal} creating={creating} canAssignOwner={profile?.role === 'admin_vmarket'} activePipeline={activePipeline} setActivePipeline={setActivePipeline} pipelineNames={pipelineNames} pipelineView={pipelineView} setPipelineView={setPipelineView} savedDealFilters={savedDealFilters} activeDealFilterId={activeDealFilterId} setActiveDealFilterId={setActiveDealFilterId} activeOwnerFilterId={activeOwnerFilterId} setActiveOwnerFilterId={setActiveOwnerFilterId} filterFields={filterFields} filterContext={filterContext} saveDealFilter={saveDealFilter} deleteDealFilter={deleteDealFilter} applyFilterColumns={applyFilterColumns} visibleColumns={dealListColumns} setVisibleColumns={setDealColumns} />}
                 {activeView === 'plans-vmarket' && <VmarketPlansView />}
                 {activeView === 'commissions-vmarket' && <VmarketCommissionsView deals={deals} stages={stages} history={history} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} />}
-                {activeView === 'contacts' && <ListView title="Contatos" icon={<Contact size={18}/>} rows={people.map((p) => ({ id: p.id, title: p.full_name, sub: `${p.role_title || 'Contato'} · ${p.email || 'sem email'}`, meta: p.phone || 'sem telefone' }))} canDelete={profile?.role === 'admin_vmarket'} onOpen={openPersonPage} onDelete={(id, label) => deleteOneRecord('person', id, label)} />}
-                {activeView === 'companies' && <ListView title="Empresas" icon={<Building2 size={18}/>} rows={organizations.map((o) => ({ id: o.id, title: o.name, sub: `${o.type ? businessTypeOptions.find(([id]) => id === o.type)?.[1] || o.type : 'Tipo não informado'} · ${o.city || ''} ${o.state || ''}`, meta: money(o.monthly_purchase) }))} canDelete={profile?.role === 'admin_vmarket'} onOpen={openOrganizationPage} onDelete={(id, label) => deleteOneRecord('organization', id, label)} />}
+                {activeView === 'contacts' && <EntityListView title="Contatos" icon={<Contact size={18}/>} entity="person" rows={visiblePeople} deals={deals} people={people} organizations={organizations} stages={stages} crmUsers={crmUsers} dealLabelAssignments={dealLabelAssignments} selectedId={detailPersonId} onOpen={openPersonPage} savedFilters={savedDealFilters} activeFilterId={activeDealFilterId} activeOwnerId={activeOwnerFilterId} setActiveFilterId={setActiveDealFilterId} setActiveOwnerId={setActiveOwnerFilterId} users={crmUsers} filterFields={filterFields} filterContext={filterContext} saveDealFilter={saveDealFilter} onDeleteFilter={deleteDealFilter} applyFilterColumns={applyFilterColumns} visibleColumns={personListColumns} setVisibleColumns={setPersonColumns} />}
+                {activeView === 'companies' && <EntityListView title="Empresas" icon={<Building2 size={18}/>} entity="organization" rows={visibleOrganizations} deals={deals} people={people} organizations={organizations} stages={stages} crmUsers={crmUsers} dealLabelAssignments={dealLabelAssignments} selectedId={detailOrganizationId} onOpen={openOrganizationPage} savedFilters={savedDealFilters} activeFilterId={activeDealFilterId} activeOwnerId={activeOwnerFilterId} setActiveFilterId={setActiveDealFilterId} setActiveOwnerId={setActiveOwnerFilterId} users={crmUsers} filterFields={filterFields} filterContext={filterContext} saveDealFilter={saveDealFilter} onDeleteFilter={deleteDealFilter} applyFilterColumns={applyFilterColumns} visibleColumns={organizationListColumns} setVisibleColumns={setOrganizationColumns} />}
                 {activeView === 'activities' && <ActivitiesView activities={activities} deals={deals} completeActivity={completeActivity} updateActivity={updateActivity} canDelete={profile?.role === 'admin_vmarket'} deleteActivity={(id, label) => deleteOneRecord('activity', id, label)} />}
                 {activeView === 'warnings' && <WarningsView deals={deals} people={people} organizations={organizations} activities={activities} crmUsers={crmUsers} openDealPage={openDealPage} reload={loadAll} setError={setError} />}
                 {activeView === 'lead-distribution' && profile?.role === 'admin_vmarket' && <LeadDistributionView users={crmUsers} deals={deals} />}
@@ -1520,7 +1668,7 @@ function GlobalSearchBox({ value, onChange, results, onOpen }: { value: string; 
   </div>
 }
 
-function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUsers, organizations, people, dealLabelAssignments, selectedId, setSelectedId, openDealPage, setDraggingId, handleDrop, newDeal, setNewDeal, createDeal, creating, canAssignOwner, activePipeline, setActivePipeline, pipelineNames, pipelineView, setPipelineView, savedDealFilters, activeDealFilterId, setActiveDealFilterId, activeOwnerFilterId, setActiveOwnerFilterId, filterFields, filterContext, saveDealFilter, deleteDealFilter }: {
+function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUsers, organizations, people, dealLabelAssignments, selectedId, setSelectedId, openDealPage, setDraggingId, handleDrop, newDeal, setNewDeal, createDeal, creating, canAssignOwner, activePipeline, setActivePipeline, pipelineNames, pipelineView, setPipelineView, savedDealFilters, activeDealFilterId, setActiveDealFilterId, activeOwnerFilterId, setActiveOwnerFilterId, filterFields, filterContext, saveDealFilter, deleteDealFilter, applyFilterColumns, visibleColumns, setVisibleColumns }: {
   stages: Stage[]
   salesStages: Stage[]
   deals: Deal[]
@@ -1554,6 +1702,9 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
   filterContext: FilterContext
   saveDealFilter: (draft: FilterDraft) => void
   deleteDealFilter: (id: string) => void
+  applyFilterColumns: (filter?: SavedDealFilter) => void
+  visibleColumns: string[]
+  setVisibleColumns: (columns: string[]) => void
 }) {
   const [showCreateDeal, setShowCreateDeal] = useState(false)
   const [showFilters, setShowFilters] = useState(false)
@@ -1716,11 +1867,11 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
               activeFilterId={activeDealFilterId}
               activeOwnerId={activeOwnerFilterId}
               users={crmUsers}
-              onSelectFilter={(id) => { setActiveDealFilterId(id); setActiveOwnerFilterId(''); setShowFilters(false) }}
+              onSelectFilter={(id) => { const filter = savedDealFilters.find((item) => item.id === id); setActiveDealFilterId(id); setActiveOwnerFilterId(''); applyFilterColumns(filter); setShowFilters(false) }}
               onSelectOwner={(id) => { setActiveOwnerFilterId(id); setActiveDealFilterId(''); setShowFilters(false) }}
               onClear={() => { setActiveDealFilterId(''); setActiveOwnerFilterId(''); setShowFilters(false) }}
-              onCreate={() => { setEditingFilter(emptyFilterDraft()); setShowFilters(false) }}
-              onEdit={(filter) => { setEditingFilter({ id: filter.id, name: filter.name, favorite: filter.favorite, rules: filter.rules.length ? filter.rules : [newFilterRule('all')] }); setShowFilters(false) }}
+              onCreate={() => { setEditingFilter({ ...emptyFilterDraft(), columns: visibleColumns }); setShowFilters(false) }}
+              onEdit={(filter) => { setEditingFilter({ id: filter.id, name: filter.name, favorite: filter.favorite, rules: filter.rules.length ? filter.rules : [newFilterRule('all')], columns: visibleColumns }); setShowFilters(false) }}
               onDelete={deleteDealFilter}
             />}
           </div>
@@ -1781,7 +1932,7 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
           </div>
         })}
       </div>
-    </div> : pipelineView === 'list' ? <ListViewDeals deals={deals} stages={stages} dealLabelAssignments={dealLabelAssignments} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} /> : <ForecastView deals={deals} stages={stages} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} />}
+    </div> : pipelineView === 'list' ? <ListViewDeals deals={deals} stages={stages} crmUsers={crmUsers} organizations={organizations} people={people} dealLabelAssignments={dealLabelAssignments} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} visibleColumns={visibleColumns} setVisibleColumns={setVisibleColumns} /> : <ForecastView deals={deals} stages={stages} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} />}
 
     {showCreateDeal && <CreateDealModal salesStages={salesStages} crmUsers={crmUsers} organizations={organizations} people={people} canAssignOwner={canAssignOwner} newDeal={newDeal} setNewDeal={setNewDeal} createDeal={submitCreateDeal} creating={creating} close={() => { setShowCreateDeal(false); setNewDeal(blankNewDeal()) }} />}
     {editingFilter && <DealFilterBuilderModal
@@ -1872,7 +2023,7 @@ function DealFilterBuilderModal({ draft, setDraft, fields, deals, context, onClo
   const addRule = (group: FilterGroup) => setDraft({ ...draft, rules: [...draft.rules, newFilterRule(group)] })
   const fieldsForEntity = (entity: FilterEntity) => filteredFields.filter((field) => field.entity === entity)
   const valuesForRule = (rule: FilterRule) => uniqueValues(deals.map((deal) => getFilterRawValue(deal, rule, fields, context)))
-  const previewCount = filterDealsBySavedFilter(deals, { id: draft.id || 'preview', name: draft.name, favorite: draft.favorite, visibility: 'private', rules: draft.rules, createdAt: new Date().toISOString() }, fields, context).length
+  const previewCount = filterDealsBySavedFilter(deals, { id: draft.id || 'preview', name: draft.name, favorite: draft.favorite, visibility: 'private', rules: draft.rules, columns: draft.columns, createdAt: new Date().toISOString() }, fields, context).length
   const renderRules = (group: FilterGroup) => {
     const rules = draft.rules.filter((rule) => rule.group === group)
     return <div className="space-y-2">
@@ -2992,8 +3143,121 @@ function EditInput({ label, value, onChange, type = 'text', className }: { label
 }
 
 
-function ListView({ title, icon, rows, canDelete = false, onOpen, onDelete }: { title: string; icon: ReactNode; rows: Array<{ id: string; title: string; sub: string; meta: string }>; canDelete?: boolean; onOpen?: (id: string) => void; onDelete?: (id: string, label: string) => void }) {
-  return <div className="h-full overflow-y-auto p-5"><Panel><div className="flex items-center gap-2 border-b border-slate-200 p-4"><span className="text-[#6f5cf6]">{icon}</span><h2 className="text-lg font-bold">{title}</h2></div><div className="divide-y divide-slate-100">{rows.map((row) => <div key={row.id} className="grid gap-2 p-4 text-sm hover:bg-slate-50 md:grid-cols-[1fr_1fr_160px_100px]"><button type="button" onClick={() => onOpen?.(row.id)} className="text-left font-bold text-blue-700 hover:underline">{row.title}</button><span className="text-slate-500">{row.sub}</span><span className="font-semibold text-slate-700">{row.meta}</span>{canDelete && <button type="button" onClick={() => onDelete?.(row.id, row.title)} className="rounded border border-rose-200 px-3 py-2 text-xs font-bold text-rose-600 hover:bg-rose-50">Apagar</button>}</div>)}</div></Panel></div>
+function ColumnPickerModal({ columns, visibleColumns, setVisibleColumns, onClose }: { columns: ColumnDef[]; visibleColumns: string[]; setVisibleColumns: (columns: string[]) => void; onClose: () => void }) {
+  const toggle = (id: string) => {
+    const next = visibleColumns.includes(id) ? visibleColumns.filter((item) => item !== id) : [...visibleColumns, id]
+    if (next.length) setVisibleColumns(next)
+  }
+  const grouped = (['deal', 'organization', 'person'] as ColumnEntity[]).map((entity) => ({ entity, items: columns.filter((column) => column.entity === entity) })).filter((group) => group.items.length)
+  return <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 p-4 backdrop-blur-sm" onClick={onClose}>
+    <div className="flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+      <div className="flex items-center justify-between border-b border-slate-200 p-5">
+        <div><h2 className="text-lg font-black text-slate-950">Campos da visualização</h2><p className="mt-1 text-sm text-slate-500">Escolha os campos que aparecem nas listas.</p></div>
+        <button type="button" onClick={onClose} className="grid h-9 w-9 place-items-center rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50">×</button>
+      </div>
+      <div className="min-h-0 overflow-y-auto p-5">
+        <div className="grid gap-4 md:grid-cols-3">
+          {grouped.map((group) => <section key={group.entity} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <h3 className="mb-2 text-xs font-black uppercase tracking-wide text-slate-500">{columnGroupLabels[group.entity]}</h3>
+            <div className="space-y-1">
+              {group.items.map((column) => <label key={column.id} className="flex cursor-pointer items-center gap-2 rounded bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-blue-50">
+                <input type="checkbox" checked={visibleColumns.includes(column.id)} onChange={() => toggle(column.id)} />
+                {column.label}
+              </label>)}
+            </div>
+          </section>)}
+        </div>
+      </div>
+      <div className="flex justify-end border-t border-slate-200 p-4"><button type="button" onClick={onClose} className="rounded bg-[#238847] px-5 py-2 text-sm font-bold text-white">Concluir</button></div>
+    </div>
+  </div>
+}
+
+function EntityListView({ title, icon, entity, rows, deals, people, organizations, stages, crmUsers, dealLabelAssignments, selectedId, onOpen, savedFilters, activeFilterId, activeOwnerId, setActiveFilterId, setActiveOwnerId, users, filterFields, filterContext, saveDealFilter, onDeleteFilter, applyFilterColumns, visibleColumns, setVisibleColumns }: {
+  title: string
+  icon: ReactNode
+  entity: 'person' | 'organization'
+  rows: Person[] | Organization[]
+  deals: Deal[]
+  people: Person[]
+  organizations: Organization[]
+  stages: Stage[]
+  crmUsers: CrmUser[]
+  dealLabelAssignments: DealLabelAssignment[]
+  selectedId?: string
+  onOpen: (id: string) => void
+  savedFilters: SavedDealFilter[]
+  activeFilterId: string
+  activeOwnerId: string
+  setActiveFilterId: (id: string) => void
+  setActiveOwnerId: (id: string) => void
+  users: CrmUser[]
+  filterFields: FilterField[]
+  filterContext: FilterContext
+  saveDealFilter: (draft: FilterDraft) => void
+  onDeleteFilter: (id: string) => void
+  applyFilterColumns: (filter?: SavedDealFilter) => void
+  visibleColumns: string[]
+  setVisibleColumns: (columns: string[]) => void
+}) {
+  const [showFilters, setShowFilters] = useState(false)
+  const [showColumns, setShowColumns] = useState(false)
+  const [editingFilter, setEditingFilter] = useState<FilterDraft | null>(null)
+  const columns = buildListColumns()
+  const defaultColumns = entity === 'person' ? defaultPersonListColumns : defaultOrganizationListColumns
+  const selectedColumns = visibleColumns.map((id) => columns.find((column) => column.id === id)).filter((column): column is ColumnDef => Boolean(column))
+  const effectiveColumns = selectedColumns.length ? selectedColumns : columns.filter((column) => defaultColumns.includes(column.id))
+  const activeFilter = savedFilters.find((filter) => filter.id === activeFilterId)
+  const activeOwner = users.find((user) => user.auth_user_id === activeOwnerId)
+  const filterButtonLabel = activeFilter?.name || activeOwner?.full_name || 'Filtro'
+  const contextFor = (row: Person | Organization): ListRowContext => {
+    if (entity === 'person') {
+      const person = row as Person
+      const deal = relatedDealsForPerson(deals, person.id)[0]
+      const organization = organizations.find((org) => org.id === person.organization_id) || deal?.organizations || undefined
+      return { person, organization, deal, deals, people, organizations, stages, crmUsers, dealLabelAssignments }
+    }
+    const organization = row as Organization
+    const deal = relatedDealsForOrganization(deals, organization.id)[0]
+    const person = deal?.people || people.find((item) => item.organization_id === organization.id)
+    return { organization, person, deal, deals, people, organizations, stages, crmUsers, dealLabelAssignments }
+  }
+  return <div className="h-full overflow-y-auto p-5">
+    <Panel className="overflow-hidden">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white p-4">
+        <div className="flex items-center gap-2"><span className="text-[#6f5cf6]">{icon}</span><h2 className="text-lg font-bold">{title}</h2><Badge>{rows.length} registros</Badge></div>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <button type="button" onClick={() => setShowFilters((current) => !current)} className={cn('inline-flex items-center gap-2 rounded border px-3 py-1.5 text-sm font-semibold shadow-sm', activeFilterId || activeOwnerId ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50')}><Filter size={15}/>{filterButtonLabel}</button>
+            {showFilters && <DealFilterDropdown filters={savedFilters} activeFilterId={activeFilterId} activeOwnerId={activeOwnerId} users={users} onSelectFilter={(id) => { const filter = savedFilters.find((item) => item.id === id); setActiveFilterId(id); setActiveOwnerId(''); applyFilterColumns(filter); setShowFilters(false) }} onSelectOwner={(id) => { setActiveOwnerId(id); setActiveFilterId(''); setShowFilters(false) }} onClear={() => { setActiveFilterId(''); setActiveOwnerId(''); setShowFilters(false) }} onCreate={() => { setEditingFilter({ ...emptyFilterDraft(), columns: visibleColumns }); setShowFilters(false) }} onEdit={(filter) => { setEditingFilter({ id: filter.id, name: filter.name, favorite: filter.favorite, rules: filter.rules.length ? filter.rules : [newFilterRule('all')], columns: visibleColumns }); setShowFilters(false) }} onDelete={onDeleteFilter} />}
+          </div>
+          <button type="button" onClick={() => setShowColumns(true)} className="grid h-9 w-9 place-items-center rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-50" title="Campos da lista" aria-label="Campos da lista"><Settings size={16}/></button>
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 bg-white">
+            <tr className="border-b border-slate-200 text-left text-[11px] font-semibold uppercase text-slate-500">
+              {effectiveColumns.map((column) => <th key={column.id} className="min-w-[150px] px-4 py-3">{column.label}</th>)}
+              <th className="w-12 px-4 py-3 text-right"><button type="button" onClick={() => setShowColumns(true)} className="inline-grid h-7 w-7 place-items-center rounded border border-slate-200 text-slate-500 hover:bg-slate-50" title="Campos"><Settings size={14}/></button></th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {rows.map((row) => {
+              const context = contextFor(row)
+              return <tr key={row.id} onClick={() => onOpen(row.id)} className={cn('cursor-pointer transition hover:bg-blue-50', selectedId === row.id ? 'bg-blue-50 ring-1 ring-inset ring-blue-200' : '')}>
+                {effectiveColumns.map((column) => <td key={column.id} className={cn('px-4 py-3 text-slate-700', column.className)}>{column.value(context)}</td>)}
+                <td className="px-4 py-3" />
+              </tr>
+            })}
+          </tbody>
+        </table>
+        {rows.length === 0 && <div className="p-8 text-center text-slate-400">Nenhum registro encontrado.</div>}
+      </div>
+    </Panel>
+    {showColumns && <ColumnPickerModal columns={columns} visibleColumns={visibleColumns} setVisibleColumns={setVisibleColumns} onClose={() => setShowColumns(false)} />}
+    {editingFilter && <DealFilterBuilderModal draft={editingFilter} setDraft={setEditingFilter} fields={filterFields} deals={deals} context={filterContext} onClose={() => setEditingFilter(null)} onSave={(draft) => { saveDealFilter(draft); setEditingFilter(null) }} />}
+  </div>
 }
 
 function ActivitiesView({ activities, deals, completeActivity, updateActivity, canDelete = false, deleteActivity }: { activities: ActivityRow[]; deals: Deal[]; completeActivity: (id: string) => Promise<void>; updateActivity: (activityId: string, draft: ActivityEditDraft) => Promise<void>; canDelete?: boolean; deleteActivity?: (id: string, label: string) => void }) {
@@ -3184,6 +3448,7 @@ const mergeFieldConfig: Record<DuplicateEntity, Array<{ key: string; label: stri
   ],
   person: [
     { key: 'full_name', label: 'Nome' },
+    { key: 'owner_id', label: 'Proprietário do contato' },
     { key: 'role_title', label: 'Cargo' },
     { key: 'email', label: 'Email' },
     { key: 'phone', label: 'Telefone' },
@@ -3196,6 +3461,7 @@ const mergeFieldConfig: Record<DuplicateEntity, Array<{ key: string; label: stri
   ],
   organization: [
     { key: 'name', label: 'Nome' },
+    { key: 'owner_id', label: 'Proprietário da empresa' },
     { key: 'segment', label: 'Segmento' },
     { key: 'type', label: 'Tipo' },
     { key: 'city', label: 'Cidade' },
@@ -4240,39 +4506,31 @@ function VmarketCommissionsView({ deals, stages, history, selectedId, setSelecte
   </div>
 }
 
-function ListViewDeals({ deals, stages, dealLabelAssignments, selectedId, setSelectedId, openDealPage, canDelete = false, deleteDeal }: { deals: Deal[]; stages: Stage[]; dealLabelAssignments: DealLabelAssignment[]; selectedId?: string; setSelectedId: (id: string) => void; openDealPage: (id: string) => void; canDelete?: boolean; deleteDeal?: (id: string, label: string) => void }) {
-  const stageName = (id: string) => stages.find((s) => s.id === id)?.name || ''
-  const labelsForDeal = (dealId: string) => dealLabelAssignments.filter((assignment) => assignment.deal_id === dealId && assignment.deal_labels).map((assignment) => assignment.deal_labels as DealLabel)
+function ListViewDeals({ deals, stages, crmUsers, organizations, people, dealLabelAssignments, selectedId, setSelectedId, openDealPage, visibleColumns, setVisibleColumns }: { deals: Deal[]; stages: Stage[]; crmUsers: CrmUser[]; organizations: Organization[]; people: Person[]; dealLabelAssignments: DealLabelAssignment[]; selectedId?: string; setSelectedId: (id: string) => void; openDealPage: (id: string) => void; visibleColumns: string[]; setVisibleColumns: (columns: string[]) => void }) {
+  const [showColumns, setShowColumns] = useState(false)
+  const columns = buildListColumns()
+  const selectedColumns = visibleColumns.map((id) => columns.find((column) => column.id === id)).filter((column): column is ColumnDef => Boolean(column))
+  const effectiveColumns = selectedColumns.length ? selectedColumns : columns.filter((column) => defaultDealListColumns.includes(column.id))
   return <div className="min-h-0 flex-1 overflow-auto">
     <table className="w-full text-sm">
       <thead className="sticky top-0 bg-white">
         <tr className="border-b border-slate-200 text-left text-[11px] font-semibold uppercase text-slate-500">
-          <th className="px-4 py-3">Negócio</th>
-          <th className="px-4 py-3">Empresa</th>
-          <th className="px-4 py-3">Etiquetas</th>
-          <th className="px-4 py-3">Contato</th>
-          <th className="px-4 py-3">Etapa</th>
-          <th className="px-4 py-3">Valor</th>
-          <th className="px-4 py-3">Status</th>
-          <th className="px-4 py-3">Data esperada de Fechamento</th>
-          {canDelete && <th className="px-4 py-3">Ação</th>}
+          {effectiveColumns.map((column) => <th key={column.id} className="min-w-[150px] px-4 py-3">{column.label}</th>)}
+          <th className="w-12 px-4 py-3 text-right"><button type="button" onClick={() => setShowColumns(true)} className="inline-grid h-7 w-7 place-items-center rounded border border-slate-200 text-slate-500 hover:bg-slate-50" title="Campos"><Settings size={14}/></button></th>
         </tr>
       </thead>
       <tbody className="divide-y divide-slate-100">
-        {deals.map((deal) => <tr key={deal.id} onClick={() => { setSelectedId(deal.id); openDealPage(deal.id) }} className={cn('cursor-pointer transition hover:bg-blue-50', selectedId === deal.id ? 'bg-blue-50 ring-1 ring-inset ring-blue-200' : '')}>
-          <td className="px-4 py-3 font-semibold text-slate-900">{deal.title}</td>
-          <td className="px-4 py-3 text-slate-600">{deal.organizations?.name || '-'}</td>
-          <td className="px-4 py-3"><DealLabelPills labels={labelsForDeal(deal.id)} /></td>
-          <td className="px-4 py-3 text-slate-600">{deal.people?.full_name || '-'}</td>
-          <td className="px-4 py-3"><span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-700">{stageName(deal.stage_id || '') || '-'}</span></td>
-          <td className="px-4 py-3 font-semibold text-slate-800">{money(deal.value)}</td>
-          <td className="px-4 py-3"><span className={cn('rounded-full px-2 py-0.5 text-[10px] font-bold uppercase', deal.status === 'ganho' ? 'bg-green-100 text-green-700' : deal.status === 'perdido' ? 'bg-slate-200 text-slate-700' : 'bg-blue-100 text-blue-700')}>{statusLabel[deal.status || 'aberto'] || 'Aberto'}</span></td>
-          <td className="px-4 py-3 text-slate-500">{deal.expected_close_date ? new Date(deal.expected_close_date).toLocaleDateString('pt-BR') : '-'}</td>
-          {canDelete && <td className="px-4 py-3"><button type="button" onClick={(e) => { e.stopPropagation(); deleteDeal?.(deal.id, deal.title) }} className="rounded border border-rose-200 px-3 py-1.5 text-xs font-bold text-rose-600 hover:bg-rose-50">Apagar</button></td>}
-        </tr>)}
+        {deals.map((deal) => {
+          const context: ListRowContext = { deal, person: deal.people || people.find((person) => person.id === deal.person_id), organization: deal.organizations || organizations.find((org) => org.id === deal.organization_id), deals, people, organizations, stages, crmUsers, dealLabelAssignments }
+          return <tr key={deal.id} onClick={() => { setSelectedId(deal.id); openDealPage(deal.id) }} className={cn('cursor-pointer transition hover:bg-blue-50', selectedId === deal.id ? 'bg-blue-50 ring-1 ring-inset ring-blue-200' : '')}>
+            {effectiveColumns.map((column) => <td key={column.id} className={cn('px-4 py-3 text-slate-700', column.className)}>{column.value(context)}</td>)}
+            <td className="px-4 py-3" />
+          </tr>
+        })}
       </tbody>
     </table>
     {deals.length === 0 && <div className="p-8 text-center text-slate-400">Nenhum negócio encontrado.</div>}
+    {showColumns && <ColumnPickerModal columns={columns} visibleColumns={visibleColumns} setVisibleColumns={setVisibleColumns} onClose={() => setShowColumns(false)} />}
   </div>
 }
 
