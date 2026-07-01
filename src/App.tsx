@@ -86,6 +86,15 @@ type SavedDealFilter = {
   rules: FilterRule[]
   createdAt: string
 }
+type GlobalSearchResult = {
+  id: string
+  group: 'Negócios' | 'Contatos' | 'Empresas' | 'Atividades' | 'Notas' | 'Itens de Foco'
+  title: string
+  description: string
+  match: 'nome' | 'descrição'
+  view?: View
+  dealId?: string
+}
 type FilterDraft = {
   id?: string
   name: string
@@ -372,6 +381,36 @@ function crmOwnerBadgeTone(status?: CrmUser['status']) {
   if (status === 'invited') return 'bg-blue-100 text-blue-700'
   return 'bg-amber-100 text-amber-700'
 }
+function matchesSearchName(name: string, query: string) {
+  return normalizeKey(name).includes(query)
+}
+function matchesSearchDescription(description: string, query: string) {
+  return normalizeKey(description).includes(query)
+}
+function buildGlobalSearchResults(query: string, deals: Deal[], people: Person[], organizations: Organization[], activities: ActivityRow[], history: HistoryRow[]): GlobalSearchResult[] {
+  const q = normalizeKey(query)
+  if (q.length < 2) return []
+  const results: GlobalSearchResult[] = []
+  const push = (result: Omit<GlobalSearchResult, 'match'>, name: string, description: string) => {
+    if (matchesSearchName(name, q)) results.push({ ...result, match: 'nome' })
+    else if (matchesSearchDescription(description, q)) results.push({ ...result, match: 'descrição' })
+  }
+  deals.forEach((deal) => push({ id: `deal-${deal.id}`, group: 'Negócios', title: deal.title, description: `${deal.organizations?.name || ''} ${deal.people?.full_name || ''} ${deal.source || ''} ${(deal.focus_items || []).join(' ')}`, dealId: deal.id }, deal.title, `${deal.organizations?.name || ''} ${deal.people?.full_name || ''} ${deal.source || ''} ${(deal.focus_items || []).join(' ')}`))
+  people.forEach((person) => push({ id: `person-${person.id}`, group: 'Contatos', title: person.full_name, description: `${person.role_title || ''} ${person.email || ''} ${person.phone || ''}`, view: 'contacts' }, person.full_name, `${person.role_title || ''} ${person.email || ''} ${person.phone || ''}`))
+  organizations.forEach((org) => push({ id: `org-${org.id}`, group: 'Empresas', title: org.name, description: `${org.segment || ''} ${org.type || ''} ${org.city || ''} ${org.state || ''}`, view: 'companies' }, org.name, `${org.segment || ''} ${org.type || ''} ${org.city || ''} ${org.state || ''}`))
+  activities.forEach((activity) => {
+    const deal = deals.find((item) => item.id === activity.deal_id)
+    push({ id: `activity-${activity.id}`, group: 'Atividades', title: activity.title, description: `${activity.note || ''} ${activity.activity_type || ''} ${deal?.title || ''}`, dealId: activity.deal_id || undefined, view: activity.deal_id ? undefined : 'activities' }, activity.title, `${activity.note || ''} ${activity.activity_type || ''} ${deal?.title || ''}`)
+  })
+  history.forEach((row) => {
+    const isNote = row.event_type.toLowerCase().includes('nota') || row.event_type.toLowerCase().includes('anot')
+    if (!isNote) return
+    const deal = deals.find((item) => item.id === row.deal_id)
+    push({ id: `note-${row.id}`, group: 'Notas', title: row.title, description: `${row.description || ''} ${deal?.title || ''}`, dealId: row.deal_id }, row.title, `${row.description || ''} ${deal?.title || ''}`)
+  })
+  deals.forEach((deal) => (deal.focus_items || []).forEach((item, index) => push({ id: `focus-${deal.id}-${index}`, group: 'Itens de Foco', title: item, description: deal.title, dealId: deal.id }, item, deal.title)))
+  return results.sort((a, b) => (a.match === b.match ? a.group.localeCompare(b.group, 'pt-BR') : a.match === 'nome' ? -1 : 1)).slice(0, 80)
+}
 
 const statusLabel: Record<string, string> = { aberto: 'Aberto', ganho: 'Ganho', perdido: 'Perdido' }
 const businessTypeOptions: Array<[string, string]> = [['', 'Selecione'], ['restaurante', 'Restaurante'], ['hotel', 'Hotel'], ['fornecedor', 'Fornecedor']]
@@ -608,6 +647,7 @@ function App() {
   const [savedDealFilters, setSavedDealFilters] = useState<SavedDealFilter[]>(() => loadSavedDealFilters())
   const [activeDealFilterId, setActiveDealFilterId] = useState('')
   const [activeOwnerFilterId, setActiveOwnerFilterId] = useState('')
+  const [globalSearch, setGlobalSearch] = useState('')
   const [detailDealId, setDetailDealId] = useState(() => new URLSearchParams(window.location.search).get('deal') || '')
   const [newDeal, setNewDeal] = useState<NewDeal>(() => blankNewDeal())
   const pipelineNames = useMemo(() => {
@@ -632,6 +672,7 @@ function App() {
   }, [deals, visibleStages, activeOwnerFilterId, savedDealFilters, activeDealFilterId, filterFields, filterContext])
 
   const detailDeal = useMemo(() => deals.find((d) => d.id === detailDealId), [deals, detailDealId])
+  const globalSearchResults = useMemo(() => buildGlobalSearchResults(globalSearch, deals, people, organizations, activities, history), [globalSearch, deals, people, organizations, activities, history])
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -981,6 +1022,12 @@ function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
+  function openSearchResult(result: GlobalSearchResult) {
+    setGlobalSearch('')
+    if (result.dealId) openDealPage(result.dealId)
+    else if (result.view) setActiveView(result.view)
+  }
+
   function closeDealPage() {
     setDetailDealId('')
     window.history.pushState({}, '', window.location.pathname)
@@ -1045,7 +1092,7 @@ function App() {
     const dealFields = canManageCustomFields ? customFields.filter((field) => field.entity === 'deal') : []
     const vmarketValue = vmarketValueFromForm(form)
     const partnerValue = partnerValueFromForm(form)
-    const syncedType = form.business_type || form.vm_product_type || form.organization_type || ''
+    const syncedType = form.organization_type || form.business_type || form.vm_product_type || 'restaurante'
     const parseCustomValue = (field: CustomField, raw: string) => {
       if (field.field_type === 'numeric' || field.field_type === 'monetary' || field.field_type === 'formula') return raw.trim() === '' ? null : Number(raw)
       if (field.field_type === 'multi_option') return raw.split(',').map((item) => item.trim()).filter(Boolean)
@@ -1158,7 +1205,7 @@ function App() {
         <div className="flex min-w-0 flex-1 flex-col pb-16 md:pb-0">
           <header className="sticky top-0 z-30 flex min-h-14 flex-wrap items-center gap-3 border-b border-slate-200 bg-white px-4 py-2 md:h-14 md:flex-nowrap md:px-5 md:py-0">
             <h1 className="min-w-[155px] text-base font-semibold">{navItems.find(([key]) => key === activeView)?.[2]}</h1>
-            <div className="mx-auto hidden w-full max-w-xl items-center gap-2 rounded-full border border-slate-300 bg-white px-4 py-2 text-sm text-slate-400 shadow-inner md:flex"><Search size={17}/>Search VMarket</div>
+            <GlobalSearchBox value={globalSearch} onChange={setGlobalSearch} results={globalSearchResults} onOpen={openSearchResult} />
             <button onClick={loadAll} className="grid h-9 w-9 place-items-center rounded-full border border-slate-200 text-slate-600 hover:bg-slate-50"><RefreshCw size={17}/></button>
             <div className="hidden items-center gap-2 sm:flex"><span className="grid h-8 w-8 place-items-center rounded-full bg-slate-100 text-xs font-bold text-slate-600">{profile?.full_name?.slice(0,1) || 'V'}</span><span className="text-xs font-semibold leading-tight text-slate-700">VMarket<br/><span className="font-normal text-slate-500">BPO CRM</span></span></div>
             <button onClick={() => supabase.auth.signOut()} className="hidden rounded border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 sm:block">Sair</button>
@@ -1185,6 +1232,30 @@ function App() {
       </div>
     </main>
   )
+}
+
+function GlobalSearchBox({ value, onChange, results, onOpen }: { value: string; onChange: (value: string) => void; results: GlobalSearchResult[]; onOpen: (result: GlobalSearchResult) => void }) {
+  const grouped = results.reduce<Record<string, GlobalSearchResult[]>>((acc, result) => {
+    acc[result.group] = [...(acc[result.group] || []), result]
+    return acc
+  }, {})
+  const groups = ['Negócios', 'Contatos', 'Empresas', 'Atividades', 'Notas', 'Itens de Foco'].filter((group) => grouped[group]?.length)
+  return <div className="relative mx-auto hidden w-full max-w-xl md:block">
+    <div className="flex items-center gap-2 rounded-full border border-slate-300 bg-white px-4 py-2 text-sm text-slate-600 shadow-inner focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100">
+      <Search size={17} className="text-slate-400"/>
+      <input value={value} onChange={(e) => onChange(e.target.value)} className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-slate-400" placeholder="Pesquisar no CRM" />
+      {value && <button type="button" onClick={() => onChange('')} className="text-xs font-bold text-slate-400 hover:text-slate-700">×</button>}
+    </div>
+    {value.trim().length >= 2 && <div className="absolute left-0 right-0 top-full z-50 mt-2 max-h-[70vh] overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 text-sm shadow-2xl">
+      {groups.length ? groups.map((group) => <div key={group} className="py-1">
+        <p className="px-3 py-1 text-[11px] font-black uppercase tracking-wide text-slate-400">{group}</p>
+        {grouped[group].slice(0, 8).map((result) => <button type="button" key={result.id} onClick={() => onOpen(result)} className="block w-full rounded-lg px-3 py-2 text-left hover:bg-blue-50">
+          <div className="flex items-start justify-between gap-3"><b className="min-w-0 truncate text-slate-900">{result.title}</b><span className="shrink-0 rounded bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">{result.match}</span></div>
+          <p className="mt-1 line-clamp-1 text-xs text-slate-500">{result.description || 'Sem descrição'}</p>
+        </button>)}
+      </div>) : <div className="p-6 text-center text-sm text-slate-400">Nenhum registro encontrado.</div>}
+    </div>}
+  </div>
 }
 
 function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUsers, dealLabelAssignments, selectedId, setSelectedId, openDealPage, setDraggingId, handleDrop, newDeal, setNewDeal, createDeal, creating, canAssignOwner, activePipeline, setActivePipeline, pipelineNames, pipelineView, setPipelineView, savedDealFilters, activeDealFilterId, setActiveDealFilterId, activeOwnerFilterId, setActiveOwnerFilterId, filterFields, filterContext, saveDealFilter, deleteDealFilter }: {
@@ -1720,7 +1791,7 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
   const vmarketValue = vmarketValueFromForm(form)
   const partnerValue = partnerValueFromForm(form)
   const fillingSource = fillingSourceLabel[form.source] || form.source || 'Importação'
-  const businessTypeLabel = businessTypeOptions.find(([id]) => id === form.business_type)?.[1] || '-'
+  const businessTypeLabel = businessTypeOptions.find(([id]) => id === form.organization_type)?.[1] || '-'
   const openActivities = activities.filter((activity) => activity.status === 'open')
   const notes = history.filter((row) => row.event_type.toLowerCase().includes('nota') || row.event_type.toLowerCase().includes('anot'))
   const timeline = ([
@@ -1734,12 +1805,12 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
         <div className="flex min-w-0 items-center gap-2">
           <button onClick={closeDealPage} className="shrink-0 rounded border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">← Voltar</button>
           <div className="min-w-0 flex-1 md:hidden">
-            <h1 className="truncate text-lg font-semibold tracking-[-0.03em] text-slate-950">{deal.title}</h1>
+            <input value={form.title} onChange={(e) => update('title', e.target.value)} className="w-full truncate bg-transparent text-lg font-semibold tracking-[-0.03em] text-slate-950 outline-none hover:bg-slate-50 focus:bg-slate-50 focus:ring-2 focus:ring-blue-100" aria-label="Título do negócio" />
             <p className="mt-1 truncate text-xs font-semibold text-blue-600">{currentPipeline} › {currentStage?.name || 'Sem etapa'}</p>
           </div>
         </div>
         <div className="hidden min-w-0 flex-1 md:block">
-          <h1 className="truncate text-2xl font-semibold tracking-[-0.03em] text-slate-950">{deal.title}</h1>
+          <input value={form.title} onChange={(e) => update('title', e.target.value)} className="w-full truncate bg-transparent text-2xl font-semibold tracking-[-0.03em] text-slate-950 outline-none hover:bg-slate-50 focus:bg-slate-50 focus:ring-2 focus:ring-blue-100" aria-label="Título do negócio" title="Clique para editar o título do negócio" />
           <p className="mt-1 text-xs font-semibold text-blue-600">{currentPipeline} › {currentStage?.name || 'Sem etapa'}</p>
         </div>
         <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -1748,6 +1819,7 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
             <span className="truncate">{ownerName}</span>
           </div>
           <Badge tone={form.status === 'perdido' ? 'bg-slate-200 text-slate-700' : form.status === 'ganho' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}>{statusLabel[form.status] || 'Aberto'}</Badge>
+          <Badge tone={form.lead_source === 'parceiro' ? 'bg-purple-100 text-purple-700' : 'bg-emerald-100 text-emerald-700'}>fonte: {form.lead_source === 'parceiro' ? 'parceiro' : 'vmarket'}</Badge>
           {saved && <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700">Salvo</span>}
         </div>
         <div className="flex w-full flex-wrap gap-2 md:w-auto">
@@ -1780,9 +1852,10 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
         <CollapsibleSection title="Empresa" defaultOpen>
           <div className="divide-y divide-slate-100">
             <InlineField label="Empresa" value={form.organization_name} onChange={(v) => update('organization_name', v)} />
-            <ReadOnlyField label="Tipo" value={businessTypeLabel} />
+            <InlineSelect label="Tipo" value={form.organization_type} onChange={(v) => update('organization_type', v)} options={businessTypeOptions} />
             <InlineSelect label="Estado" value={form.organization_state} onChange={(v) => update('organization_state', v)} options={dddStateOptions} />
             <InlineField label="Quantidade de CNPJs" value={form.organization_cnpjs} onChange={(v) => update('organization_cnpjs', v)} type="number" />
+            <InlineField label="GMV mensal total" value={form.monthly_purchase} onChange={(v) => update('monthly_purchase', v)} type="number" displayValue={money(Number(form.monthly_purchase || 0))} />
           </div>
         </CollapsibleSection>
 
@@ -1804,12 +1877,11 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
           </div>
         </CollapsibleSection>
 
-        <CollapsibleSection title="Campos do negócio" defaultOpen={false}>
+        <CollapsibleSection title="Informações do Negócio" defaultOpen={false}>
           <div className="divide-y divide-slate-100">
             <ReadOnlyField label="Fonte do Lead" value={form.lead_source === 'vmarket' ? 'VMarket' : 'Parceiro'} />
-            <InlineSelect label="Tipo" value={form.business_type} onChange={(v) => update('business_type', v)} options={businessTypeOptions} />
+            <ReadOnlyField label="Tipo" value={businessTypeLabel} />
             <InlineField label="Título do negócio" value={form.title} onChange={(v) => update('title', v)} />
-            <InlineField label="GMV mensal" value={form.monthly_purchase} onChange={(v) => update('monthly_purchase', v)} type="number" displayValue={money(Number(form.monthly_purchase || 0))} />
             <ReadOnlyField label="Preenchimento" value={fillingSource} />
             <InlineField label="Data esperada de Fechamento" value={form.expected_close_date} onChange={(v) => update('expected_close_date', v)} type="date" displayValue={formatShortDate(form.expected_close_date)} />
             <ReadOnlyField label="Criação do Negócio" value={formatDateTime(deal.pipedrive_deal_created_at)} />
@@ -2019,8 +2091,8 @@ function dealToForm(deal?: Deal): DealForm {
     lead_source: deal?.lead_source || (deal?.source === 'Pipedrive API' ? 'vmarket' : 'parceiro'),
     vm_sale: Boolean(deal?.vm_sale),
     contract_with: deal?.contract_with || 'cliente',
-    business_type: deal?.business_type || deal?.vm_product_type || deal?.organizations?.type || '',
-    vm_product_type: deal?.vm_product_type || deal?.business_type || '',
+    business_type: deal?.organizations?.type || deal?.business_type || deal?.vm_product_type || 'restaurante',
+    vm_product_type: deal?.organizations?.type || deal?.vm_product_type || deal?.business_type || 'restaurante',
     vm_cnpj_count: String(deal?.vm_cnpj_count ?? ''),
     vm_plan: deal?.vm_plan || deal?.plan || '',
     vm_value_per_cnpj: String(deal?.vm_value_per_cnpj ?? ''),
@@ -2033,7 +2105,7 @@ function dealToForm(deal?: Deal): DealForm {
     ...partnerServicesToForm(deal?.partner_services),
     focus_items: (deal?.focus_items || []).join('\n'),
     organization_name: deal?.organizations?.name || '',
-    organization_type: deal?.organizations?.type || deal?.business_type || deal?.vm_product_type || '',
+    organization_type: deal?.organizations?.type || deal?.business_type || deal?.vm_product_type || 'restaurante',
     organization_segment: deal?.organizations?.segment || '',
     organization_city: deal?.organizations?.city || '',
     organization_state: deal?.organizations?.state || deal?.people?.ddd_state || '',
