@@ -27,6 +27,7 @@ import {
   Search,
   Settings,
   Tags,
+  Unlink,
 } from 'lucide-react'
 import { supabase, supabaseConfigured, type ActivityRow, type AuditLog, type AutomationRule, type AutomationRuleChange, type AutomationRuleExecution, type CrmCompany, type CrmUser, type CustomField, type CustomFieldValue, type Deal, type DealLabel, type DealLabelAssignment, type ExternalRecord, type HistoryRow, type Organization, type Person, type Profile, type Stage } from './supabase'
 import './App.css'
@@ -1387,18 +1388,38 @@ function App() {
     }
   }
 
+  async function unlinkDealOrganization(dealId: string) {
+    const { error } = await supabase.from('deals').update({ organization_id: null }).eq('id', dealId)
+    if (error) throw error
+    await supabase.from('deal_history').insert({ deal_id: dealId, event_type: 'Edição', title: 'Empresa desvinculada', description: 'Empresa desvinculada manualmente da ficha do negócio.' })
+    await loadAll()
+  }
+
+  async function unlinkDealPerson(dealId: string) {
+    const { error } = await supabase.from('deals').update({ person_id: null }).eq('id', dealId)
+    if (error) throw error
+    await supabase.from('deal_history').insert({ deal_id: dealId, event_type: 'Edição', title: 'Contato desvinculado', description: 'Contato desvinculado manualmente da ficha do negócio.' })
+    await loadAll()
+  }
+
+  async function unlinkPersonOrganization(personId: string) {
+    const { error } = await supabase.from('people').update({ organization_id: null }).eq('id', personId)
+    if (error) throw error
+    await loadAll()
+  }
+
   if (isPasswordRecovery && session) return <PasswordRecovery onDone={() => setIsPasswordRecovery(false)} />
   if (!session) return <Login />
 
   if (detailDealId) {
     const isAdmin = profile?.role === 'admin_vmarket'
-    return <DealPage key={detailDealId} deal={detailDeal} loading={loading} error={error} stages={stages} crmUsers={crmUsers} externalRecords={externalRecords} canEditOwner={isAdmin} canViewCustomFields={isAdmin} activities={activities.filter((a) => a.deal_id === detailDealId)} history={history.filter((h) => h.deal_id === detailDealId)} dealLabels={dealLabels} assignedLabels={dealLabelAssignments.filter((assignment) => assignment.deal_id === detailDealId)} closeDealPage={closeDealPage} saveDeal={saveDeal} createActivity={createActivityForDeal} createNote={createNoteForDeal} deleteDeal={(id, label) => deleteOneRecord('deal', id, label)} deleteActivity={(id, label) => deleteOneRecord('activity', id, label)} customFields={isAdmin ? customFields.filter((field) => field.entity === 'deal') : []} customFieldValues={isAdmin ? customFieldValues.filter((value) => value.entity_id === detailDealId) : []} completeActivity={completeActivity} updateActivity={updateActivity} createLabel={createDealLabel} deleteLabel={deleteDealLabel} updateDealLabels={updateDealLabels} openPersonPage={openPersonPage} openOrganizationPage={openOrganizationPage} />
+    return <DealPage key={detailDealId} deal={detailDeal} loading={loading} error={error} stages={stages} crmUsers={crmUsers} externalRecords={externalRecords} canEditOwner={isAdmin} canViewCustomFields={isAdmin} activities={activities.filter((a) => a.deal_id === detailDealId)} history={history.filter((h) => h.deal_id === detailDealId)} dealLabels={dealLabels} assignedLabels={dealLabelAssignments.filter((assignment) => assignment.deal_id === detailDealId)} closeDealPage={closeDealPage} saveDeal={saveDeal} createActivity={createActivityForDeal} createNote={createNoteForDeal} deleteDeal={(id, label) => deleteOneRecord('deal', id, label)} deleteActivity={(id, label) => deleteOneRecord('activity', id, label)} customFields={isAdmin ? customFields.filter((field) => field.entity === 'deal') : []} customFieldValues={isAdmin ? customFieldValues.filter((value) => value.entity_id === detailDealId) : []} completeActivity={completeActivity} updateActivity={updateActivity} createLabel={createDealLabel} deleteLabel={deleteDealLabel} updateDealLabels={updateDealLabels} openPersonPage={openPersonPage} openOrganizationPage={openOrganizationPage} unlinkDealPerson={unlinkDealPerson} unlinkDealOrganization={unlinkDealOrganization} />
   }
   if (detailPersonId) {
-    return <ContactPage key={detailPersonId} person={detailPerson} loading={loading} error={error} deals={deals} activities={activities} history={history} externalRecords={externalRecords} openDealPage={openDealPage} closeDetailPage={closeDetailPage} />
+    return <ContactPage key={detailPersonId} person={detailPerson} organization={organizations.find((org) => org.id === detailPerson?.organization_id)} loading={loading} error={error} deals={deals} activities={activities} history={history} externalRecords={externalRecords} openDealPage={openDealPage} openOrganizationPage={openOrganizationPage} unlinkPersonOrganization={unlinkPersonOrganization} closeDetailPage={closeDetailPage} />
   }
   if (detailOrganizationId) {
-    return <CompanyPage key={detailOrganizationId} organization={detailOrganization} loading={loading} error={error} deals={deals} people={people} activities={activities} history={history} externalRecords={externalRecords} openDealPage={openDealPage} openPersonPage={openPersonPage} closeDetailPage={closeDetailPage} />
+    return <CompanyPage key={detailOrganizationId} organization={detailOrganization} loading={loading} error={error} deals={deals} people={people} activities={activities} history={history} externalRecords={externalRecords} openDealPage={openDealPage} openPersonPage={openPersonPage} unlinkPersonOrganization={unlinkPersonOrganization} closeDetailPage={closeDetailPage} />
   }
 
   const navItems: Array<[View, ReactNode, string]> = [
@@ -1995,18 +2016,18 @@ function LinkedTimeline({ deals, activities, history, openDealPage }: { deals: D
   </Panel>
 }
 
-function ContactPage({ person, loading, error, deals, activities, history, externalRecords, openDealPage, closeDetailPage }: { person?: Person; loading: boolean; error: string; deals: Deal[]; activities: ActivityRow[]; history: HistoryRow[]; externalRecords: ExternalRecord[]; openDealPage: (id: string) => void; closeDetailPage: () => void }) {
+function ContactPage({ person, organization, loading, error, deals, activities, history, externalRecords, openDealPage, openOrganizationPage, unlinkPersonOrganization, closeDetailPage }: { person?: Person; organization?: Organization; loading: boolean; error: string; deals: Deal[]; activities: ActivityRow[]; history: HistoryRow[]; externalRecords: ExternalRecord[]; openDealPage: (id: string) => void; openOrganizationPage: (id: string) => void; unlinkPersonOrganization: (id: string) => Promise<void>; closeDetailPage: () => void }) {
   if (loading) return <main className="min-h-screen bg-[#f4f5f7] p-5 text-slate-900"><LoadingBpo /></main>
   if (!person) return <main className="min-h-screen bg-[#f4f5f7] p-5 text-slate-900"><div className="rounded bg-white p-6 shadow-sm"><h1 className="text-xl font-bold">Contato não encontrado</h1><button onClick={closeDetailPage} className="mt-4 rounded bg-[#238847] px-4 py-2 text-sm font-bold text-white">Voltar</button></div></main>
   const linkedDeals = deals.filter((deal) => deal.person_id === person.id)
   const pipedrivePersonId = externalIdFor(externalRecords, 'person', person.id)
   return <main className="min-h-screen bg-[#f4f5f7] text-slate-900">
     <header className="sticky top-0 z-30 border-b border-slate-200 bg-white shadow-sm"><div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-3 px-4 py-3"><button onClick={closeDetailPage} className="rounded border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">← Voltar</button><div className="min-w-0 flex-1"><h1 className="truncate text-2xl font-semibold tracking-[-0.03em] text-slate-950">{person.full_name}</h1><p className="mt-1 truncate text-sm font-semibold text-slate-600">{person.phone || 'sem telefone'} · {person.email || 'sem email'}</p></div><Badge tone="bg-blue-100 text-blue-700">Ficha de contato</Badge></div></header>
-    <div className="mx-auto grid max-w-[1600px] gap-4 p-4 xl:grid-cols-[360px_minmax(0,1fr)]">{error && <div className="xl:col-span-2 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><b>Erro:</b> {error}</div>}<aside className="space-y-4"><CollapsibleSection title="Detalhes" defaultOpen><div className="divide-y divide-slate-100"><ReadOnlyField label="Nome do Contato" value={person.full_name} /><ReadOnlyField label="ID do contato no Pipedrive" value={pipedrivePersonId || 'Não sincronizado'} /><ReadOnlyField label="Cargo" value={person.role_title || '-'} /><ReadOnlyField label="Email" value={person.email || '-'} /><ReadOnlyField label="Telefone" value={person.phone || '-'} /><ReadOnlyField label="DDD" value={person.ddd_prefix || '-'} /><ReadOnlyField label="Estado DDD" value={person.ddd_state || '-'} /></div></CollapsibleSection><EntityDealsSummary deals={linkedDeals} openDealPage={openDealPage} /></aside><section><LinkedTimeline deals={linkedDeals} activities={activities} history={history} openDealPage={openDealPage} /></section></div>
+    <div className="mx-auto grid max-w-[1600px] gap-4 p-4 xl:grid-cols-[360px_minmax(0,1fr)]">{error && <div className="xl:col-span-2 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><b>Erro:</b> {error}</div>}<aside className="space-y-4"><CollapsibleSection title="Detalhes" defaultOpen><div className="divide-y divide-slate-100"><ReadOnlyField label="Nome do Contato" value={person.full_name} /><LinkedEditableField label="Empresa vinculada" value={organization?.name || 'Sem empresa vinculada'} onOpen={organization ? () => openOrganizationPage(organization.id) : undefined} onUnlink={person.organization_id ? () => unlinkPersonOrganization(person.id) : undefined} /><ReadOnlyField label="ID do contato no Pipedrive" value={pipedrivePersonId || 'Não sincronizado'} /><ReadOnlyField label="Cargo" value={person.role_title || '-'} /><ReadOnlyField label="Email" value={person.email || '-'} /><ReadOnlyField label="Telefone" value={person.phone || '-'} /><ReadOnlyField label="DDD" value={person.ddd_prefix || '-'} /><ReadOnlyField label="Estado DDD" value={person.ddd_state || '-'} /></div></CollapsibleSection><EntityDealsSummary deals={linkedDeals} openDealPage={openDealPage} /></aside><section><LinkedTimeline deals={linkedDeals} activities={activities} history={history} openDealPage={openDealPage} /></section></div>
   </main>
 }
 
-function CompanyPage({ organization, loading, error, deals, people, activities, history, externalRecords, openDealPage, openPersonPage, closeDetailPage }: { organization?: Organization; loading: boolean; error: string; deals: Deal[]; people: Person[]; activities: ActivityRow[]; history: HistoryRow[]; externalRecords: ExternalRecord[]; openDealPage: (id: string) => void; openPersonPage: (id: string) => void; closeDetailPage: () => void }) {
+function CompanyPage({ organization, loading, error, deals, people, activities, history, externalRecords, openDealPage, openPersonPage, unlinkPersonOrganization, closeDetailPage }: { organization?: Organization; loading: boolean; error: string; deals: Deal[]; people: Person[]; activities: ActivityRow[]; history: HistoryRow[]; externalRecords: ExternalRecord[]; openDealPage: (id: string) => void; openPersonPage: (id: string) => void; unlinkPersonOrganization: (id: string) => Promise<void>; closeDetailPage: () => void }) {
   if (loading) return <main className="min-h-screen bg-[#f4f5f7] p-5 text-slate-900"><LoadingBpo /></main>
   if (!organization) return <main className="min-h-screen bg-[#f4f5f7] p-5 text-slate-900"><div className="rounded bg-white p-6 shadow-sm"><h1 className="text-xl font-bold">Empresa não encontrada</h1><button onClick={closeDetailPage} className="mt-4 rounded bg-[#238847] px-4 py-2 text-sm font-bold text-white">Voltar</button></div></main>
   const companyPeople = people.filter((person) => person.organization_id === organization.id)
@@ -2015,12 +2036,12 @@ function CompanyPage({ organization, loading, error, deals, people, activities, 
   const pipedriveOrganizationId = externalIdFor(externalRecords, 'organization', organization.id)
   return <main className="min-h-screen bg-[#f4f5f7] text-slate-900">
     <header className="sticky top-0 z-30 border-b border-slate-200 bg-white shadow-sm"><div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-3 px-4 py-3"><button onClick={closeDetailPage} className="rounded border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">← Voltar</button><div className="min-w-0 flex-1"><h1 className="truncate text-2xl font-semibold tracking-[-0.03em] text-slate-950">{organization.name}</h1><p className="mt-1 truncate text-sm font-semibold text-slate-600">CNPJs: {organization.cnpjs || '-'} / GMV: {money(organization.monthly_purchase)} / UF: {organization.state || '-'}</p></div><Badge tone="bg-emerald-100 text-emerald-700">Ficha de empresa</Badge></div></header>
-    <div className="mx-auto grid max-w-[1600px] gap-4 p-4 xl:grid-cols-[360px_minmax(0,1fr)]">{error && <div className="xl:col-span-2 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><b>Erro:</b> {error}</div>}<aside className="space-y-4"><CollapsibleSection title="Detalhes" defaultOpen><div className="divide-y divide-slate-100"><ReadOnlyField label="Empresa" value={organization.name} /><ReadOnlyField label="ID da organização no Pipedrive" value={pipedriveOrganizationId || 'Não sincronizado'} /><ReadOnlyField label="Tipo" value={businessTypeOptions.find(([id]) => id === organization.type)?.[1] || organization.type || '-'} /><ReadOnlyField label="Estado" value={organization.state || '-'} /><ReadOnlyField label="Quantidade de CNPJs" value={String(organization.cnpjs ?? '-')} /><ReadOnlyField label="GMV mensal total" value={money(organization.monthly_purchase)} /></div></CollapsibleSection><EntityDealsSummary deals={linkedDeals} openDealPage={openDealPage} /><Panel className="overflow-hidden"><div className="border-b border-slate-200 bg-white p-4"><h2 className="font-bold">Contatos vinculados</h2></div><div className="divide-y divide-slate-100">{companyPeople.map((person) => <button key={person.id} type="button" onClick={() => openPersonPage(person.id)} className="block w-full p-3 text-left text-sm hover:bg-blue-50"><b className="text-blue-700">{person.full_name}</b><p className="text-xs text-slate-500">{person.phone || 'sem telefone'} · {person.email || 'sem email'}</p></button>)}{!companyPeople.length && <p className="p-4 text-sm text-slate-400">Nenhum contato vinculado.</p>}</div></Panel></aside><section><LinkedTimeline deals={linkedDeals} activities={activities} history={history} openDealPage={openDealPage} /></section></div>
+    <div className="mx-auto grid max-w-[1600px] gap-4 p-4 xl:grid-cols-[360px_minmax(0,1fr)]">{error && <div className="xl:col-span-2 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><b>Erro:</b> {error}</div>}<aside className="space-y-4"><CollapsibleSection title="Detalhes" defaultOpen><div className="divide-y divide-slate-100"><ReadOnlyField label="Empresa" value={organization.name} /><ReadOnlyField label="ID da organização no Pipedrive" value={pipedriveOrganizationId || 'Não sincronizado'} /><ReadOnlyField label="Tipo" value={businessTypeOptions.find(([id]) => id === organization.type)?.[1] || organization.type || '-'} /><ReadOnlyField label="Estado" value={organization.state || '-'} /><ReadOnlyField label="Quantidade de CNPJs" value={String(organization.cnpjs ?? '-')} /><ReadOnlyField label="GMV mensal total" value={money(organization.monthly_purchase)} /></div></CollapsibleSection><EntityDealsSummary deals={linkedDeals} openDealPage={openDealPage} /><Panel className="overflow-hidden"><div className="border-b border-slate-200 bg-white p-4"><h2 className="font-bold">Contatos vinculados</h2></div><div className="divide-y divide-slate-100">{companyPeople.map((person) => <LinkedEditableField key={person.id} label="Contato vinculado" value={`${person.full_name} · ${person.phone || 'sem telefone'} · ${person.email || 'sem email'}`} onOpen={() => openPersonPage(person.id)} onUnlink={() => unlinkPersonOrganization(person.id)} />)}{!companyPeople.length && <p className="p-4 text-sm text-slate-400">Nenhum contato vinculado.</p>}</div></Panel></aside><section><LinkedTimeline deals={linkedDeals} activities={activities} history={history} openDealPage={openDealPage} /></section></div>
   </main>
 }
 
 
-function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, canEditOwner, canViewCustomFields, activities, history, customFields, customFieldValues, dealLabels, assignedLabels, closeDealPage, saveDeal, createActivity, createNote, deleteDeal, deleteActivity, completeActivity, updateActivity, createLabel, deleteLabel, updateDealLabels, openPersonPage, openOrganizationPage }: {
+function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, canEditOwner, canViewCustomFields, activities, history, customFields, customFieldValues, dealLabels, assignedLabels, closeDealPage, saveDeal, createActivity, createNote, deleteDeal, deleteActivity, completeActivity, updateActivity, createLabel, deleteLabel, updateDealLabels, openPersonPage, openOrganizationPage, unlinkDealPerson, unlinkDealOrganization }: {
   deal?: Deal
   loading: boolean
   error: string
@@ -2048,6 +2069,8 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
   updateDealLabels: (dealId: string, labelIds: string[]) => Promise<void>
   openPersonPage: (id: string) => void
   openOrganizationPage: (id: string) => void
+  unlinkDealPerson: (dealId: string) => Promise<void>
+  unlinkDealOrganization: (dealId: string) => Promise<void>
 }) {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -2216,8 +2239,7 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
       <aside className="min-w-0 space-y-4 xl:sticky xl:top-32 xl:max-h-[calc(100vh-9rem)] xl:overflow-y-auto">
         <CollapsibleSection title="Empresa" defaultOpen>
           <div className="divide-y divide-slate-100">
-            <InlineField label="Empresa" value={form.organization_name} onChange={(v) => update('organization_name', v)} />
-            {deal.organization_id && <ReadOnlyField label="Ficha da empresa" value="Abrir cadastro completo" action={<button type="button" onClick={() => deal.organization_id && openOrganizationPage(deal.organization_id)} className="text-xs font-bold text-blue-600 hover:text-blue-700">Abrir</button>} />}
+            <InlineField label="Empresa" value={form.organization_name} onChange={(v) => update('organization_name', v)} onOpen={deal.organization_id ? () => openOrganizationPage(deal.organization_id as string) : undefined} onUnlink={deal.organization_id ? () => unlinkDealOrganization(deal.id) : undefined} />
             <InlineSelect label="Tipo" value={form.organization_type} onChange={(v) => update('organization_type', v)} options={businessTypeOptions} />
             <InlineSelect label="Estado" value={form.organization_state} onChange={(v) => update('organization_state', v)} options={dddStateOptions} />
             <InlineField label="Quantidade de CNPJs" value={form.organization_cnpjs} onChange={(v) => update('organization_cnpjs', v)} type="number" />
@@ -2227,8 +2249,7 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
 
         <CollapsibleSection title="Contato" defaultOpen>
           <div className="divide-y divide-slate-100">
-            <InlineField label="Nome" value={form.person_name} onChange={(v) => update('person_name', v)} />
-            {deal.person_id && <ReadOnlyField label="Ficha do contato" value="Abrir cadastro completo" action={<button type="button" onClick={() => deal.person_id && openPersonPage(deal.person_id)} className="text-xs font-bold text-blue-600 hover:text-blue-700">Abrir</button>} />}
+            <InlineField label="Nome" value={form.person_name} onChange={(v) => update('person_name', v)} onOpen={deal.person_id ? () => openPersonPage(deal.person_id as string) : undefined} onUnlink={deal.person_id ? () => unlinkDealPerson(deal.id) : undefined} />
             <InlineField label="Cargo" value={form.person_role} onChange={(v) => update('person_role', v)} />
             <InlineField label="Email" value={form.person_email} onChange={(v) => update('person_email', v)} type="email" />
             <InlineField label="Telefone" value={form.person_phone} onChange={(v) => update('person_phone', v)} />
@@ -2585,11 +2606,26 @@ function DealLabelPills({ labels, compact = false }: { labels: DealLabel[]; comp
   return <div className={cn('mb-1.5 flex flex-wrap gap-1', compact && 'min-h-[10px]')}>{labels.slice(0, compact ? 4 : 8).map((label) => compact ? <span key={label.id} className="block h-2.5 w-9 rounded-sm shadow-sm" style={{ backgroundColor: label.color }} title={label.name} aria-label={label.name} /> : <span key={label.id} className="inline-flex max-w-full items-center rounded px-1.5 py-0.5 text-[10px] font-black uppercase leading-none text-white shadow-sm" style={{ backgroundColor: label.color }} title={label.name}>{label.name}</span>)}</div>
 }
 
-function InlineField({ label, value, onChange, type = 'text', displayValue }: { label: string; value: string; onChange: (value: string) => void; type?: string; displayValue?: string }) {
+function InlineField({ label, value, onChange, type = 'text', displayValue, onOpen, onUnlink }: { label: string; value: string; onChange: (value: string) => void; type?: string; displayValue?: string; onOpen?: () => void; onUnlink?: () => Promise<void> | void }) {
   const [editing, setEditing] = useState(false)
-  return <div className="grid grid-cols-[1fr_28px] gap-2 p-3 text-sm">
-    <label className="min-w-0"><span className="block text-[11px] font-semibold text-slate-500">{label}</span>{editing ? <input autoFocus type={type} value={value} onChange={(e) => onChange(e.target.value)} onBlur={() => setEditing(false)} onKeyDown={(e) => { if (e.key === 'Enter') setEditing(false) }} className="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none focus:border-[#238847] focus:ring-2 focus:ring-emerald-100" /> : <span className="mt-0.5 block break-words font-semibold text-slate-800">{displayValue || value || '-'}</span>}</label>
-    <button type="button" onClick={() => setEditing((current) => !current)} className="mt-2 grid h-7 w-7 place-items-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label={`Editar ${label}`}><Pencil size={14}/></button>
+  const [busy, setBusy] = useState(false)
+  async function unlink() {
+    if (!onUnlink || busy) return
+    setBusy(true)
+    try {
+      await onUnlink()
+      setEditing(false)
+    } finally {
+      setBusy(false)
+    }
+  }
+  const shown = displayValue || value || '-'
+  return <div className="grid grid-cols-[1fr_auto] gap-2 p-3 text-sm">
+    <label className="min-w-0"><span className="block text-[11px] font-semibold text-slate-500">{label}</span>{editing ? <input autoFocus type={type} value={value} onChange={(e) => onChange(e.target.value)} onBlur={() => setEditing(false)} onKeyDown={(e) => { if (e.key === 'Enter') setEditing(false) }} className="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none focus:border-[#238847] focus:ring-2 focus:ring-emerald-100" /> : onOpen && value ? <button type="button" onClick={onOpen} className="mt-0.5 block max-w-full break-words text-left font-semibold text-blue-700 hover:underline">{shown}</button> : <span className="mt-0.5 block break-words font-semibold text-slate-800">{shown}</span>}</label>
+    <div className="mt-2 flex items-start gap-1">
+      {editing && onUnlink && <button type="button" title="desvincular" aria-label={`Desvincular ${label}`} disabled={busy} onMouseDown={(e) => e.preventDefault()} onClick={() => void unlink()} className="grid h-7 w-7 place-items-center rounded-full text-rose-500 hover:bg-rose-50 hover:text-rose-700 disabled:opacity-50"><Unlink size={14}/></button>}
+      <button type="button" onClick={() => setEditing((current) => !current)} className="grid h-7 w-7 place-items-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label={`Editar ${label}`}><Pencil size={14}/></button>
+    </div>
   </div>
 }
 
@@ -2604,6 +2640,31 @@ function InlineSelect({ label, value, onChange, options }: { label: string; valu
 
 function ReadOnlyField({ label, value, action }: { label: string; value: string; action?: ReactNode }) {
   return <div className="p-3 text-sm"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><span className="block text-[11px] font-semibold text-slate-500">{label}</span><span className="mt-0.5 block break-words font-semibold text-slate-800">{value || '-'}</span></div>{action}</div></div>
+}
+
+function LinkedEditableField({ label, value, onOpen, onUnlink, emptyLabel = '-' }: { label: string; value?: string | null; onOpen?: () => void; onUnlink?: () => Promise<void> | void; emptyLabel?: string }) {
+  const [editing, setEditing] = useState(false)
+  const [busy, setBusy] = useState(false)
+  async function unlink() {
+    if (!onUnlink || busy) return
+    setBusy(true)
+    try {
+      await onUnlink()
+      setEditing(false)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return <div className="grid grid-cols-[1fr_auto] gap-2 p-3 text-sm">
+    <div className="min-w-0">
+      <span className="block text-[11px] font-semibold text-slate-500">{label}</span>
+      {onOpen && value ? <button type="button" onClick={onOpen} className="mt-0.5 block max-w-full break-words text-left font-semibold text-blue-700 hover:underline">{value}</button> : <span className="mt-0.5 block break-words font-semibold text-slate-800">{value || emptyLabel}</span>}
+    </div>
+    <div className="mt-2 flex items-start gap-1">
+      {editing && onUnlink && <button type="button" title="desvincular" aria-label={`Desvincular ${label}`} disabled={busy} onClick={() => void unlink()} className="grid h-7 w-7 place-items-center rounded-full text-rose-500 hover:bg-rose-50 hover:text-rose-700 disabled:opacity-50"><Unlink size={14}/></button>}
+      {onUnlink && <button type="button" onClick={() => setEditing((current) => !current)} className="grid h-7 w-7 place-items-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label={`Editar ${label}`}><Pencil size={14}/></button>}
+    </div>
+  </div>
 }
 
 function LabelPickerModal({ deal, labels, assignedLabelIds, onClose, onCreateLabel, onDeleteLabel, onSave }: { deal: Deal; labels: DealLabel[]; assignedLabelIds: string[]; onClose: () => void; onCreateLabel: (name: string, color: string) => Promise<DealLabel>; onDeleteLabel: (label: DealLabel) => Promise<void>; onSave: (labelIds: string[]) => Promise<void> }) {
