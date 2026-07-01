@@ -222,6 +222,7 @@ export type ActivityRow = {
   owner_id: string | null
   bpo_id: string | null
   created_at?: string
+  updated_at?: string
   completed_at?: string | null
 }
 
