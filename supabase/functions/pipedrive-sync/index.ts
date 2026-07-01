@@ -408,7 +408,10 @@ async function upsertCrmDealFromPipedrive(integrationId: string, pdDeal: JsonRec
   await upsertExternalRecord(integrationId, 'deal', deal.id, externalId, pdDeal)
   await syncCustomFieldsFromPipedrive(deal.id, 'deal', pdDeal)
   if (organization) await syncCustomFieldsFromPipedrive(organization.id, 'organization', pdOrg || {})
-  if (person) await syncCustomFieldsFromPipedrive(person.id, 'person', pdPerson || {})
+  if (person) {
+    await syncCustomFieldsFromPipedrive(person.id, 'person', pdPerson || {})
+    await supabase.rpc('enrich_person_ddd', { target_person_id: person.id }).catch(() => null)
+  }
   await supabase.from('deal_history').insert({ deal_id: deal.id, event_type: 'Integração', title: 'Atualizado pelo Pipedrive', description: `Pipedrive deal ID ${externalId}` })
   return deal
 }

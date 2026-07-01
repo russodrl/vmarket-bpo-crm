@@ -117,6 +117,9 @@ export type Person = {
   role_title: string | null
   email: string | null
   phone: string | null
+  ddd_prefix: string | null
+  ddd_state: string | null
+  ddd_region: string | null
   organization_id: string | null
   labels: string[] | null
   bpo_id: string | null

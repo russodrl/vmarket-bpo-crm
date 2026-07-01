@@ -313,6 +313,9 @@ type DealForm = {
   person_role: string
   person_email: string
   person_phone: string
+  person_ddd_prefix: string
+  person_ddd_state: string
+  person_ddd_region: string
 }
 
 const money = (value?: number | null) =>
@@ -693,8 +696,8 @@ function App() {
         estimated_savings: null,
         probability: null,
         status: 'aberto',
-        lead_source: 'parceiro',
-        source: 'Parceiro',
+        lead_source: profile?.role === 'bpo_partner' ? 'parceiro' : 'vmarket',
+        source: profile?.role === 'bpo_partner' ? 'Parceiro' : 'VMarket',
         expected_close_date: null,
         score: null,
         focus_items: [],
@@ -1791,6 +1794,15 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
             <InlineField label="Cargo" value={form.person_role} onChange={(v) => update('person_role', v)} />
             <InlineField label="Email" value={form.person_email} onChange={(v) => update('person_email', v)} type="email" />
             <InlineField label="Telefone" value={form.person_phone} onChange={(v) => update('person_phone', v)} />
+            <div className="p-3">
+              <CollapsibleSection title="DDD" defaultOpen className="border border-slate-200 shadow-none">
+                <div className="divide-y divide-slate-100">
+                  <ReadOnlyField label="Prefixo" value={form.person_ddd_prefix || '-'} />
+                  <ReadOnlyField label="Estado" value={form.person_ddd_state || '-'} />
+                  <ReadOnlyField label="Região" value={form.person_ddd_region || '-'} />
+                </div>
+              </CollapsibleSection>
+            </div>
           </div>
         </CollapsibleSection>
 
@@ -1953,6 +1965,9 @@ function dealToForm(deal?: Deal): DealForm {
     person_role: deal?.people?.role_title || '',
     person_email: deal?.people?.email || '',
     person_phone: deal?.people?.phone || '',
+    person_ddd_prefix: deal?.people?.ddd_prefix || '',
+    person_ddd_state: deal?.people?.ddd_state || '',
+    person_ddd_region: deal?.people?.ddd_region || '',
   }
 }
 
