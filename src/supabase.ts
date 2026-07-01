@@ -103,6 +103,7 @@ export type Organization = {
   id: string
   name: string
   segment: string | null
+  type: 'restaurante' | 'hotel' | 'fornecedor' | null
   city: string | null
   state: string | null
   cnpjs: number | null
@@ -134,6 +135,7 @@ export type Deal = {
   owner_id: string | null
   bpo_id: string | null
   value: number | null
+  partner_value: number | null
   monthly_purchase: number | null
   estimated_savings: number | null
   probability: number | null
@@ -142,6 +144,7 @@ export type Deal = {
   lead_source: 'vmarket' | 'parceiro' | null
   vm_sale: boolean | null
   contract_with: 'cliente' | 'parceiro' | null
+  business_type: 'restaurante' | 'hotel' | 'fornecedor' | null
   vm_product_type: 'restaurante' | 'hotel' | 'fornecedor' | null
   vm_cnpj_count: number | null
   vm_plan: string | null
