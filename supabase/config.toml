@@ -248,6 +248,11 @@ otp_expiry = 3600
 # subject = "You have been invited"
 # content_path = "./supabase/templates/invite.html"
 
+# Template de redefinição de senha em português para o CRM BPO.
+[auth.email.template.recovery]
+subject = "Redefinição de senha do CRM BPO da VMarket"
+content_path = "./supabase/templates/recovery.html"
+
 # Uncomment to customize notification email template
 # [auth.email.notification.password_changed]
 # enabled = true

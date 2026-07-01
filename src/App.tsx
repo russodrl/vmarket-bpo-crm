@@ -617,6 +617,63 @@ function Login() {
   )
 }
 
+function PasswordRecovery({ onDone }: { onDone: () => void }) {
+  const [password, setPassword] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState('')
+
+  async function submit(e: FormEvent) {
+    e.preventDefault()
+    setMessage('')
+    if (password.length < 8) {
+      setMessage('A senha precisa ter pelo menos 8 caracteres.')
+      return
+    }
+    if (password !== confirm) {
+      setMessage('As senhas não conferem.')
+      return
+    }
+    setBusy(true)
+    const res = await supabase.auth.updateUser({ password })
+    if (res.error) {
+      setBusy(false)
+      setMessage(res.error.message)
+      return
+    }
+    await supabase.rpc('mark_own_crm_password_reset_completed')
+    setBusy(false)
+    setMessage('Senha redefinida com sucesso. Faça login novamente com a nova senha.')
+    setTimeout(() => { void supabase.auth.signOut(); onDone() }, 1200)
+  }
+
+  return <main className="min-h-screen bg-white text-slate-900">
+    <header className="fixed inset-x-0 top-0 z-10 flex items-center justify-between px-4 py-3 md:px-8">
+      <img src="./brand/vmarket-logo-colorida.png" alt="VMarket" className="h-16 w-auto object-contain md:h-20" />
+    </header>
+    <div className="mx-auto flex min-h-screen max-w-3xl items-center justify-center px-5 pb-10 pt-28 md:px-8">
+      <section className="w-full border border-slate-200 bg-white px-8 py-12 shadow-sm md:px-16 md:py-14">
+        <div className="mx-auto max-w-xl text-center">
+          <h1 className="text-3xl font-black tracking-[-0.04em] text-slate-950 md:text-4xl">Redefinir senha</h1>
+          <p className="mt-6 text-base leading-7 text-slate-500">Crie uma nova senha para acessar o CRM BPO da VMarket.</p>
+        </div>
+        <form onSubmit={submit} className="mx-auto mt-10 max-w-xl space-y-5">
+          <label className="block">
+            <span className="mb-2 block text-sm font-bold text-slate-700">Nova senha</span>
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="h-12 w-full border border-slate-200 px-4 text-base outline-none transition focus:border-[#6b5cf6] focus:ring-1 focus:ring-[#6b5cf6]" autoComplete="new-password" required />
+          </label>
+          <label className="block">
+            <span className="mb-2 block text-sm font-bold text-slate-700">Confirmar nova senha</span>
+            <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} className="h-12 w-full border border-slate-200 px-4 text-base outline-none transition focus:border-[#6b5cf6] focus:ring-1 focus:ring-[#6b5cf6]" autoComplete="new-password" required />
+          </label>
+          <button disabled={busy} className="h-12 w-full rounded bg-[#685cf6] px-4 text-lg font-bold text-white transition hover:bg-[#5b50e8] disabled:opacity-60">{busy ? 'Salvando...' : 'Salvar nova senha'}</button>
+        </form>
+        {message && <p className="mx-auto mt-8 max-w-xl rounded bg-slate-50 p-3 text-center text-sm text-slate-700 ring-1 ring-slate-100">{message}</p>}
+      </section>
+    </div>
+  </main>
+}
+
 function App() {
   const [session, setSession] = useState<Session | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
@@ -640,6 +697,7 @@ function App() {
   const [activeView, setActiveView] = useState<View>('pipeline')
   const [activePipeline, setActivePipeline] = useState('Pipeline de Vendas')
   const [loading, setLoading] = useState(true)
+  const [isPasswordRecovery, setIsPasswordRecovery] = useState(false)
   const [error, setError] = useState('')
   const [creating, setCreating] = useState(false)
   const [draggingId, setDraggingId] = useState<string | null>(null)
@@ -679,7 +737,8 @@ function App() {
       setSession(data.session)
       if (!data.session) setLoading(false)
     })
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
+      if (event === 'PASSWORD_RECOVERY') setIsPasswordRecovery(true)
       setSession(s)
       if (!s) setLoading(false)
     })
@@ -1171,6 +1230,7 @@ function App() {
     }
   }
 
+  if (isPasswordRecovery && session) return <PasswordRecovery onDone={() => setIsPasswordRecovery(false)} />
   if (!session) return <Login />
 
   if (detailDealId) {
@@ -2622,14 +2682,14 @@ function duplicateWarningGroups(deals: Deal[], people: Person[], organizations: 
       groups.set(key, [...(groups.get(key) || []), row])
     })
     const duplicateEntries = [...groups.entries()].filter(([, list]) => list.length > 1)
-    const items = duplicateEntries.flatMap(([key, list]) => list.map((row) => {
-      const item = itemFor(row)
+    const items = duplicateEntries.map(([key, list]) => {
+      const item = itemFor(list[0])
       return {
         ...item,
         meta: `${item.meta || ''}${item.meta ? ' · ' : ''}${list.length} registros com a mesma chave`,
         duplicate: { entity, key, groupIds: list.map((duplicateRow) => duplicateRow.id) },
       }
-    }))
+    })
     return { id, section, title, items }
   }
   return [
@@ -3291,6 +3351,11 @@ function AdminUsersView({ users, companies, dealsCount, activitiesCount, peopleC
   }
 
   const selectedTallyUser = users.find((user) => user.id === selectedTallyUserId)
+  const resetStatusBadge = (user: CrmUser) => {
+    if (user.password_reset_completed_at && user.password_reset_sent_at && new Date(user.password_reset_completed_at).getTime() >= new Date(user.password_reset_sent_at).getTime()) return <Badge tone="bg-emerald-100 text-emerald-700">Redefinição feita pelo Usuário</Badge>
+    if (user.password_reset_sent_at) return <Badge tone="bg-purple-100 text-purple-700">Redefinição Enviada</Badge>
+    return null
+  }
   const statusOptions: CrmUser['status'][] = ['active', 'pending', 'invited', 'disabled', 'deleted']
   const companyOptions = [...new Set(users.map((user) => user.crm_companies?.name || 'Sem empresa'))].sort((a, b) => a.localeCompare(b, 'pt-BR'))
   const dddStateOptions = [...new Set(users.map((user) => user.ddd_state).filter((state): state is string => Boolean(state)))].sort((a, b) => a.localeCompare(b, 'pt-BR'))
@@ -3332,6 +3397,9 @@ function AdminUsersView({ users, companies, dealsCount, activitiesCount, peopleC
             <div className="flex flex-wrap gap-2">
               <Badge tone={crmOwnerBadgeTone(selectedTallyUser.status)}>{selectedTallyUser.status}</Badge>
               <Badge tone="bg-slate-100 text-slate-700">{selectedTallyUser.crm_companies?.name || 'Sem empresa'}</Badge>
+              <Badge tone="bg-slate-100 text-slate-700">ID usuário: {selectedTallyUser.id}</Badge>
+              <Badge tone="bg-slate-100 text-slate-700">ID empresa: {selectedTallyUser.company_id}</Badge>
+              {resetStatusBadge(selectedTallyUser)}
               {(selectedTallyUser.ddd_prefix || selectedTallyUser.ddd_state) && <Badge tone="bg-blue-100 text-blue-700">DDD {selectedTallyUser.ddd_prefix || '-'} {selectedTallyUser.ddd_state || ''}</Badge>}
             </div>
           </div>
@@ -3383,7 +3451,7 @@ function AdminUsersView({ users, companies, dealsCount, activitiesCount, peopleC
             </select>
             <button type="button" onClick={() => { setUserSearch(''); setUserStatusFilter('all'); setUserCompanyFilter('all'); setUserDddStateFilter('all') }} className="rounded border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"><Filter size={15} className="mr-1 inline"/>Limpar</button>
             <div className="ml-auto flex rounded border border-slate-300 bg-white p-1">
-              <button type="button" onClick={() => setAdminUsersViewMode('cards')} className={cn('rounded px-3 py-1.5 text-xs font-bold', adminUsersViewMode === 'cards' ? 'bg-[#6f5cf6] text-white' : 'text-slate-600 hover:bg-slate-50')}>Cards</button>
+              <button type="button" onClick={() => setAdminUsersViewMode('cards')} className={cn('rounded px-3 py-1.5 text-xs font-bold', adminUsersViewMode === 'cards' ? 'bg-[#6f5cf6] text-white' : 'text-slate-600 hover:bg-slate-50')}>Administração</button>
               <button type="button" onClick={() => setAdminUsersViewMode('list')} className={cn('rounded px-3 py-1.5 text-xs font-bold', adminUsersViewMode === 'list' ? 'bg-[#6f5cf6] text-white' : 'text-slate-600 hover:bg-slate-50')}><List size={14} className="mr-1 inline"/>Lista</button>
             </div>
           </div>
@@ -3393,10 +3461,10 @@ function AdminUsersView({ users, companies, dealsCount, activitiesCount, peopleC
         {adminUsersViewMode === 'cards' ? <div className="divide-y divide-slate-100">
           {filteredUsers.map((user) => <div key={user.id} className="p-4 text-sm hover:bg-slate-50">
             <div className="grid gap-3 md:grid-cols-[1.2fr_1.1fr_1fr_120px_150px_1fr_150px_150px_100px]">
-              <div><button type="button" onClick={() => setSelectedTallyUserId(user.id)} className="text-left font-black text-slate-900 underline-offset-4 hover:text-[#6f5cf6] hover:underline">{user.full_name}</button><p className="mt-1 text-xs text-slate-500">ID usuário: <code>{user.id}</code></p></div>
+              <div><button type="button" onClick={() => setSelectedTallyUserId(user.id)} className="text-left font-black text-slate-900 underline-offset-4 hover:text-[#6f5cf6] hover:underline">{user.full_name}</button></div>
               <div className="text-slate-600">{user.email}</div>
-              <div><b>{user.crm_companies?.name || 'Sem empresa'}</b><p className="mt-1 text-xs text-slate-500">ID empresa: <code>{user.company_id}</code></p></div>
-              <div><Badge tone={crmOwnerBadgeTone(user.status)}>{user.status}</Badge></div>
+              <div><b>{user.crm_companies?.name || 'Sem empresa'}</b></div>
+              <div className="flex flex-wrap gap-1"><Badge tone={crmOwnerBadgeTone(user.status)}>{user.status}</Badge>{resetStatusBadge(user)}</div>
               <div><b>DDD {user.ddd_prefix || '-'}</b><p className="mt-1 text-xs text-slate-500">{user.ddd_state || 'Estado não informado'}</p></div>
               <input value={passwordDrafts[user.id] || ''} onChange={(e) => setPasswordDrafts((current) => ({ ...current, [user.id]: e.target.value }))} className="rounded border border-slate-300 px-3 py-2 text-sm" placeholder="Senha inicial" type="text" autoComplete="new-password" />
               <button onClick={() => void setInitialPassword(user)} disabled={busyId === `password-${user.id}` || !(passwordDrafts[user.id] || '').trim()} className="rounded border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-60">{busyId === `password-${user.id}` ? 'Salvando...' : 'Definir senha'}</button>
@@ -3409,15 +3477,18 @@ function AdminUsersView({ users, companies, dealsCount, activitiesCount, peopleC
           <table className="w-full min-w-[1600px] text-sm">
             <thead className="sticky top-0 bg-white">
               <tr className="border-b border-slate-200 text-left text-[11px] font-semibold uppercase text-slate-500">
-                <th className="px-4 py-3">Usuário</th><th className="px-4 py-3">Email acesso</th><th className="px-4 py-3">Empresa acesso</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">DDD</th><th className="px-4 py-3">Estado</th><th className="px-4 py-3">Telefone CRM</th><th className="px-4 py-3">Razão social</th><th className="px-4 py-3">CNPJ</th><th className="px-4 py-3">Email principal</th><th className="px-4 py-3">Regiões</th><th className="px-4 py-3">Serviços</th><th className="px-4 py-3">Ações</th>
+                <th className="px-4 py-3">Usuário</th><th className="px-4 py-3">ID usuário</th><th className="px-4 py-3">Email acesso</th><th className="px-4 py-3">Empresa acesso</th><th className="px-4 py-3">ID empresa</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Redefinição</th><th className="px-4 py-3">DDD</th><th className="px-4 py-3">Estado</th><th className="px-4 py-3">Telefone CRM</th><th className="px-4 py-3">Razão social</th><th className="px-4 py-3">CNPJ</th><th className="px-4 py-3">Email principal</th><th className="px-4 py-3">Regiões</th><th className="px-4 py-3">Serviços</th><th className="px-4 py-3">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filteredUsers.map((user) => <tr key={user.id} className="align-top hover:bg-blue-50">
                 <td className="px-4 py-3"><button type="button" onClick={() => setSelectedTallyUserId(user.id)} className="font-black text-slate-900 underline-offset-4 hover:text-[#6f5cf6] hover:underline">{user.full_name}</button></td>
+                <td className="max-w-[220px] px-4 py-3 text-xs text-slate-500"><code>{user.id}</code></td>
                 <td className="px-4 py-3 text-slate-600">{user.email}</td>
                 <td className="px-4 py-3 text-slate-700">{user.crm_companies?.name || 'Sem empresa'}</td>
+                <td className="max-w-[220px] px-4 py-3 text-xs text-slate-500"><code>{user.company_id}</code></td>
                 <td className="px-4 py-3"><Badge tone={crmOwnerBadgeTone(user.status)}>{user.status}</Badge></td>
+                <td className="px-4 py-3">{resetStatusBadge(user) || '-'}</td>
                 <td className="px-4 py-3 font-semibold text-slate-800">{user.ddd_prefix || '-'}</td>
                 <td className="px-4 py-3 text-slate-700">{user.ddd_state || '-'}</td>
                 <td className="px-4 py-3 text-slate-700">{user.crm_phone || '-'}</td>

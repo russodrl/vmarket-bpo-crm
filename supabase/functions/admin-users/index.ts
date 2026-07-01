@@ -253,7 +253,7 @@ async function sendAccessEmail(body: Record<string, unknown>) {
 
   const { error: updateCrmError } = await admin
     .from('crm_users')
-    .update({ auth_user_id: authUserId, status: mode === 'invite' ? 'invited' : 'active', last_invited_at: new Date().toISOString() })
+    .update({ auth_user_id: authUserId, status: mode === 'invite' ? 'invited' : 'active', last_invited_at: new Date().toISOString(), password_reset_sent_at: mode === 'reset' ? new Date().toISOString() : null, password_reset_completed_at: mode === 'reset' ? null : undefined })
     .eq('id', crmUser.id)
   if (updateCrmError) throw updateCrmError
 
