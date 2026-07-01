@@ -3,6 +3,7 @@ import type { DragEvent, FormEvent, ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import {
   Activity,
+  AlertTriangle,
   Building2,
   CalendarClock,
   Contact,
@@ -30,7 +31,7 @@ import {
 import { supabase, supabaseConfigured, type ActivityRow, type AuditLog, type AutomationRule, type AutomationRuleChange, type AutomationRuleExecution, type CrmCompany, type CrmUser, type CustomField, type CustomFieldValue, type Deal, type DealLabel, type DealLabelAssignment, type HistoryRow, type Organization, type Person, type Profile, type Stage } from './supabase'
 import './App.css'
 
-type View = 'pipeline' | 'contacts' | 'companies' | 'activities' | 'lead-distribution' | 'automations' | 'audit' | 'fields' | 'admin'
+type View = 'pipeline' | 'contacts' | 'companies' | 'activities' | 'warnings' | 'lead-distribution' | 'automations' | 'audit' | 'fields' | 'admin'
 type NewDeal = {
   title: string
   organization_name: string
@@ -343,6 +344,33 @@ function daysSince(value?: string | null) {
 }
 function dayLabel(days: number) {
   return `${days} ${days === 1 ? 'dia' : 'dias'}`
+}
+function normalizeKey(value?: string | null) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase('pt-BR')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+}
+function normalizeDigits(value?: string | null) {
+  return String(value || '').replace(/\D/g, '')
+}
+function crmUserForOwner(crmUsers: CrmUser[], ownerId?: string | null) {
+  return ownerId ? crmUsers.find((user) => user.auth_user_id === ownerId) : undefined
+}
+function crmOwnerDisplay(crmUsers: CrmUser[], ownerId?: string | null, fallback = 'Sem proprietário CRM') {
+  const owner = crmUserForOwner(crmUsers, ownerId)
+  if (!owner) return ownerId ? 'Usuário CRM removido' : fallback
+  const statusSuffix = owner.status === 'deleted' ? ' (deletado)' : owner.status === 'disabled' ? ' (desativado)' : ''
+  return `${owner.full_name}${statusSuffix}`
+}
+function crmOwnerBadgeTone(status?: CrmUser['status']) {
+  if (status === 'active') return 'bg-emerald-100 text-emerald-700'
+  if (status === 'deleted') return 'bg-rose-100 text-rose-700'
+  if (status === 'disabled') return 'bg-slate-200 text-slate-700'
+  if (status === 'invited') return 'bg-blue-100 text-blue-700'
+  return 'bg-amber-100 text-amber-700'
 }
 
 const statusLabel: Record<string, string> = { aberto: 'Aberto', ganho: 'Ganho', perdido: 'Perdido' }
@@ -1108,6 +1136,7 @@ function App() {
     ['contacts', <Contact size={19}/>, 'Contatos'],
     ['companies', <Building2 size={19}/>, 'Empresas'],
     ['activities', <Activity size={19}/>, 'Atividades'],
+    ['warnings', <AlertTriangle size={19}/>, 'Avisos'],
   ]
   if (profile?.role === 'admin_vmarket') navItems.push(['lead-distribution', <Users size={19}/>, 'Distribuição de Leads'])
   if (profile?.role === 'admin_vmarket') navItems.push(['automations', <Settings size={19}/>, 'Automações'])
@@ -1143,6 +1172,7 @@ function App() {
                 {activeView === 'contacts' && <ListView title="Contatos" icon={<Contact size={18}/>} rows={people.map((p) => ({ id: p.id, title: p.full_name, sub: `${p.role_title || 'Contato'} · ${p.email || 'sem email'}`, meta: p.phone || 'sem telefone' }))} canDelete={profile?.role === 'admin_vmarket'} onDelete={(id, label) => deleteOneRecord('person', id, label)} />}
                 {activeView === 'companies' && <ListView title="Empresas" icon={<Building2 size={18}/>} rows={organizations.map((o) => ({ id: o.id, title: o.name, sub: `${o.type ? businessTypeOptions.find(([id]) => id === o.type)?.[1] || o.type : 'Tipo não informado'} · ${o.city || ''} ${o.state || ''}`, meta: money(o.monthly_purchase) }))} canDelete={profile?.role === 'admin_vmarket'} onDelete={(id, label) => deleteOneRecord('organization', id, label)} />}
                 {activeView === 'activities' && <ActivitiesView activities={activities} deals={deals} completeActivity={completeActivity} updateActivity={updateActivity} canDelete={profile?.role === 'admin_vmarket'} deleteActivity={(id, label) => deleteOneRecord('activity', id, label)} />}
+                {activeView === 'warnings' && <WarningsView deals={deals} people={people} organizations={organizations} activities={activities} crmUsers={crmUsers} openDealPage={openDealPage} />}
                 {activeView === 'lead-distribution' && profile?.role === 'admin_vmarket' && <LeadDistributionView users={crmUsers} deals={deals} />}
                 {activeView === 'automations' && profile?.role === 'admin_vmarket' && <AutomationsView rules={automationRules} executions={automationExecutions} changes={automationChanges} />}
                 {activeView === 'audit' && profile?.role === 'admin_vmarket' && <AuditLogView logs={auditLogs} />}
@@ -1202,13 +1232,11 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
   }
 
   const dealOwnerInitial = (deal: Deal) => {
-    const owner = crmUsers.find((user) => user.auth_user_id && user.auth_user_id === deal.owner_id)
-    return (owner?.full_name || deal.people?.full_name || '•').trim().slice(0, 1).toUpperCase()
+    return crmOwnerDisplay(crmUsers, deal.owner_id, deal.people?.full_name || '•').trim().slice(0, 1).toUpperCase()
   }
 
   const dealOwnerName = (deal: Deal) => {
-    const owner = crmUsers.find((user) => user.auth_user_id && user.auth_user_id === deal.owner_id)
-    return owner?.full_name || deal.people?.full_name || 'Sem proprietário'
+    return crmOwnerDisplay(crmUsers, deal.owner_id, deal.people?.full_name || 'Sem proprietário')
   }
 
   const activityIndicator = (deal: Deal) => {
@@ -1684,7 +1712,7 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
   const pipelineStages = stages.filter((stage) => (stage.pipeline_name || 'Sem funil') === currentPipeline)
   const currentPipelineStages = pipelineStages.length ? pipelineStages : [currentStage].filter(Boolean) as Stage[]
   const currentStageDays = daysSince(deal.pipedrive_stage_entered_at || deal.updated_at || deal.pipedrive_deal_created_at || deal.created_at)
-  const ownerName = crmUsers.find((user) => user.auth_user_id && user.auth_user_id === form.owner_id)?.full_name || 'Sem proprietário CRM'
+  const ownerName = crmOwnerDisplay(crmUsers, form.owner_id)
   const contractPartner = crmUsers.find((user) => user.auth_user_id && user.auth_user_id === form.owner_id) || crmUsers.find((user) => user.auth_user_id && user.auth_user_id === deal.owner_id)
   const partnerContract = partnerContractValues(contractPartner)
   const contractLocked = form.vm_sale && form.contract_with === 'parceiro' && Boolean(partnerContract)
@@ -1787,7 +1815,7 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
             <ReadOnlyField label="Criação do Negócio" value={formatDateTime(deal.pipedrive_deal_created_at)} />
             <ReadOnlyField label="Proprietário do negócio no Pipedrive" value={deal.pipedrive_owner_name || 'Não sincronizado'} />
             <ReadOnlyField label="Etiquetas" value={selectedLabels.length ? selectedLabels.map((label) => label.name).join(', ') : 'Sem etiqueta'} action={<button type="button" onClick={() => setShowLabelPicker(true)} className="text-xs font-bold text-blue-600 hover:text-blue-700">Adicionar etiqueta</button>} />
-            {canEditOwner && <InlineSelect label="Proprietário CRM" value={form.owner_id} onChange={(v) => update('owner_id', v)} options={[[deal.owner_id || '', deal.owner_id ? 'Proprietário atual' : 'Sem proprietário'], ...crmUsers.filter((u) => u.auth_user_id).map((u) => [u.auth_user_id || '', `${u.full_name} · ${u.crm_companies?.name || 'sem empresa'}`] as [string, string])]} />}
+            {canEditOwner && <InlineSelect label="Proprietário CRM" value={form.owner_id} onChange={(v) => update('owner_id', v)} options={[[deal.owner_id || '', deal.owner_id ? crmOwnerDisplay(crmUsers, deal.owner_id, 'Proprietário atual') : 'Sem proprietário'], ...crmUsers.filter((u) => u.auth_user_id && u.status !== 'deleted' && u.status !== 'disabled').map((u) => [u.auth_user_id || '', `${u.full_name} · ${u.crm_companies?.name || 'sem empresa'}`] as [string, string])]} />}
             <InlineSelect label="Etapa" value={form.stage_id} onChange={(v) => update('stage_id', v)} options={currentPipelineStages.map((s) => [s.id, s.name])} />
             <InlineSelect label="Status" value={form.status} onChange={(v) => v === 'perdido' ? setShowLostReason(true) : update('status', v)} options={Object.entries(statusLabel)} />
             {form.status === 'perdido' && <ReadOnlyField label="Motivo da perda" value={form.lost_reason || deal.lost_reason || 'Sem motivo informado'} />}
@@ -2408,6 +2436,122 @@ function AutomationJsonList({ items }: { items: unknown[] }) {
   </div>
 }
 
+type WarningItem = {
+  id: string
+  title: string
+  subtitle?: string
+  meta?: string
+  dealId?: string
+}
+type WarningGroup = {
+  id: string
+  section: string
+  title: string
+  items: WarningItem[]
+}
+
+function duplicateWarningGroups(deals: Deal[], people: Person[], organizations: Organization[]): WarningGroup[] {
+  const build = <T extends { id: string }>(id: string, section: string, title: string, rows: T[], keyFor: (row: T) => string, itemFor: (row: T) => WarningItem): WarningGroup => {
+    const groups = new Map<string, T[]>()
+    rows.forEach((row) => {
+      const key = keyFor(row)
+      if (!key) return
+      groups.set(key, [...(groups.get(key) || []), row])
+    })
+    const items = [...groups.entries()].filter(([, list]) => list.length > 1).flatMap(([key, list]) => list.map((row) => {
+      const item = itemFor(row)
+      return { ...item, meta: `${item.meta || ''}${item.meta ? ' · ' : ''}Chave: ${key}` }
+    }))
+    return { id, section, title, items }
+  }
+  return [
+    build('duplicates-deals', 'Possíveis Duplicatas', 'Negócios', deals, (deal) => normalizeKey(deal.title), (deal) => ({ id: deal.id, title: deal.title, subtitle: `${deal.organizations?.name || 'Sem empresa'} · ${deal.people?.full_name || 'Sem contato'}`, dealId: deal.id })),
+    build('duplicates-contacts', 'Possíveis Duplicatas', 'Contatos', people, (person) => normalizeKey(person.email) || normalizeDigits(person.phone) || normalizeKey(person.full_name), (person) => ({ id: person.id, title: person.full_name, subtitle: `${person.email || 'sem email'} · ${person.phone || 'sem telefone'}` })),
+    build('duplicates-companies', 'Possíveis Duplicatas', 'Empresas', organizations, (org) => normalizeKey(org.name), (org) => ({ id: org.id, title: org.name, subtitle: `${org.city || ''} ${org.state || ''}`.trim() || 'Sem localidade' })),
+  ]
+}
+
+function WarningsView({ deals, people, organizations, activities, crmUsers, openDealPage }: { deals: Deal[]; people: Person[]; organizations: Organization[]; activities: ActivityRow[]; crmUsers: CrmUser[]; openDealPage: (id: string) => void }) {
+  const [selectedGroup, setSelectedGroup] = useState<WarningGroup | null>(null)
+  const openActivitiesByDeal = new Map<string, ActivityRow[]>()
+  activities.filter((activity) => activity.deal_id && activity.status === 'open').forEach((activity) => {
+    openActivitiesByDeal.set(activity.deal_id!, [...(openActivitiesByDeal.get(activity.deal_id!) || []), activity])
+  })
+  const assignedDeleted = deals.filter((deal) => crmUserForOwner(crmUsers, deal.owner_id)?.status === 'deleted')
+  const assignedDisabled = deals.filter((deal) => crmUserForOwner(crmUsers, deal.owner_id)?.status === 'disabled')
+  const unassigned = deals.filter((deal) => !deal.owner_id || !crmUserForOwner(crmUsers, deal.owner_id))
+  const dealItem = (deal: Deal): WarningItem => ({
+    id: deal.id,
+    title: deal.title,
+    subtitle: `${deal.organizations?.name || 'Sem empresa'} · ${deal.people?.full_name || 'Sem contato'}`,
+    meta: `${crmOwnerDisplay(crmUsers, deal.owner_id, 'Sem usuário')} · ${deal.pipeline_stages?.name || 'Sem etapa'}`,
+    dealId: deal.id,
+  })
+  const withoutActivityBase = deals.filter((deal) => deal.status === 'aberto' && deal.lead_source === 'vmarket' && !openActivitiesByDeal.get(deal.id)?.length)
+  const thresholds = [
+    ['open-vmarket-no-activity-7', '+1 semana', 7],
+    ['open-vmarket-no-activity-14', '+2 semanas', 14],
+    ['open-vmarket-no-activity-21', '+3 semanas', 21],
+    ['open-vmarket-no-activity-28', '+4 semanas', 28],
+    ['open-vmarket-no-activity-30', '+1 mês', 30],
+    ['open-vmarket-no-activity-60', '+2 meses', 60],
+    ['open-vmarket-no-activity-90', '+3 meses', 90],
+  ] as const
+  const groups: WarningGroup[] = [
+    ...duplicateWarningGroups(deals, people, organizations),
+    { id: 'assigned-deleted', section: 'Negócios com usuários Atribuídos', title: 'Deletados', items: assignedDeleted.map(dealItem) },
+    { id: 'assigned-disabled', section: 'Negócios com usuários Atribuídos', title: 'Desativados', items: assignedDisabled.map(dealItem) },
+    { id: 'assigned-missing', section: 'Negócios com usuários Atribuídos', title: 'Sem usuários', items: unassigned.map(dealItem) },
+    ...thresholds.map(([id, title, days]) => ({
+      id,
+      section: 'Negócios abertos VMarket sem atividade',
+      title,
+      items: withoutActivityBase
+        .filter((deal) => daysSince(deal.pipedrive_stage_entered_at || deal.updated_at || deal.pipedrive_deal_created_at || deal.created_at) >= days)
+        .map((deal) => ({ ...dealItem(deal), meta: `${dealItem(deal).meta} · ${dayLabel(daysSince(deal.pipedrive_stage_entered_at || deal.updated_at || deal.pipedrive_deal_created_at || deal.created_at))} sem atividade aberta` })),
+    })),
+  ]
+  const sections = [...new Set(groups.map((group) => group.section))]
+  const total = groups.reduce((sum, group) => sum + group.items.length, 0)
+  return <div className="h-full overflow-y-auto p-5">
+    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h2 className="text-2xl font-black tracking-[-0.04em] text-slate-950">Avisos</h2>
+        <p className="mt-1 text-sm text-slate-500">Contagens operacionais para duplicatas, atribuições de usuários e negócios VMarket sem atividade aberta.</p>
+      </div>
+      <Badge tone={total ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-700'}>{total} itens contabilizados</Badge>
+    </div>
+    <div className="grid gap-4 xl:grid-cols-3">
+      {sections.map((section) => <Panel key={section} className="overflow-hidden">
+        <div className="border-b border-slate-200 bg-white p-4">
+          <div className="flex items-center gap-2"><AlertTriangle size={18} className="text-amber-500"/><h3 className="font-black text-slate-900">{section}</h3></div>
+        </div>
+        <div className="divide-y divide-slate-100">
+          {groups.filter((group) => group.section === section).map((group) => <button type="button" key={group.id} onClick={() => setSelectedGroup(group)} className="flex w-full items-center justify-between gap-3 p-4 text-left hover:bg-amber-50">
+            <span className="font-semibold text-slate-800">{group.title}</span>
+            <span className={cn('rounded-full px-3 py-1 text-sm font-black', group.items.length ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-500')}>{group.items.length}</span>
+          </button>)}
+        </div>
+      </Panel>)}
+    </div>
+    {selectedGroup && <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 p-4 backdrop-blur-sm">
+      <div className="flex max-h-[86vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+        <div className="flex items-start justify-between gap-4 border-b border-slate-200 p-5">
+          <div><p className="text-xs font-black uppercase tracking-wide text-amber-600">{selectedGroup.section}</p><h2 className="mt-1 text-xl font-black text-slate-950">{selectedGroup.title} · {selectedGroup.items.length}</h2></div>
+          <button type="button" onClick={() => setSelectedGroup(null)} className="grid h-9 w-9 place-items-center rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50">×</button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          {selectedGroup.items.length ? <div className="space-y-2">{selectedGroup.items.map((item) => <div key={item.id} className="rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
+            {item.dealId ? <button type="button" onClick={() => { setSelectedGroup(null); openDealPage(item.dealId!) }} className="text-left font-black text-blue-700 hover:underline">{item.title}</button> : <b className="text-slate-950">{item.title}</b>}
+            {item.subtitle && <p className="mt-1 text-slate-600">{item.subtitle}</p>}
+            {item.meta && <p className="mt-1 text-xs font-semibold text-slate-400">{item.meta}</p>}
+          </div>)}</div> : <div className="p-8 text-center text-sm text-slate-400">Nenhum item contabilizado nesse aviso.</div>}
+        </div>
+      </div>
+    </div>}
+  </div>
+}
+
 function LeadDistributionView({ users, deals }: { users: CrmUser[]; deals: Deal[] }) {
   const activeUsers = users.filter((user) => user.status === 'active' && user.auth_user_id)
   const statsForUser = (user: CrmUser) => {
@@ -2794,14 +2938,14 @@ function AdminUsersView({ users, companies, dealsCount, activitiesCount, peopleC
   }
 
   async function deleteUser(user: CrmUser) {
-    const confirmed = window.confirm(`Apagar usuário ${user.full_name}? Essa ação remove o acesso dele e não pode ser desfeita.`)
+    const confirmed = window.confirm(`Marcar usuário ${user.full_name} como deletado? Os negócios atribuídos continuarão com esse usuário, exibindo (deletado).`)
     if (!confirmed) return
     setBusyId(`delete-${user.id}`)
     setMessage('')
     setError('')
     try {
       const data = await callAdminFunction({ action: 'delete-one', target: 'user', id: user.id })
-      setMessage(`Usuário ${user.full_name} apagado.${data.auth_deleted ? ' Acesso Auth removido também.' : ''}`)
+      setMessage(`Usuário ${user.full_name} marcado como deletado.${data.auth_deleted ? ' Acesso Auth removido também.' : ''}`)
       await reload()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -2854,7 +2998,7 @@ function AdminUsersView({ users, companies, dealsCount, activitiesCount, peopleC
               <div><b>{user.full_name}</b><p className="mt-1 text-xs text-slate-500">ID usuário: <code>{user.id}</code></p></div>
               <div className="text-slate-600">{user.email}</div>
               <div><b>{user.crm_companies?.name || 'Sem empresa'}</b><p className="mt-1 text-xs text-slate-500">ID empresa: <code>{user.company_id}</code></p></div>
-              <div><Badge tone={user.status === 'active' ? 'bg-emerald-100 text-emerald-700' : user.status === 'invited' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}>{user.status}</Badge></div>
+              <div><Badge tone={crmOwnerBadgeTone(user.status)}>{user.status}</Badge></div>
               <input value={passwordDrafts[user.id] || ''} onChange={(e) => setPasswordDrafts((current) => ({ ...current, [user.id]: e.target.value }))} className="rounded border border-slate-300 px-3 py-2 text-sm" placeholder="Senha inicial" type="text" autoComplete="new-password" />
               <button onClick={() => void setInitialPassword(user)} disabled={busyId === `password-${user.id}` || !(passwordDrafts[user.id] || '').trim()} className="rounded border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-60">{busyId === `password-${user.id}` ? 'Salvando...' : 'Definir senha'}</button>
               <button onClick={() => void sendAccessEmail(user)} disabled={busyId === user.id} className="rounded border border-[#238847] px-3 py-2 text-sm font-bold text-[#238847] hover:bg-emerald-50 disabled:opacity-60">{busyId === user.id ? 'Enviando...' : user.auth_user_id ? 'Redefinir senha' : 'Enviar acesso'}</button>

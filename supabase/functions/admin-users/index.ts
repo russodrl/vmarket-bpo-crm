@@ -362,7 +362,7 @@ async function deleteAllRows(table: string) {
   return count || 0
 }
 
-async function deleteOne(body: Record<string, unknown>, adminUserId: string) {
+async function deleteOne(body: Record<string, unknown>) {
   const target = String(body.target || '')
   const id = String(body.id || '')
   if (!id) throw new Error('id_required')
@@ -400,26 +400,14 @@ async function deleteOne(body: Record<string, unknown>, adminUserId: string) {
     if (userError) throw userError
     if (!crmUser) throw new Error('crm_user_not_found')
 
-    const authUserId = crmUser.auth_user_id as string | null
-    if (authUserId && authUserId !== adminUserId) {
-      const { error: profileError } = await admin
-        .from('profiles')
-        .update({ crm_user_id: null, crm_company_id: null })
-        .eq('id', authUserId)
-      if (profileError) throw profileError
-    }
-
-    const { count, error } = await admin.from('crm_users').delete({ count: 'exact' }).eq('id', id)
+    const { count, error } = await admin
+      .from('crm_users')
+      .update({ status: 'deleted' }, { count: 'exact' })
+      .eq('id', id)
     if (error) throw error
 
-    let auth_deleted = 0
-    if (authUserId && authUserId !== adminUserId) {
-      const { error: authError } = await admin.auth.admin.deleteUser(authUserId)
-      if (authError) throw authError
-      auth_deleted = 1
-    }
-
-    return { ok: true, target, id, deleted: count || 0, auth_deleted }
+    const auth_deleted = 0
+    return { ok: true, target, id, deleted: count || 0, auth_deleted, mode: 'soft_deleted' }
   }
 
   throw new Error('unknown_delete_target')
@@ -501,7 +489,7 @@ Deno.serve(async (req) => {
     if (action === 'send-access-email') return json(await sendAccessEmail(body))
     if (action === 'set-initial-password') return json(await setInitialPassword(body))
     if (action === 'cleanup-data') return json(await cleanupData(body, user.id))
-    if (action === 'delete-one') return json(await deleteOne(body, user.id))
+    if (action === 'delete-one') return json(await deleteOne(body))
     return json({ error: 'unknown_action' }, 400)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)

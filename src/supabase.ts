@@ -40,7 +40,7 @@ export type CrmUser = {
   email: string
   company_id: string
   auth_user_id: string | null
-  status: 'pending' | 'invited' | 'active' | 'disabled'
+  status: 'pending' | 'invited' | 'active' | 'disabled' | 'deleted'
   last_invited_at: string | null
   legal_company_name?: string | null
   cnpj?: string | null
