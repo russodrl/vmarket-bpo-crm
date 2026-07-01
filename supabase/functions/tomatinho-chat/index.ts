@@ -124,11 +124,6 @@ async function getProfile(userId: string) {
   return data || { id: userId, role: 'bpo_partner', full_name: null, bpo_id: null }
 }
 
-function readableOwner(row: JsonRecord) {
-  const user = row.crm_users as JsonRecord | undefined
-  return asText(user?.full_name) || asText(row.owner_id) || 'sem proprietário'
-}
-
 async function loadCrmSnapshot(profile: JsonRecord, contextDealId: string | null) {
   const isAdmin = profile.role === 'admin_vmarket'
   const ownUserId = asText(profile.id)
@@ -292,32 +287,48 @@ async function askOpenAI(input: { message: string; files: ChatRequest['files']; 
 }
 
 async function askHermes(input: { message: string; files: ChatRequest['files']; history: ChatRequest['history']; system: string; context: string }) {
-  const headers: Record<string, string> = { 'content-type': 'application/json' }
+  const headers: Record<string, string> = {
+    'content-type': 'application/json',
+    'x-hermes-session-key': 'crm-bpo-tomatinho',
+  }
   if (HERMES_CHAT_TOKEN) headers.authorization = `Bearer ${HERMES_CHAT_TOKEN}`
+
+  const imageParts = (input.files || [])
+    .filter((file) => (file.type || '').startsWith('image/') && file.content)
+    .slice(0, 3)
+    .map((file) => ({ type: 'image_url', image_url: { url: file.content } }))
+  const otherFiles = (input.files || [])
+    .filter((file) => !(file.type || '').startsWith('image/'))
+    .map((file) => `${file.name} (${file.type || 'arquivo'})`)
+
+  const textParts = [
+    input.message ? `Mensagem do usuário:\n${input.message}` : '',
+    otherFiles.length ? `Arquivos anexados sem leitura profunda:\n${otherFiles.join('\n')}` : '',
+    `Contexto e base CRM:\n${input.context}`,
+    'Responda JSON puro no formato {"reply":"texto curto","expression":"pensativo|surpreso|feliz|hell-yeah|triste|intrigado|aliviado","actions":[{"type":"...","payload":{}}]}. Se o usuário pedir para criar/editar/executar algo no CRM/Pipedrive e houver dados suficientes, inclua actions. Se faltar dado essencial, pergunte apenas o dado faltante.',
+  ].filter(Boolean).join('\n\n')
+
+  const messages = [
+    { role: 'system', content: input.system },
+    ...(input.history || []).slice(-6).map((item) => ({ role: item.role, content: item.content })),
+    { role: 'user', content: [{ type: 'text', text: textParts }, ...imageParts] },
+  ]
+
   const res = await fetch(HERMES_CHAT_ENDPOINT, {
     method: 'POST',
     headers,
-    body: JSON.stringify({
-      source: 'crm-bpo-agente-vmarket',
-      message: input.message,
-      files: input.files,
-      history: input.history,
-      system: input.system,
-      context: input.context,
-      response_format: {
-        type: 'json_object',
-        schema_hint: '{"reply":"texto","expression":"pensativo|surpreso|feliz|hell-yeah|triste|intrigado|aliviado","actions":[{"type":"create_deal|create_person|create_organization|create_activity|create_note|update_focus","payload":{}}]}'
-      }
-    }),
+    body: JSON.stringify({ model: 'agentevmarketbpotomatinho', stream: false, messages }),
   })
   const text = await res.text()
   if (!res.ok) throw new Error(`Hermes retornou HTTP ${res.status}: ${text.slice(0, 240)}`)
   try {
-    const parsed = JSON.parse(text)
+    const envelope = JSON.parse(text) as JsonRecord
+    const content = asText((((envelope.choices as JsonRecord[] | undefined)?.[0]?.message as JsonRecord | undefined)?.content))
+    const parsed = JSON.parse(content || text)
     if (typeof parsed.reply === 'string') return parsed
     if (typeof parsed.message === 'string') return { reply: parsed.message, expression: pickExpression(parsed.message), actions: parsed.actions || [] }
     if (typeof parsed.response === 'string') return { reply: parsed.response, expression: pickExpression(parsed.response), actions: parsed.actions || [] }
-    return { reply: text, expression: pickExpression(text), actions: [] }
+    return { reply: content || text, expression: pickExpression(content || text), actions: [] }
   } catch {
     return { reply: text, expression: pickExpression(text), actions: [] }
   }

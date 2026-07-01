@@ -1589,10 +1589,10 @@ function App() {
     return <><DealPage key={detailDealId} deal={detailDeal} loading={loading} error={error} stages={stages} crmUsers={crmUsers} externalRecords={externalRecords} canEditOwner={isAdmin} canViewCustomFields={isAdmin} activities={activities.filter((a) => a.deal_id === detailDealId)} history={history.filter((h) => h.deal_id === detailDealId)} dealLabels={dealLabels} assignedLabels={dealLabelAssignments.filter((assignment) => assignment.deal_id === detailDealId)} attachments={dealAttachments.filter((attachment) => attachment.deal_id === detailDealId)} closeDealPage={closeDealPage} saveDeal={saveDeal} createActivity={createActivityForDeal} createNote={createNoteForDeal} deleteDeal={(id, label) => deleteOneRecord('deal', id, label)} deleteActivity={(id, label) => deleteOneRecord('activity', id, label)} customFields={isAdmin ? customFields.filter((field) => field.entity === 'deal') : []} customFieldValues={isAdmin ? customFieldValues.filter((value) => value.entity_id === detailDealId) : []} completeActivity={completeActivity} updateActivity={updateActivity} createLabel={createDealLabel} deleteLabel={deleteDealLabel} updateDealLabels={updateDealLabels} openPersonPage={openPersonPage} openOrganizationPage={openOrganizationPage} unlinkDealPerson={unlinkDealPerson} unlinkDealOrganization={unlinkDealOrganization} reloadDeal={loadAll} /><TomatinhoChat session={session} contextDealId={detailDealId} onReload={loadAll} /></>
   }
   if (detailPersonId) {
-    return <><ContactPage key={detailPersonId} person={detailPerson} organization={organizations.find((org) => org.id === detailPerson?.organization_id)} loading={loading} error={error} deals={deals} activities={activities} history={history} externalRecords={externalRecords} crmUsers={crmUsers} canDelete={profile?.role === 'admin_vmarket'} deletePerson={(id, label) => deleteOneRecord('person', id, label)} openDealPage={openDealPage} openOrganizationPage={openOrganizationPage} unlinkPersonOrganization={unlinkPersonOrganization} closeDetailPage={closeDetailPage} /><TomatinhoChat session={session} onReload={loadAll} /></>
+    return <><ContactPage key={detailPersonId} person={detailPerson} organization={organizations.find((org) => org.id === detailPerson?.organization_id)} loading={loading} error={error} deals={deals} activities={activities} history={history} externalRecords={externalRecords} crmUsers={crmUsers} canDelete={profile?.role === 'admin_vmarket'} deletePerson={(id, label) => deleteOneRecord('person', id, label)} openDealPage={openDealPage} openOrganizationPage={openOrganizationPage} unlinkPersonOrganization={unlinkPersonOrganization} reloadDetail={loadAll} closeDetailPage={closeDetailPage} /><TomatinhoChat session={session} onReload={loadAll} /></>
   }
   if (detailOrganizationId) {
-    return <><CompanyPage key={detailOrganizationId} organization={detailOrganization} loading={loading} error={error} deals={deals} people={people} activities={activities} history={history} externalRecords={externalRecords} crmUsers={crmUsers} canDelete={profile?.role === 'admin_vmarket'} deleteOrganization={(id, label) => deleteOneRecord('organization', id, label)} openDealPage={openDealPage} openPersonPage={openPersonPage} unlinkPersonOrganization={unlinkPersonOrganization} closeDetailPage={closeDetailPage} /><TomatinhoChat session={session} onReload={loadAll} /></>
+    return <><CompanyPage key={detailOrganizationId} organization={detailOrganization} loading={loading} error={error} deals={deals} people={people} activities={activities} history={history} externalRecords={externalRecords} crmUsers={crmUsers} canDelete={profile?.role === 'admin_vmarket'} deleteOrganization={(id, label) => deleteOneRecord('organization', id, label)} openDealPage={openDealPage} openPersonPage={openPersonPage} unlinkPersonOrganization={unlinkPersonOrganization} reloadDetail={loadAll} closeDetailPage={closeDetailPage} /><TomatinhoChat session={session} onReload={loadAll} /></>
   }
 
   const navItems: Array<[View, ReactNode, string]> = [
@@ -2322,19 +2322,25 @@ function LinkedTimeline({ deals, activities, history, openDealPage }: { deals: D
   </Panel>
 }
 
-function ContactPage({ person, organization, loading, error, deals, activities, history, externalRecords, crmUsers, canDelete = false, deletePerson, openDealPage, openOrganizationPage, unlinkPersonOrganization, closeDetailPage }: { person?: Person; organization?: Organization; loading: boolean; error: string; deals: Deal[]; activities: ActivityRow[]; history: HistoryRow[]; externalRecords: ExternalRecord[]; crmUsers: CrmUser[]; canDelete?: boolean; deletePerson?: (id: string, label: string) => void; openDealPage: (id: string) => void; openOrganizationPage: (id: string) => void; unlinkPersonOrganization: (id: string) => Promise<void>; closeDetailPage: () => void }) {
+function ContactPage({ person, organization, loading, error, deals, activities, history, externalRecords, crmUsers, canDelete = false, deletePerson, openDealPage, openOrganizationPage, unlinkPersonOrganization, reloadDetail, closeDetailPage }: { person?: Person; organization?: Organization; loading: boolean; error: string; deals: Deal[]; activities: ActivityRow[]; history: HistoryRow[]; externalRecords: ExternalRecord[]; crmUsers: CrmUser[]; canDelete?: boolean; deletePerson?: (id: string, label: string) => void; openDealPage: (id: string) => void; openOrganizationPage: (id: string) => void; unlinkPersonOrganization: (id: string) => Promise<void>; reloadDetail: () => Promise<void>; closeDetailPage: () => void }) {
   if (loading) return <main className="min-h-screen bg-[#f4f5f7] p-5 text-slate-900"><LoadingBpo /></main>
   if (!person) return <main className="min-h-screen bg-[#f4f5f7] p-5 text-slate-900"><div className="rounded bg-white p-6 shadow-sm"><h1 className="text-xl font-bold">Contato não encontrado</h1><button onClick={closeDetailPage} className="mt-4 rounded bg-[#238847] px-4 py-2 text-sm font-bold text-white">Voltar</button></div></main>
   const linkedDeals = deals.filter((deal) => deal.person_id === person.id)
   const pipedrivePersonId = externalIdFor(externalRecords, 'person', person.id)
   const personOwner = crmOwnerDisplay(crmUsers, person.owner_id, 'Sem proprietário')
+  const personId = person.id
+  async function savePersonField(key: 'full_name' | 'role_title' | 'email' | 'phone', value: string) {
+    const { error } = await supabase.from('people').update({ [key]: value || null }).eq('id', personId)
+    if (error) throw error
+    await reloadDetail()
+  }
   return <main className="min-h-screen bg-[#f4f5f7] text-slate-900">
     <header className="sticky top-0 z-30 border-b border-slate-200 bg-white shadow-sm"><div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-3 px-4 py-3"><button onClick={closeDetailPage} className="rounded border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">← Voltar</button><div className="min-w-0 flex-1"><h1 className="truncate text-2xl font-semibold tracking-[-0.03em] text-slate-950">{person.full_name}</h1><p className="mt-1 truncate text-sm font-semibold text-slate-600">{person.phone || 'sem telefone'} · {person.email || 'sem email'}</p></div><Badge tone="bg-blue-100 text-blue-700">Ficha de contato</Badge>{canDelete && <button type="button" onClick={() => deletePerson?.(person.id, person.full_name)} className="rounded border border-rose-200 px-4 py-2 text-sm font-bold text-rose-600 hover:bg-rose-50">Apagar</button>}</div></header>
-    <div className="mx-auto grid max-w-[1600px] gap-4 p-4 xl:grid-cols-[360px_minmax(0,1fr)]">{error && <div className="xl:col-span-2 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><b>Erro:</b> {error}</div>}<aside className="space-y-4"><CollapsibleSection title="Detalhes" defaultOpen><div className="divide-y divide-slate-100"><ReadOnlyField label="Nome do Contato" value={person.full_name} /><ReadOnlyField label="Proprietário do contato" value={personOwner} /><LinkedEditableField label="Empresa vinculada" value={organization?.name || 'Sem empresa vinculada'} onOpen={organization ? () => openOrganizationPage(organization.id) : undefined} onUnlink={person.organization_id ? () => unlinkPersonOrganization(person.id) : undefined} /><ReadOnlyField label="ID do contato no Pipedrive" value={pipedrivePersonId || 'Não sincronizado'} /><ReadOnlyField label="Cargo" value={person.role_title || '-'} /><ReadOnlyField label="Email" value={person.email || '-'} /><ReadOnlyField label="Telefone" value={person.phone || '-'} /><ReadOnlyField label="DDD" value={person.ddd_prefix || '-'} /><ReadOnlyField label="Estado DDD" value={person.ddd_state || '-'} /></div></CollapsibleSection><EntityDealsSummary deals={linkedDeals} openDealPage={openDealPage} /></aside><section><LinkedTimeline deals={linkedDeals} activities={activities} history={history} openDealPage={openDealPage} /></section></div>
+    <div className="mx-auto grid max-w-[1600px] gap-4 p-4 xl:grid-cols-[360px_minmax(0,1fr)]">{error && <div className="xl:col-span-2 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><b>Erro:</b> {error}</div>}<aside className="space-y-4"><CollapsibleSection title="Detalhes" defaultOpen><div className="divide-y divide-slate-100"><InlineField label="Nome do Contato" value={person.full_name} onChange={() => undefined} onSaveValue={(value) => savePersonField('full_name', value)} /><ReadOnlyField label="Proprietário do contato" value={personOwner} /><LinkedEditableField label="Empresa vinculada" value={organization?.name || 'Sem empresa vinculada'} onOpen={organization ? () => openOrganizationPage(organization.id) : undefined} onUnlink={person.organization_id ? () => unlinkPersonOrganization(person.id) : undefined} /><ReadOnlyField label="ID do contato no Pipedrive" value={pipedrivePersonId || 'Não sincronizado'} /><InlineField label="Cargo" value={person.role_title || ''} onChange={() => undefined} onSaveValue={(value) => savePersonField('role_title', value)} /><InlineField label="Email" value={person.email || ''} onChange={() => undefined} onSaveValue={(value) => savePersonField('email', value)} type="email" /><InlineField label="Telefone" value={person.phone || ''} onChange={() => undefined} onSaveValue={(value) => savePersonField('phone', value)} /><ReadOnlyField label="DDD" value={person.ddd_prefix || '-'} /><ReadOnlyField label="Estado DDD" value={person.ddd_state || '-'} /></div></CollapsibleSection><EntityDealsSummary deals={linkedDeals} openDealPage={openDealPage} /></aside><section><LinkedTimeline deals={linkedDeals} activities={activities} history={history} openDealPage={openDealPage} /></section></div>
   </main>
 }
 
-function CompanyPage({ organization, loading, error, deals, people, activities, history, externalRecords, crmUsers, canDelete = false, deleteOrganization, openDealPage, openPersonPage, unlinkPersonOrganization, closeDetailPage }: { organization?: Organization; loading: boolean; error: string; deals: Deal[]; people: Person[]; activities: ActivityRow[]; history: HistoryRow[]; externalRecords: ExternalRecord[]; crmUsers: CrmUser[]; canDelete?: boolean; deleteOrganization?: (id: string, label: string) => void; openDealPage: (id: string) => void; openPersonPage: (id: string) => void; unlinkPersonOrganization: (id: string) => Promise<void>; closeDetailPage: () => void }) {
+function CompanyPage({ organization, loading, error, deals, people, activities, history, externalRecords, crmUsers, canDelete = false, deleteOrganization, openDealPage, openPersonPage, unlinkPersonOrganization, reloadDetail, closeDetailPage }: { organization?: Organization; loading: boolean; error: string; deals: Deal[]; people: Person[]; activities: ActivityRow[]; history: HistoryRow[]; externalRecords: ExternalRecord[]; crmUsers: CrmUser[]; canDelete?: boolean; deleteOrganization?: (id: string, label: string) => void; openDealPage: (id: string) => void; openPersonPage: (id: string) => void; unlinkPersonOrganization: (id: string) => Promise<void>; reloadDetail: () => Promise<void>; closeDetailPage: () => void }) {
   if (loading) return <main className="min-h-screen bg-[#f4f5f7] p-5 text-slate-900"><LoadingBpo /></main>
   if (!organization) return <main className="min-h-screen bg-[#f4f5f7] p-5 text-slate-900"><div className="rounded bg-white p-6 shadow-sm"><h1 className="text-xl font-bold">Empresa não encontrada</h1><button onClick={closeDetailPage} className="mt-4 rounded bg-[#238847] px-4 py-2 text-sm font-bold text-white">Voltar</button></div></main>
   const companyPeople = people.filter((person) => person.organization_id === organization.id)
@@ -2342,9 +2348,17 @@ function CompanyPage({ organization, loading, error, deals, people, activities, 
   const linkedDeals = deals.filter((deal) => deal.organization_id === organization.id || (deal.person_id && personIds.has(deal.person_id)))
   const pipedriveOrganizationId = externalIdFor(externalRecords, 'organization', organization.id)
   const organizationOwner = crmOwnerDisplay(crmUsers, organization.owner_id, 'Sem proprietário')
+  const organizationId = organization.id
+  async function saveOrganizationField(key: 'name' | 'type' | 'state' | 'cnpjs' | 'monthly_purchase', value: string) {
+    const numericKeys = new Set(['cnpjs', 'monthly_purchase'])
+    const nextValue = numericKeys.has(key) ? (value.trim() === '' ? null : Number(value)) : (value || null)
+    const { error } = await supabase.from('organizations').update({ [key]: nextValue }).eq('id', organizationId)
+    if (error) throw error
+    await reloadDetail()
+  }
   return <main className="min-h-screen bg-[#f4f5f7] text-slate-900">
     <header className="sticky top-0 z-30 border-b border-slate-200 bg-white shadow-sm"><div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-3 px-4 py-3"><button onClick={closeDetailPage} className="rounded border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">← Voltar</button><div className="min-w-0 flex-1"><h1 className="truncate text-2xl font-semibold tracking-[-0.03em] text-slate-950">{organization.name}</h1><p className="mt-1 truncate text-sm font-semibold text-slate-600">CNPJs: {organization.cnpjs || '-'} / GMV: {money(organization.monthly_purchase)} / UF: {organization.state || '-'}</p></div><Badge tone="bg-emerald-100 text-emerald-700">Ficha de empresa</Badge>{canDelete && <button type="button" onClick={() => deleteOrganization?.(organization.id, organization.name)} className="rounded border border-rose-200 px-4 py-2 text-sm font-bold text-rose-600 hover:bg-rose-50">Apagar</button>}</div></header>
-    <div className="mx-auto grid max-w-[1600px] gap-4 p-4 xl:grid-cols-[360px_minmax(0,1fr)]">{error && <div className="xl:col-span-2 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><b>Erro:</b> {error}</div>}<aside className="space-y-4"><CollapsibleSection title="Detalhes" defaultOpen><div className="divide-y divide-slate-100"><ReadOnlyField label="Empresa" value={organization.name} /><ReadOnlyField label="Proprietário da empresa" value={organizationOwner} /><ReadOnlyField label="ID da organização no Pipedrive" value={pipedriveOrganizationId || 'Não sincronizado'} /><ReadOnlyField label="Tipo" value={businessTypeOptions.find(([id]) => id === organization.type)?.[1] || organization.type || '-'} /><ReadOnlyField label="Estado" value={organization.state || '-'} /><ReadOnlyField label="Quantidade de CNPJs" value={String(organization.cnpjs ?? '-')} /><ReadOnlyField label="GMV mensal total" value={money(organization.monthly_purchase)} /></div></CollapsibleSection><EntityDealsSummary deals={linkedDeals} openDealPage={openDealPage} /><Panel className="overflow-hidden"><div className="border-b border-slate-200 bg-white p-4"><h2 className="font-bold">Contatos vinculados</h2></div><div className="divide-y divide-slate-100">{companyPeople.map((person) => <LinkedEditableField key={person.id} label="Contato vinculado" value={`${person.full_name} · ${person.phone || 'sem telefone'} · ${person.email || 'sem email'}`} onOpen={() => openPersonPage(person.id)} onUnlink={() => unlinkPersonOrganization(person.id)} />)}{!companyPeople.length && <p className="p-4 text-sm text-slate-400">Nenhum contato vinculado.</p>}</div></Panel></aside><section><LinkedTimeline deals={linkedDeals} activities={activities} history={history} openDealPage={openDealPage} /></section></div>
+    <div className="mx-auto grid max-w-[1600px] gap-4 p-4 xl:grid-cols-[360px_minmax(0,1fr)]">{error && <div className="xl:col-span-2 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><b>Erro:</b> {error}</div>}<aside className="space-y-4"><CollapsibleSection title="Detalhes" defaultOpen><div className="divide-y divide-slate-100"><InlineField label="Empresa" value={organization.name} onChange={() => undefined} onSaveValue={(value) => saveOrganizationField('name', value)} /><ReadOnlyField label="Proprietário da empresa" value={organizationOwner} /><ReadOnlyField label="ID da organização no Pipedrive" value={pipedriveOrganizationId || 'Não sincronizado'} /><InlineSelect label="Tipo" value={organization.type || ''} onChange={() => undefined} onSaveValue={(value) => saveOrganizationField('type', value)} options={businessTypeOptions} /><InlineSelect label="Estado" value={organization.state || ''} onChange={() => undefined} onSaveValue={(value) => saveOrganizationField('state', value)} options={dddStateOptions} /><InlineField label="Quantidade de CNPJs" value={String(organization.cnpjs ?? '')} onChange={() => undefined} onSaveValue={(value) => saveOrganizationField('cnpjs', value)} type="number" /><InlineField label="GMV mensal total" value={String(organization.monthly_purchase ?? '')} onChange={() => undefined} onSaveValue={(value) => saveOrganizationField('monthly_purchase', value)} type="number" displayValue={money(organization.monthly_purchase)} /></div></CollapsibleSection><EntityDealsSummary deals={linkedDeals} openDealPage={openDealPage} /><Panel className="overflow-hidden"><div className="border-b border-slate-200 bg-white p-4"><h2 className="font-bold">Contatos vinculados</h2></div><div className="divide-y divide-slate-100">{companyPeople.map((person) => <LinkedEditableField key={person.id} label="Contato vinculado" value={`${person.full_name} · ${person.phone || 'sem telefone'} · ${person.email || 'sem email'}`} onOpen={() => openPersonPage(person.id)} onUnlink={() => unlinkPersonOrganization(person.id)} />)}{!companyPeople.length && <p className="p-4 text-sm text-slate-400">Nenhum contato vinculado.</p>}</div></Panel></aside><section><LinkedTimeline deals={linkedDeals} activities={activities} history={history} openDealPage={openDealPage} /></section></div>
   </main>
 }
 
@@ -2492,7 +2506,7 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
   if (loading) return <main className="min-h-screen bg-[#f4f5f7] p-5 text-slate-900"><LoadingBpo /></main>
   if (!deal) return <main className="min-h-screen bg-[#f4f5f7] p-5 text-slate-900"><div className="rounded bg-white p-6 shadow-sm"><h1 className="text-xl font-bold">Negócio não encontrado</h1><button onClick={closeDealPage} className="mt-4 rounded bg-[#238847] px-4 py-2 text-sm font-bold text-white">Voltar ao funil</button></div></main>
 
-  const update = (key: keyof DealForm, value: string | boolean) => setForm((current) => {
+  function nextDealForm(current: DealForm, key: keyof DealForm, value: string | boolean) {
     setPriceWarning('')
     let next: DealForm = { ...current, [key]: value }
     if (key === 'business_type') next = { ...next, business_type: String(value), vm_product_type: String(value), organization_type: String(value) }
@@ -2509,7 +2523,12 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
       }
     }
     return next
-  })
+  }
+  const update = (key: keyof DealForm, value: string | boolean) => setForm((current) => nextDealForm(current, key, value))
+  const commit = async (key: keyof DealForm, value: string | boolean) => {
+    const next = nextDealForm(form, key, value)
+    await saveCurrent(next)
+  }
   const currentStage = stages.find((s) => s.id === form.stage_id) || stages.find((s) => s.id === deal.stage_id)
   const currentPipeline = currentStage?.pipeline_name || deal.pipeline_stages?.pipeline_name || 'Sem funil'
   const pipelineStages = stages.filter((stage) => (stage.pipeline_name || 'Sem funil') === currentPipeline)
@@ -2591,20 +2610,20 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
       <aside className="min-w-0 space-y-4 xl:sticky xl:top-32 xl:max-h-[calc(100vh-9rem)] xl:overflow-y-auto">
         <CollapsibleSection title="Empresa" defaultOpen>
           <div className="divide-y divide-slate-100">
-            <InlineField label="Empresa" value={form.organization_name} onChange={(v) => update('organization_name', v)} onOpen={deal.organization_id ? () => openOrganizationPage(deal.organization_id as string) : undefined} onUnlink={deal.organization_id ? () => unlinkDealOrganization(deal.id) : undefined} />
-            <InlineSelect label="Tipo" value={form.organization_type} onChange={(v) => update('organization_type', v)} options={businessTypeOptions} />
-            <InlineSelect label="Estado" value={form.organization_state} onChange={(v) => update('organization_state', v)} options={dddStateOptions} />
-            <InlineField label="Quantidade de CNPJs" value={form.organization_cnpjs} onChange={(v) => update('organization_cnpjs', v)} type="number" />
-            <InlineField label="GMV mensal total" value={form.monthly_purchase} onChange={(v) => update('monthly_purchase', v)} type="number" displayValue={money(Number(form.monthly_purchase || 0))} />
+            <InlineField label="Empresa" value={form.organization_name} onChange={(v) => update('organization_name', v)} onSaveValue={(v) => commit('organization_name', v)} onOpen={deal.organization_id ? () => openOrganizationPage(deal.organization_id as string) : undefined} onUnlink={deal.organization_id ? () => unlinkDealOrganization(deal.id) : undefined} />
+            <InlineSelect label="Tipo" value={form.organization_type} onChange={(v) => update('organization_type', v)} onSaveValue={(v) => commit('organization_type', v)} options={businessTypeOptions} />
+            <InlineSelect label="Estado" value={form.organization_state} onChange={(v) => update('organization_state', v)} onSaveValue={(v) => commit('organization_state', v)} options={dddStateOptions} />
+            <InlineField label="Quantidade de CNPJs" value={form.organization_cnpjs} onChange={(v) => update('organization_cnpjs', v)} onSaveValue={(v) => commit('organization_cnpjs', v)} type="number" />
+            <InlineField label="GMV mensal total" value={form.monthly_purchase} onChange={(v) => update('monthly_purchase', v)} onSaveValue={(v) => commit('monthly_purchase', v)} type="number" displayValue={money(Number(form.monthly_purchase || 0))} />
           </div>
         </CollapsibleSection>
 
         <CollapsibleSection title="Contato" defaultOpen>
           <div className="divide-y divide-slate-100">
-            <InlineField label="Nome" value={form.person_name} onChange={(v) => update('person_name', v)} onOpen={deal.person_id ? () => openPersonPage(deal.person_id as string) : undefined} onUnlink={deal.person_id ? () => unlinkDealPerson(deal.id) : undefined} />
-            <InlineField label="Cargo" value={form.person_role} onChange={(v) => update('person_role', v)} />
-            <InlineField label="Email" value={form.person_email} onChange={(v) => update('person_email', v)} type="email" />
-            <InlineField label="Telefone" value={form.person_phone} onChange={(v) => update('person_phone', v)} />
+            <InlineField label="Nome" value={form.person_name} onChange={(v) => update('person_name', v)} onSaveValue={(v) => commit('person_name', v)} onOpen={deal.person_id ? () => openPersonPage(deal.person_id as string) : undefined} onUnlink={deal.person_id ? () => unlinkDealPerson(deal.id) : undefined} />
+            <InlineField label="Cargo" value={form.person_role} onChange={(v) => update('person_role', v)} onSaveValue={(v) => commit('person_role', v)} />
+            <InlineField label="Email" value={form.person_email} onChange={(v) => update('person_email', v)} onSaveValue={(v) => commit('person_email', v)} type="email" />
+            <InlineField label="Telefone" value={form.person_phone} onChange={(v) => update('person_phone', v)} onSaveValue={(v) => commit('person_phone', v)} />
             <div className="p-3">
               <CollapsibleSection title="DDD" defaultOpen={false} className="border border-slate-200 shadow-none">
                 <div className="divide-y divide-slate-100">
@@ -2621,15 +2640,15 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
           <div className="divide-y divide-slate-100">
             <ReadOnlyField label="Fonte do Lead" value={form.lead_source === 'vmarket' ? 'VMarket' : 'Parceiro'} />
             <ReadOnlyField label="Tipo" value={businessTypeLabel} />
-            <InlineField label="Título do negócio" value={form.title} onChange={(v) => update('title', v)} />
+            <InlineField label="Título do negócio" value={form.title} onChange={(v) => update('title', v)} onSaveValue={(v) => commit('title', v)} />
             <ReadOnlyField label="ID do negócio no Pipedrive" value={pipedriveDealId || 'Não sincronizado'} />
             <ReadOnlyField label="Preenchimento" value={fillingSource} />
-            <InlineField label="Data esperada de Fechamento" value={form.expected_close_date} onChange={(v) => update('expected_close_date', v)} type="date" displayValue={formatShortDate(form.expected_close_date)} />
+            <InlineField label="Data esperada de Fechamento" value={form.expected_close_date} onChange={(v) => update('expected_close_date', v)} onSaveValue={(v) => commit('expected_close_date', v)} type="date" displayValue={formatShortDate(form.expected_close_date)} />
             <ReadOnlyField label="Criação do Negócio" value={formatDateTime(deal.pipedrive_deal_created_at)} />
             <ReadOnlyField label="Proprietário do negócio no Pipedrive" value={deal.pipedrive_owner_name || 'Não sincronizado'} />
             <ReadOnlyField label="Etiquetas" value={selectedLabels.length ? selectedLabels.map((label) => label.name).join(', ') : 'Sem etiqueta'} action={<button type="button" onClick={() => setShowLabelPicker(true)} className="text-xs font-bold text-blue-600 hover:text-blue-700">Adicionar etiqueta</button>} />
-            {canEditOwner && <InlineSelect label="Proprietário CRM" value={form.owner_id} onChange={(v) => update('owner_id', v)} options={[[deal.owner_id || '', deal.owner_id ? crmOwnerDisplay(crmUsers, deal.owner_id, 'Proprietário atual') : 'Sem proprietário'], ...crmUsers.filter((u) => u.auth_user_id && u.status !== 'deleted' && u.status !== 'disabled').map((u) => [u.auth_user_id || '', `${u.full_name} · ${u.crm_companies?.name || 'sem empresa'}`] as [string, string])]} />}
-            <InlineSelect label="Etapa" value={form.stage_id} onChange={(v) => update('stage_id', v)} options={currentPipelineStages.map((s) => [s.id, s.name])} />
+            {canEditOwner && <InlineSelect label="Proprietário CRM" value={form.owner_id} onChange={(v) => update('owner_id', v)} onSaveValue={(v) => commit('owner_id', v)} options={[[deal.owner_id || '', deal.owner_id ? crmOwnerDisplay(crmUsers, deal.owner_id, 'Proprietário atual') : 'Sem proprietário'], ...crmUsers.filter((u) => u.auth_user_id && u.status !== 'deleted' && u.status !== 'disabled').map((u) => [u.auth_user_id || '', `${u.full_name} · ${u.crm_companies?.name || 'sem empresa'}`] as [string, string])]} />}
+            <InlineSelect label="Etapa" value={form.stage_id} onChange={(v) => update('stage_id', v)} onSaveValue={(v) => commit('stage_id', v)} options={currentPipelineStages.map((s) => [s.id, s.name])} />
             <InlineSelect label="Status" value={form.status} onChange={(v) => v === 'perdido' ? setShowLostReason(true) : update('status', v)} options={Object.entries(statusLabel)} />
             {form.status === 'perdido' && <ReadOnlyField label="Motivo da perda" value={form.lost_reason || deal.lost_reason || 'Sem motivo informado'} />}
             <ReadOnlyField label="Valor total" value={money(totalValue)} />
@@ -2645,12 +2664,12 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
               Venda VMarket?
             </label>
             {form.vm_sale && <>
-              <InlineSelect label="Contrato com" value={form.contract_with} onChange={(v) => update('contract_with', v)} options={[['cliente', 'Cliente'], ['parceiro', 'Parceiro']]} />
-              <InlineSelect label="Tipo" value={form.vm_product_type} onChange={(v) => update('vm_product_type', v)} options={businessTypeOptions} />
-              <InlineField label="Quantidade de CNPJs" value={form.vm_cnpj_count} onChange={(v) => update('vm_cnpj_count', v)} type="number" />
-              <InlineSelect label="Plano" value={form.vm_plan} onChange={(v) => update('vm_plan', v)} options={(vmarketPlanOptionsByType[form.vm_product_type] || []).map((plan) => [plan, plan])} />
-              <InlineSelect label="Período de Fidelidade" value={form.vm_loyalty_period} onChange={(v) => update('vm_loyalty_period', v)} options={vmarketPeriodOptions} />
-              <InlineField label="Valor por CNPJ" value={form.vm_value_per_cnpj} onChange={(v) => update('vm_value_per_cnpj', v)} type="number" displayValue={money(Number(form.vm_value_per_cnpj || 0))} />
+              <InlineSelect label="Contrato com" value={form.contract_with} onChange={(v) => update('contract_with', v)} onSaveValue={(v) => commit('contract_with', v)} options={[['cliente', 'Cliente'], ['parceiro', 'Parceiro']]} />
+              <InlineSelect label="Tipo" value={form.vm_product_type} onChange={(v) => update('vm_product_type', v)} onSaveValue={(v) => commit('vm_product_type', v)} options={businessTypeOptions} />
+              <InlineField label="Quantidade de CNPJs" value={form.vm_cnpj_count} onChange={(v) => update('vm_cnpj_count', v)} onSaveValue={(v) => commit('vm_cnpj_count', v)} type="number" />
+              <InlineSelect label="Plano" value={form.vm_plan} onChange={(v) => update('vm_plan', v)} onSaveValue={(v) => commit('vm_plan', v)} options={(vmarketPlanOptionsByType[form.vm_product_type] || []).map((plan) => [plan, plan])} />
+              <InlineSelect label="Período de Fidelidade" value={form.vm_loyalty_period} onChange={(v) => update('vm_loyalty_period', v)} onSaveValue={(v) => commit('vm_loyalty_period', v)} options={vmarketPeriodOptions} />
+              <InlineField label="Valor por CNPJ" value={form.vm_value_per_cnpj} onChange={(v) => update('vm_value_per_cnpj', v)} onSaveValue={(v) => commit('vm_value_per_cnpj', v)} type="number" displayValue={money(Number(form.vm_value_per_cnpj || 0))} />
               <ReadOnlyField label="Valor VMarket" value={money(vmarketValue)} />
               <div className="p-3">
                 <CollapsibleSection title="Campos do Contrato" defaultOpen={false} className="border border-slate-200 shadow-none">
@@ -2664,12 +2683,12 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
                       <ReadOnlyField label="Email" value={partnerContract?.email || '-'} />
                       <ReadOnlyField label="Telefone" value={partnerContract?.phone || '-'} />
                     </> : <>
-                      <InlineField label="Razão social" value={form.contract_legal_name} onChange={(v) => update('contract_legal_name', v)} />
-                      <InlineField label="CNPJ" value={form.contract_tax_id} onChange={(v) => update('contract_tax_id', v)} />
-                      <InlineField label="Endereço" value={form.contract_address} onChange={(v) => update('contract_address', v)} />
-                      <InlineField label="Representante legal" value={form.contract_representative} onChange={(v) => update('contract_representative', v)} />
-                      <InlineField label="Email" value={form.contract_email} onChange={(v) => update('contract_email', v)} type="email" />
-                      <InlineField label="Telefone" value={form.contract_phone} onChange={(v) => update('contract_phone', v)} />
+                      <InlineField label="Razão social" value={form.contract_legal_name} onChange={(v) => update('contract_legal_name', v)} onSaveValue={(v) => commit('contract_legal_name', v)} />
+                      <InlineField label="CNPJ" value={form.contract_tax_id} onChange={(v) => update('contract_tax_id', v)} onSaveValue={(v) => commit('contract_tax_id', v)} />
+                      <InlineField label="Endereço" value={form.contract_address} onChange={(v) => update('contract_address', v)} onSaveValue={(v) => commit('contract_address', v)} />
+                      <InlineField label="Representante legal" value={form.contract_representative} onChange={(v) => update('contract_representative', v)} onSaveValue={(v) => commit('contract_representative', v)} />
+                      <InlineField label="Email" value={form.contract_email} onChange={(v) => update('contract_email', v)} onSaveValue={(v) => commit('contract_email', v)} type="email" />
+                      <InlineField label="Telefone" value={form.contract_phone} onChange={(v) => update('contract_phone', v)} onSaveValue={(v) => commit('contract_phone', v)} />
                     </>}
                   </div>
                 </CollapsibleSection>
@@ -3008,8 +3027,9 @@ function DealLabelPills({ labels, compact = false }: { labels: DealLabel[]; comp
   return <div className={cn('mb-1.5 flex flex-wrap gap-1', compact && 'min-h-[10px]')}>{labels.slice(0, compact ? 4 : 8).map((label) => compact ? <span key={label.id} className="block h-2.5 w-9 rounded-sm shadow-sm" style={{ backgroundColor: label.color }} title={label.name} aria-label={label.name} /> : <span key={label.id} className="inline-flex max-w-full items-center rounded px-1.5 py-0.5 text-[10px] font-black uppercase leading-none text-white shadow-sm" style={{ backgroundColor: label.color }} title={label.name}>{label.name}</span>)}</div>
 }
 
-function InlineField({ label, value, onChange, type = 'text', displayValue, onOpen, onUnlink }: { label: string; value: string; onChange: (value: string) => void; type?: string; displayValue?: string; onOpen?: () => void; onUnlink?: () => Promise<void> | void }) {
+function InlineField({ label, value, onChange, onSaveValue, type = 'text', displayValue, onOpen, onUnlink }: { label: string; value: string; onChange: (value: string) => void; onSaveValue?: (value: string) => Promise<void> | void; type?: string; displayValue?: string; onOpen?: () => void; onUnlink?: () => Promise<void> | void }) {
   const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(value)
   const [busy, setBusy] = useState(false)
   async function unlink() {
     if (!onUnlink || busy) return
@@ -3021,27 +3041,72 @@ function InlineField({ label, value, onChange, type = 'text', displayValue, onOp
       setBusy(false)
     }
   }
+  async function saveDraft() {
+    setBusy(true)
+    try {
+      if (onSaveValue) await onSaveValue(draft)
+      else onChange(draft)
+      setEditing(false)
+    } finally {
+      setBusy(false)
+    }
+  }
+  function cancelDraft() {
+    setDraft(value)
+    setEditing(false)
+  }
   const shown = displayValue || value || '-'
-  return <div className="grid grid-cols-[1fr_auto] gap-2 p-3 text-sm">
-    <label className="min-w-0"><span className="block text-[11px] font-semibold text-slate-500">{label}</span>{editing ? <input autoFocus type={type} value={value} onChange={(e) => onChange(e.target.value)} onBlur={() => setEditing(false)} onKeyDown={(e) => { if (e.key === 'Enter') setEditing(false) }} className="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none focus:border-[#238847] focus:ring-2 focus:ring-emerald-100" /> : onOpen && value ? <button type="button" onClick={onOpen} className="mt-0.5 block max-w-full break-words text-left font-semibold text-blue-700 hover:underline">{shown}</button> : <span className="mt-0.5 block break-words font-semibold text-slate-800">{shown}</span>}</label>
-    <div className="mt-2 flex items-start gap-1">
-      {editing && onUnlink && <button type="button" title="desvincular" aria-label={`Desvincular ${label}`} disabled={busy} onMouseDown={(e) => e.preventDefault()} onClick={() => void unlink()} className="grid h-7 w-7 place-items-center rounded-full text-rose-500 hover:bg-rose-50 hover:text-rose-700 disabled:opacity-50"><Unlink size={14}/></button>}
-      <button type="button" onClick={() => setEditing((current) => !current)} className="grid h-7 w-7 place-items-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label={`Editar ${label}`}><Pencil size={14}/></button>
-    </div>
+  return <div className="group grid grid-cols-[112px_minmax(0,1fr)] items-start gap-3 px-3 py-1.5 text-sm transition hover:bg-slate-200/80">
+    <span className="pt-1 text-right text-[12px] font-semibold leading-tight text-slate-500">{label}</span>
+    {editing ? <div className="min-w-0 rounded-sm bg-slate-100 p-1.5">
+      <input autoFocus type={type} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void saveDraft(); if (e.key === 'Escape') cancelDraft() }} className="w-full rounded-sm border border-blue-400 bg-white px-2 py-1.5 text-sm text-slate-900 outline-none focus:ring-1 focus:ring-blue-400" />
+      <div className="mt-2 flex justify-end gap-1.5">
+        {onUnlink && <button type="button" title="desvincular" aria-label={`Desvincular ${label}`} disabled={busy} onClick={() => void unlink()} className="mr-auto grid h-7 w-7 place-items-center rounded-sm border border-rose-200 bg-white text-rose-500 hover:bg-rose-50 hover:text-rose-700 disabled:opacity-50"><Unlink size={14}/></button>}
+        <button type="button" onClick={cancelDraft} disabled={busy} className="rounded-sm border border-slate-300 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-60">Cancelar</button>
+        <button type="button" onClick={() => void saveDraft()} disabled={busy} className="rounded-sm bg-[#238847] px-3 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-[#1f7a40] disabled:opacity-60">{busy ? 'Salvando...' : 'Salvar'}</button>
+      </div>
+    </div> : <div className="flex min-w-0 items-start gap-2">
+      <div className="min-w-0 flex-1 rounded-sm px-2 py-1 transition group-hover:bg-slate-300/70">
+        {onOpen && value ? <button type="button" onClick={onOpen} className="block max-w-full break-words text-left font-semibold text-blue-700 hover:underline">{shown}</button> : <span className="block break-words font-semibold text-slate-800">{shown}</span>}
+      </div>
+      <button type="button" onClick={() => { setDraft(value); setEditing(true) }} className="grid h-7 w-7 shrink-0 place-items-center rounded-sm border border-slate-300 bg-white text-slate-700 opacity-0 shadow-sm transition hover:bg-slate-50 group-hover:opacity-100 focus:opacity-100" aria-label={`Editar ${label}`} title={`Editar ${label}`}><Pencil size={14}/></button>
+    </div>}
   </div>
 }
 
-function InlineSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: Array<[string, string]> }) {
+function InlineSelect({ label, value, onChange, onSaveValue, options }: { label: string; value: string; onChange: (value: string) => void; onSaveValue?: (value: string) => Promise<void> | void; options: Array<[string, string]> }) {
   const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(value)
+  const [busy, setBusy] = useState(false)
   const selected = options.find(([id]) => id === value)?.[1] || '-'
-  return <div className="grid grid-cols-[1fr_28px] gap-2 p-3 text-sm">
-    <label className="min-w-0"><span className="block text-[11px] font-semibold text-slate-500">{label}</span>{editing ? <select autoFocus value={value} onChange={(e) => onChange(e.target.value)} onBlur={() => setEditing(false)} className="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none focus:border-[#238847] focus:ring-2 focus:ring-emerald-100">{options.map(([id, optionLabel]) => <option key={id || 'empty'} value={id}>{optionLabel}</option>)}</select> : <span className="mt-0.5 block break-words font-semibold text-slate-800">{selected}</span>}</label>
-    <button type="button" onClick={() => setEditing((current) => !current)} className="mt-2 grid h-7 w-7 place-items-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label={`Editar ${label}`}><Pencil size={14}/></button>
+  async function saveDraft() {
+    setBusy(true)
+    try {
+      if (onSaveValue) await onSaveValue(draft)
+      else onChange(draft)
+      setEditing(false)
+    } finally {
+      setBusy(false)
+    }
+  }
+  function cancelDraft() {
+    setDraft(value)
+    setEditing(false)
+  }
+  return <div className="group grid grid-cols-[112px_minmax(0,1fr)] items-start gap-3 px-3 py-1.5 text-sm transition hover:bg-slate-200/80">
+    <span className="pt-1 text-right text-[12px] font-semibold leading-tight text-slate-500">{label}</span>
+    {editing ? <div className="min-w-0 rounded-sm bg-slate-100 p-1.5">
+      <select autoFocus value={draft} onChange={(e) => setDraft(e.target.value)} className="w-full rounded-sm border border-blue-400 bg-white px-2 py-1.5 text-sm text-slate-900 outline-none focus:ring-1 focus:ring-blue-400">{options.map(([id, optionLabel]) => <option key={id || 'empty'} value={id}>{optionLabel}</option>)}</select>
+      <div className="mt-2 flex justify-end gap-1.5"><button type="button" onClick={cancelDraft} disabled={busy} className="rounded-sm border border-slate-300 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-60">Cancelar</button><button type="button" onClick={() => void saveDraft()} disabled={busy} className="rounded-sm bg-[#238847] px-3 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-[#1f7a40] disabled:opacity-60">{busy ? 'Salvando...' : 'Salvar'}</button></div>
+    </div> : <div className="flex min-w-0 items-start gap-2">
+      <div className="min-w-0 flex-1 rounded-sm px-2 py-1 transition group-hover:bg-slate-300/70"><span className="block break-words font-semibold text-slate-800">{selected}</span></div>
+      <button type="button" onClick={() => { setDraft(value); setEditing(true) }} className="grid h-7 w-7 shrink-0 place-items-center rounded-sm border border-slate-300 bg-white text-slate-700 opacity-0 shadow-sm transition hover:bg-slate-50 group-hover:opacity-100 focus:opacity-100" aria-label={`Editar ${label}`} title={`Editar ${label}`}><Pencil size={14}/></button>
+    </div>}
   </div>
 }
 
 function ReadOnlyField({ label, value, action }: { label: string; value: string; action?: ReactNode }) {
-  return <div className="p-3 text-sm"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><span className="block text-[11px] font-semibold text-slate-500">{label}</span><span className="mt-0.5 block break-words font-semibold text-slate-800">{value || '-'}</span></div>{action}</div></div>
+  return <div className="group grid grid-cols-[112px_minmax(0,1fr)] items-start gap-3 px-3 py-1.5 text-sm transition hover:bg-slate-100"><span className="pt-1 text-right text-[12px] font-semibold leading-tight text-slate-500">{label}</span><div className="flex min-w-0 items-start justify-between gap-3 rounded-sm px-2 py-1 group-hover:bg-slate-200/60"><span className="block min-w-0 break-words font-semibold text-slate-800">{value || '-'}</span>{action}</div></div>
 }
 
 function LinkedEditableField({ label, value, onOpen, onUnlink, emptyLabel = '-' }: { label: string; value?: string | null; onOpen?: () => void; onUnlink?: () => Promise<void> | void; emptyLabel?: string }) {
