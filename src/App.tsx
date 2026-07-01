@@ -33,6 +33,8 @@ import { supabase, supabaseConfigured, type ActivityRow, type AuditLog, type Aut
 import './App.css'
 
 type View = 'pipeline' | 'contacts' | 'companies' | 'activities' | 'warnings' | 'plans-vmarket' | 'commissions-vmarket' | 'lead-distribution' | 'automations' | 'audit' | 'fields' | 'admin'
+type KanbanSortKey = 'newest' | 'oldest' | 'updated' | 'stale' | 'overdue-activities' | 'today-activities' | 'week-activities' | 'vmarket-value' | 'services-value'
+
 type NewDeal = {
   title: string
   organization_id: string
@@ -1546,6 +1548,12 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
   const [editingFilter, setEditingFilter] = useState<FilterDraft | null>(null)
   const [expandedStageTotals, setExpandedStageTotals] = useState<Set<string>>(() => new Set())
   const [expandedPipelineTotals, setExpandedPipelineTotals] = useState(false)
+  const [kanbanSort, setKanbanSort] = useState<KanbanSortKey>(() => {
+    const saved = window.localStorage.getItem('vmarket-crm-kanban-sort') as KanbanSortKey | null
+    const valid: KanbanSortKey[] = ['newest', 'oldest', 'updated', 'stale', 'overdue-activities', 'today-activities', 'week-activities', 'vmarket-value', 'services-value']
+    return saved && valid.includes(saved) ? saved : 'newest'
+  })
+  const [currentDate] = useState(() => new Date())
   const activeFilter = savedDealFilters.find((filter) => filter.id === activeDealFilterId)
   const activeOwner = crmUsers.find((user) => user.auth_user_id === activeOwnerFilterId)
   const filterButtonLabel = activeFilter?.name || activeOwner?.full_name || 'Filtro'
@@ -1567,6 +1575,70 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
   const dealOwnerName = (deal: Deal) => {
     return crmOwnerDisplay(crmUsers, deal.owner_id, deal.people?.full_name || 'Sem proprietário')
   }
+
+  const kanbanSortOptions: Array<[KanbanSortKey, string]> = [
+    ['newest', 'Negócios mais novos'],
+    ['oldest', 'Negócios mais antigos'],
+    ['updated', 'Últimas atualizações'],
+    ['stale', 'Negócios sem atualizações há mais tempo'],
+    ['overdue-activities', 'Atividades mais atrasadas'],
+    ['today-activities', 'Atividades de hoje'],
+    ['week-activities', 'Atividades agendadas pra semana'],
+    ['vmarket-value', 'Valores vmarket maiores'],
+    ['services-value', 'Valores serviços maiores'],
+  ]
+  const changeKanbanSort = (value: KanbanSortKey) => {
+    setKanbanSort(value)
+    window.localStorage.setItem('vmarket-crm-kanban-sort', value)
+  }
+  const timestamp = (value?: string | null, fallback = 0) => {
+    if (!value) return fallback
+    const time = new Date(value).getTime()
+    return Number.isNaN(time) ? fallback : time
+  }
+  const cardDate = (value?: string | null) => {
+    if (!value) return '-'
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return '-'
+    return date.toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' }).replace('.', '').toLocaleLowerCase('pt-BR')
+  }
+  const openActivitiesForDeal = (dealId: string) => activities
+    .filter((activity) => activity.deal_id === dealId && activity.status === 'open')
+    .sort((a, b) => timestamp(a.due_at, Number.MAX_SAFE_INTEGER) - timestamp(b.due_at, Number.MAX_SAFE_INTEGER))
+  const nextActivity = (dealId: string) => openActivitiesForDeal(dealId)[0]
+  const sortReferenceLabel = (deal: Deal) => {
+    const activity = nextActivity(deal.id)
+    if (kanbanSort === 'updated') return cardDate(deal.updated_at)
+    if (kanbanSort === 'stale') return cardDate(deal.updated_at)
+    if (kanbanSort === 'overdue-activities' || kanbanSort === 'today-activities' || kanbanSort === 'week-activities') return activity?.due_at ? cardDate(activity.due_at) : '-'
+    if (kanbanSort === 'vmarket-value') return `v ${money(getDealVmarketValue(deal))}`
+    if (kanbanSort === 'services-value') return `s ${money(getDealPartnerValue(deal))}`
+    return cardDate(deal.created_at)
+  }
+  const activityPriority = (deal: Deal, mode: 'overdue' | 'today' | 'week') => {
+    const todayKey = currentDate.toISOString().slice(0, 10)
+    const todayStart = new Date(`${todayKey}T00:00:00`).getTime()
+    const weekEnd = todayStart + (7 * 86_400_000)
+    const activity = openActivitiesForDeal(deal.id).find((item) => {
+      const due = timestamp(item.due_at, Number.MAX_SAFE_INTEGER)
+      if (mode === 'overdue') return due < todayStart
+      if (mode === 'today') return item.due_at?.slice(0, 10) === todayKey
+      return due >= todayStart && due <= weekEnd
+    })
+    return activity ? timestamp(activity.due_at, Number.MAX_SAFE_INTEGER) : Number.MAX_SAFE_INTEGER
+  }
+  const sortedKanbanDeals = (rows: Deal[]) => [...rows].sort((a, b) => {
+    if (kanbanSort === 'newest') return timestamp(b.created_at) - timestamp(a.created_at)
+    if (kanbanSort === 'oldest') return timestamp(a.created_at, Number.MAX_SAFE_INTEGER) - timestamp(b.created_at, Number.MAX_SAFE_INTEGER)
+    if (kanbanSort === 'updated') return timestamp(b.updated_at) - timestamp(a.updated_at)
+    if (kanbanSort === 'stale') return timestamp(a.updated_at, Number.MAX_SAFE_INTEGER) - timestamp(b.updated_at, Number.MAX_SAFE_INTEGER)
+    if (kanbanSort === 'overdue-activities') return activityPriority(a, 'overdue') - activityPriority(b, 'overdue')
+    if (kanbanSort === 'today-activities') return activityPriority(a, 'today') - activityPriority(b, 'today')
+    if (kanbanSort === 'week-activities') return activityPriority(a, 'week') - activityPriority(b, 'week')
+    if (kanbanSort === 'vmarket-value') return getDealVmarketValue(b) - getDealVmarketValue(a)
+    if (kanbanSort === 'services-value') return getDealPartnerValue(b) - getDealPartnerValue(a)
+    return 0
+  })
 
   const activityIndicator = (deal: Deal) => {
     const openActivities = activities
@@ -1600,6 +1672,12 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
           <button onClick={() => setPipelineView('list')} className={cn('grid h-11 w-12 place-items-center border-l border-slate-300 md:h-8 md:w-9', pipelineView === 'list' ? 'bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-300' : 'text-slate-600 hover:bg-slate-50')} title="Lista" aria-label="Lista"><List size={15}/></button>
           <button onClick={() => setPipelineView('forecast')} className={cn('grid h-11 w-12 place-items-center border-l border-slate-300 md:h-8 md:w-9', pipelineView === 'forecast' ? 'bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-300' : 'text-slate-600 hover:bg-slate-50')} title="Previsão" aria-label="Previsão"><CalendarClock size={15}/></button>
         </div>
+        {pipelineView === 'kanban' && <label className="flex items-center gap-2 rounded border border-slate-300 bg-white px-2 py-1.5 text-xs font-bold text-slate-600 md:order-none">
+          Organizar por
+          <select value={kanbanSort} onChange={(e) => changeKanbanSort(e.target.value as KanbanSortKey)} className="max-w-[210px] bg-white text-xs font-semibold text-slate-700 outline-none">
+            {kanbanSortOptions.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+          </select>
+        </label>}
         <button onClick={() => setShowCreateDeal(true)} className="h-11 rounded border border-[#087d3e] bg-[#238847] px-4 text-sm font-bold text-white shadow-sm hover:bg-[#1f7a40] md:h-auto md:py-1.5">+ Negócio</button>
         <div className="flex w-full flex-wrap items-center gap-2 text-sm text-slate-600 md:ml-auto md:w-auto md:flex-nowrap">
           <div className={cn('flex min-w-0 items-center gap-2 rounded border border-slate-200 bg-slate-50 px-2 py-1 text-xs md:text-sm', expandedPipelineTotals ? 'md:min-w-[380px]' : '')}>
@@ -1641,7 +1719,7 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
     {pipelineView === 'kanban' ? <div className="min-h-0 flex-1 overflow-x-auto overflow-y-visible p-3 md:overflow-y-hidden md:p-4">
       <div className="flex min-h-[420px] gap-3 md:h-full md:min-w-max">
         {stages.map((stage) => {
-          const stageDeals = deals.filter((d) => d.stage_id === stage.id)
+          const stageDeals = sortedKanbanDeals(deals.filter((d) => d.stage_id === stage.id))
           const stageVmarketValue = stageDeals.reduce((acc, d) => acc + getDealVmarketValue(d), 0)
           const stagePartnerValue = stageDeals.reduce((acc, d) => acc + getDealPartnerValue(d), 0)
           const stageValue = stageDeals.reduce((acc, d) => acc + getDealTotalValue(d), 0)
@@ -1673,7 +1751,13 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
                   <p className="line-clamp-2 text-sm font-bold leading-snug text-slate-900">{deal.title}</p>
                   <p className="mt-1 truncate text-xs text-slate-600">{deal.organizations?.name || 'Sem empresa'}</p>
                   <p className="truncate text-xs text-slate-500">{deal.people?.full_name || 'Sem contato'}</p>
-                  <p className="mt-0.5 truncate text-[11px] font-semibold text-slate-700" title={`Total: ${money(getDealTotalValue(deal))} | VMarket: ${money(getDealVmarketValue(deal))} | Serviços: ${money(getDealPartnerValue(deal))}`}>{money(getDealTotalValue(deal))} <span className="font-normal text-slate-400">|</span> <span className="text-slate-600">v {money(getDealVmarketValue(deal))}</span> <span className="font-normal text-slate-400">|</span> <span className="text-slate-600">s {money(getDealPartnerValue(deal))}</span></p>
+                  <div className="mt-1 flex items-center justify-between gap-2 text-[11px]">
+                    <span className="font-semibold text-slate-700">{money(getDealTotalValue(deal))}</span>
+                    <span className="shrink-0 font-bold text-slate-500" title={kanbanSortOptions.find(([key]) => key === kanbanSort)?.[1]}>{sortReferenceLabel(deal)}</span>
+                  </div>
+                  <p className="mt-0.5 truncate text-[10px] font-semibold text-slate-600" title={`VMarket: ${money(getDealVmarketValue(deal))} | Serviços: ${money(getDealPartnerValue(deal))}`}>
+                    v {money(getDealVmarketValue(deal))} <span className="font-normal text-slate-400">|</span> s {money(getDealPartnerValue(deal))}
+                  </p>
                   <div className="mt-2 flex items-center justify-between">
                     <span title={dealOwnerName(deal)} aria-label={`Proprietário: ${dealOwnerName(deal)}`} className="grid h-5 w-5 place-items-center rounded-full bg-slate-200 text-[10px] font-bold text-slate-600">{dealOwnerInitial(deal)}</span>
                     <span title={indicator.title} className={cn('grid h-5 w-5 place-items-center rounded-full text-[11px] font-black', indicator.className)}>{indicator.label}</span>
