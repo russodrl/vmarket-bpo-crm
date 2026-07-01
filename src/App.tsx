@@ -1422,6 +1422,11 @@ function App() {
     saveVisibleColumns('vmarket-crm-organization-list-columns', columns)
   }
 
+  function toggleDealFilterFavorite(id: string) {
+    const next = savedDealFilters.map((filter) => filter.id === id ? { ...filter, favorite: !filter.favorite } : filter)
+    persistDealFilters(next)
+  }
+
   function deleteDealFilter(id: string) {
     const next = savedDealFilters.filter((filter) => filter.id !== id)
     persistDealFilters(next)
@@ -1623,11 +1628,11 @@ function App() {
             {error && <div className="m-4 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><b>Erro:</b> {error}</div>}
             {loading ? <LoadingBpo /> : (
               <>
-                {activeView === 'pipeline' && <PipelineView stages={visibleStages} salesStages={salesStages} deals={visibleDeals} allDeals={deals} activities={activities} crmUsers={crmUsers} organizations={organizations} people={people} dealLabelAssignments={dealLabelAssignments} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} setDraggingId={setDraggingId} handleDrop={handleDrop} newDeal={newDeal} setNewDeal={setNewDeal} createDeal={createDeal} creating={creating} canAssignOwner={profile?.role === 'admin_vmarket'} activePipeline={activePipeline} setActivePipeline={setActivePipeline} pipelineNames={pipelineNames} pipelineView={pipelineView} setPipelineView={setPipelineView} savedDealFilters={savedDealFilters} activeDealFilterId={activeDealFilterId} setActiveDealFilterId={setActiveDealFilterId} activeOwnerFilterId={activeOwnerFilterId} setActiveOwnerFilterId={setActiveOwnerFilterId} filterFields={filterFields} filterContext={filterContext} saveDealFilter={saveDealFilter} deleteDealFilter={deleteDealFilter} applyFilterColumns={applyFilterColumns} visibleColumns={dealListColumns} setVisibleColumns={setDealColumns} />}
+                {activeView === 'pipeline' && <PipelineView stages={visibleStages} salesStages={salesStages} deals={visibleDeals} allDeals={deals} activities={activities} crmUsers={crmUsers} organizations={organizations} people={people} dealLabelAssignments={dealLabelAssignments} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} setDraggingId={setDraggingId} handleDrop={handleDrop} newDeal={newDeal} setNewDeal={setNewDeal} createDeal={createDeal} creating={creating} canAssignOwner={profile?.role === 'admin_vmarket'} activePipeline={activePipeline} setActivePipeline={setActivePipeline} pipelineNames={pipelineNames} pipelineView={pipelineView} setPipelineView={setPipelineView} savedDealFilters={savedDealFilters} activeDealFilterId={activeDealFilterId} setActiveDealFilterId={setActiveDealFilterId} activeOwnerFilterId={activeOwnerFilterId} setActiveOwnerFilterId={setActiveOwnerFilterId} filterFields={filterFields} filterContext={filterContext} saveDealFilter={saveDealFilter} deleteDealFilter={deleteDealFilter} toggleDealFilterFavorite={toggleDealFilterFavorite} applyFilterColumns={applyFilterColumns} visibleColumns={dealListColumns} setVisibleColumns={setDealColumns} />}
                 {activeView === 'plans-vmarket' && <VmarketPlansView />}
                 {activeView === 'commissions-vmarket' && <VmarketCommissionsView deals={deals} stages={stages} history={history} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} />}
-                {activeView === 'contacts' && <EntityListView title="Contatos" icon={<Contact size={18}/>} entity="person" rows={visiblePeople} deals={deals} people={people} organizations={organizations} stages={stages} crmUsers={crmUsers} dealLabelAssignments={dealLabelAssignments} selectedId={detailPersonId} onOpen={openPersonPage} savedFilters={savedDealFilters} activeFilterId={activeDealFilterId} activeOwnerId={activeOwnerFilterId} setActiveFilterId={setActiveDealFilterId} setActiveOwnerId={setActiveOwnerFilterId} users={crmUsers} filterFields={filterFields} filterContext={filterContext} saveDealFilter={saveDealFilter} onDeleteFilter={deleteDealFilter} applyFilterColumns={applyFilterColumns} visibleColumns={personListColumns} setVisibleColumns={setPersonColumns} />}
-                {activeView === 'companies' && <EntityListView title="Empresas" icon={<Building2 size={18}/>} entity="organization" rows={visibleOrganizations} deals={deals} people={people} organizations={organizations} stages={stages} crmUsers={crmUsers} dealLabelAssignments={dealLabelAssignments} selectedId={detailOrganizationId} onOpen={openOrganizationPage} savedFilters={savedDealFilters} activeFilterId={activeDealFilterId} activeOwnerId={activeOwnerFilterId} setActiveFilterId={setActiveDealFilterId} setActiveOwnerId={setActiveOwnerFilterId} users={crmUsers} filterFields={filterFields} filterContext={filterContext} saveDealFilter={saveDealFilter} onDeleteFilter={deleteDealFilter} applyFilterColumns={applyFilterColumns} visibleColumns={organizationListColumns} setVisibleColumns={setOrganizationColumns} />}
+                {activeView === 'contacts' && <EntityListView title="Contatos" icon={<Contact size={18}/>} entity="person" rows={visiblePeople} deals={deals} people={people} organizations={organizations} stages={stages} crmUsers={crmUsers} dealLabelAssignments={dealLabelAssignments} selectedId={detailPersonId} onOpen={openPersonPage} savedFilters={savedDealFilters} activeFilterId={activeDealFilterId} activeOwnerId={activeOwnerFilterId} setActiveFilterId={setActiveDealFilterId} setActiveOwnerId={setActiveOwnerFilterId} users={crmUsers} filterFields={filterFields} filterContext={filterContext} saveDealFilter={saveDealFilter} onDeleteFilter={deleteDealFilter} onToggleFavoriteFilter={toggleDealFilterFavorite} applyFilterColumns={applyFilterColumns} visibleColumns={personListColumns} setVisibleColumns={setPersonColumns} />}
+                {activeView === 'companies' && <EntityListView title="Empresas" icon={<Building2 size={18}/>} entity="organization" rows={visibleOrganizations} deals={deals} people={people} organizations={organizations} stages={stages} crmUsers={crmUsers} dealLabelAssignments={dealLabelAssignments} selectedId={detailOrganizationId} onOpen={openOrganizationPage} savedFilters={savedDealFilters} activeFilterId={activeDealFilterId} activeOwnerId={activeOwnerFilterId} setActiveFilterId={setActiveDealFilterId} setActiveOwnerId={setActiveOwnerFilterId} users={crmUsers} filterFields={filterFields} filterContext={filterContext} saveDealFilter={saveDealFilter} onDeleteFilter={deleteDealFilter} onToggleFavoriteFilter={toggleDealFilterFavorite} applyFilterColumns={applyFilterColumns} visibleColumns={organizationListColumns} setVisibleColumns={setOrganizationColumns} />}
                 {activeView === 'activities' && <ActivitiesView activities={activities} deals={deals} completeActivity={completeActivity} updateActivity={updateActivity} canDelete={profile?.role === 'admin_vmarket'} deleteActivity={(id, label) => deleteOneRecord('activity', id, label)} />}
                 {activeView === 'warnings' && <WarningsView deals={deals} people={people} organizations={organizations} activities={activities} crmUsers={crmUsers} openDealPage={openDealPage} reload={loadAll} setError={setError} />}
                 {activeView === 'lead-distribution' && profile?.role === 'admin_vmarket' && <LeadDistributionView users={crmUsers} deals={deals} />}
@@ -1668,7 +1673,7 @@ function GlobalSearchBox({ value, onChange, results, onOpen }: { value: string; 
   </div>
 }
 
-function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUsers, organizations, people, dealLabelAssignments, selectedId, setSelectedId, openDealPage, setDraggingId, handleDrop, newDeal, setNewDeal, createDeal, creating, canAssignOwner, activePipeline, setActivePipeline, pipelineNames, pipelineView, setPipelineView, savedDealFilters, activeDealFilterId, setActiveDealFilterId, activeOwnerFilterId, setActiveOwnerFilterId, filterFields, filterContext, saveDealFilter, deleteDealFilter, applyFilterColumns, visibleColumns, setVisibleColumns }: {
+function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUsers, organizations, people, dealLabelAssignments, selectedId, setSelectedId, openDealPage, setDraggingId, handleDrop, newDeal, setNewDeal, createDeal, creating, canAssignOwner, activePipeline, setActivePipeline, pipelineNames, pipelineView, setPipelineView, savedDealFilters, activeDealFilterId, setActiveDealFilterId, activeOwnerFilterId, setActiveOwnerFilterId, filterFields, filterContext, saveDealFilter, deleteDealFilter, toggleDealFilterFavorite, applyFilterColumns, visibleColumns, setVisibleColumns }: {
   stages: Stage[]
   salesStages: Stage[]
   deals: Deal[]
@@ -1702,6 +1707,7 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
   filterContext: FilterContext
   saveDealFilter: (draft: FilterDraft) => void
   deleteDealFilter: (id: string) => void
+  toggleDealFilterFavorite: (id: string) => void
   applyFilterColumns: (filter?: SavedDealFilter) => void
   visibleColumns: string[]
   setVisibleColumns: (columns: string[]) => void
@@ -1872,6 +1878,7 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
               onClear={() => { setActiveDealFilterId(''); setActiveOwnerFilterId(''); setShowFilters(false) }}
               onCreate={() => { setEditingFilter({ ...emptyFilterDraft(), columns: visibleColumns }); setShowFilters(false) }}
               onEdit={(filter) => { setEditingFilter({ id: filter.id, name: filter.name, favorite: filter.favorite, rules: filter.rules.length ? filter.rules : [newFilterRule('all')], columns: visibleColumns }); setShowFilters(false) }}
+              onToggleFavorite={toggleDealFilterFavorite}
               onDelete={deleteDealFilter}
             />}
           </div>
@@ -1947,7 +1954,7 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
   </div>
 }
 
-function DealFilterDropdown({ filters, activeFilterId, activeOwnerId, users, onSelectFilter, onSelectOwner, onClear, onCreate, onEdit, onDelete }: {
+function DealFilterDropdown({ filters, activeFilterId, activeOwnerId, users, onSelectFilter, onSelectOwner, onClear, onCreate, onEdit, onToggleFavorite, onDelete }: {
   filters: SavedDealFilter[]
   activeFilterId: string
   activeOwnerId: string
@@ -1957,6 +1964,7 @@ function DealFilterDropdown({ filters, activeFilterId, activeOwnerId, users, onS
   onClear: () => void
   onCreate: () => void
   onEdit: (filter: SavedDealFilter) => void
+  onToggleFavorite: (id: string) => void
   onDelete: (id: string) => void
 }) {
   const [tab, setTab] = useState<'favorites' | 'owners' | 'filters'>('owners')
@@ -1989,12 +1997,14 @@ function DealFilterDropdown({ filters, activeFilterId, activeOwnerId, users, onS
       </>}
       {(tab === 'favorites' || tab === 'filters') && <>
         {visibleFilters.map((filter) => <div key={filter.id} className="group flex items-center gap-2 px-3 py-2 hover:bg-blue-50">
+          <button type="button" onClick={() => onToggleFavorite(filter.id)} className={cn('grid h-8 w-8 shrink-0 place-items-center rounded hover:bg-amber-50', filter.favorite ? 'text-amber-400' : 'text-slate-300 hover:text-amber-400')} aria-label={filter.favorite ? `Remover ${filter.name} dos favoritos` : `Adicionar ${filter.name} aos favoritos`} title={filter.favorite ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}>
+            <Star size={17} fill={filter.favorite ? 'currentColor' : 'none'} />
+          </button>
           <button type="button" onClick={() => onSelectFilter(filter.id)} className="flex min-w-0 flex-1 items-center gap-2 text-left text-sm">
-            <span className={cn('text-lg', filter.favorite ? 'text-amber-400' : 'text-slate-300')}>★</span>
             <span className="min-w-0 flex-1 truncate font-semibold">{filter.name}</span>
             {activeFilterId === filter.id && <span>✓</span>}
           </button>
-          <button type="button" onClick={() => onEdit(filter)} className="rounded px-2 py-1 text-[11px] font-bold text-blue-600 opacity-0 hover:bg-blue-100 group-hover:opacity-100">Editar</button>
+          <button type="button" onClick={() => onEdit(filter)} className="grid h-8 w-8 shrink-0 place-items-center rounded text-blue-600 hover:bg-blue-100" aria-label={`Editar filtro ${filter.name}`} title="Editar filtro"><Pencil size={15}/></button>
           <button type="button" onClick={() => onDelete(filter.id)} className="rounded px-2 py-1 text-[11px] font-bold text-rose-600 opacity-0 hover:bg-rose-100 group-hover:opacity-100">Apagar</button>
         </div>)}
         {!visibleFilters.length && <div className="px-4 py-8 text-center text-sm text-slate-400">Nenhum filtro salvo.</div>}
@@ -3173,7 +3183,7 @@ function ColumnPickerModal({ columns, visibleColumns, setVisibleColumns, onClose
   </div>
 }
 
-function EntityListView({ title, icon, entity, rows, deals, people, organizations, stages, crmUsers, dealLabelAssignments, selectedId, onOpen, savedFilters, activeFilterId, activeOwnerId, setActiveFilterId, setActiveOwnerId, users, filterFields, filterContext, saveDealFilter, onDeleteFilter, applyFilterColumns, visibleColumns, setVisibleColumns }: {
+function EntityListView({ title, icon, entity, rows, deals, people, organizations, stages, crmUsers, dealLabelAssignments, selectedId, onOpen, savedFilters, activeFilterId, activeOwnerId, setActiveFilterId, setActiveOwnerId, users, filterFields, filterContext, saveDealFilter, onDeleteFilter, onToggleFavoriteFilter, applyFilterColumns, visibleColumns, setVisibleColumns }: {
   title: string
   icon: ReactNode
   entity: 'person' | 'organization'
@@ -3196,6 +3206,7 @@ function EntityListView({ title, icon, entity, rows, deals, people, organization
   filterContext: FilterContext
   saveDealFilter: (draft: FilterDraft) => void
   onDeleteFilter: (id: string) => void
+  onToggleFavoriteFilter: (id: string) => void
   applyFilterColumns: (filter?: SavedDealFilter) => void
   visibleColumns: string[]
   setVisibleColumns: (columns: string[]) => void
@@ -3229,7 +3240,7 @@ function EntityListView({ title, icon, entity, rows, deals, people, organization
         <div className="flex items-center gap-2">
           <div className="relative">
             <button type="button" onClick={() => setShowFilters((current) => !current)} className={cn('inline-flex items-center gap-2 rounded border px-3 py-1.5 text-sm font-semibold shadow-sm', activeFilterId || activeOwnerId ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50')}><Filter size={15}/>{filterButtonLabel}</button>
-            {showFilters && <DealFilterDropdown filters={savedFilters} activeFilterId={activeFilterId} activeOwnerId={activeOwnerId} users={users} onSelectFilter={(id) => { const filter = savedFilters.find((item) => item.id === id); setActiveFilterId(id); setActiveOwnerId(''); applyFilterColumns(filter); setShowFilters(false) }} onSelectOwner={(id) => { setActiveOwnerId(id); setActiveFilterId(''); setShowFilters(false) }} onClear={() => { setActiveFilterId(''); setActiveOwnerId(''); setShowFilters(false) }} onCreate={() => { setEditingFilter({ ...emptyFilterDraft(), columns: visibleColumns }); setShowFilters(false) }} onEdit={(filter) => { setEditingFilter({ id: filter.id, name: filter.name, favorite: filter.favorite, rules: filter.rules.length ? filter.rules : [newFilterRule('all')], columns: visibleColumns }); setShowFilters(false) }} onDelete={onDeleteFilter} />}
+            {showFilters && <DealFilterDropdown filters={savedFilters} activeFilterId={activeFilterId} activeOwnerId={activeOwnerId} users={users} onSelectFilter={(id) => { const filter = savedFilters.find((item) => item.id === id); setActiveFilterId(id); setActiveOwnerId(''); applyFilterColumns(filter); setShowFilters(false) }} onSelectOwner={(id) => { setActiveOwnerId(id); setActiveFilterId(''); setShowFilters(false) }} onClear={() => { setActiveFilterId(''); setActiveOwnerId(''); setShowFilters(false) }} onCreate={() => { setEditingFilter({ ...emptyFilterDraft(), columns: visibleColumns }); setShowFilters(false) }} onEdit={(filter) => { setEditingFilter({ id: filter.id, name: filter.name, favorite: filter.favorite, rules: filter.rules.length ? filter.rules : [newFilterRule('all')], columns: visibleColumns }); setShowFilters(false) }} onToggleFavorite={onToggleFavoriteFilter} onDelete={onDeleteFilter} />}
           </div>
           <button type="button" onClick={() => setShowColumns(true)} className="grid h-9 w-9 place-items-center rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-50" title="Campos da lista" aria-label="Campos da lista"><Settings size={16}/></button>
         </div>
