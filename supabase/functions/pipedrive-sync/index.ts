@@ -142,18 +142,19 @@ async function handlePipedriveWebhook(payload: JsonRecord) {
   const pipedriveDeal = await fetchPipedriveDeal(dealId)
   const ownerId = pipedriveUserId(pipedriveDeal.user_id)
   const existing = await findExternalRecordByExternal('deal', dealId)
-  if (!existing && ALEKSANDER_PIPEDRIVE_USER_ID && ownerId && ownerId !== ALEKSANDER_PIPEDRIVE_USER_ID) {
-    await updateEvent(event.id, { status: 'ignored', error_message: `Owner ${ownerId} is not Aleksander` })
+  const ownerIsAleksander = isAleksanderPipedriveOwner(ownerId)
+  if (!existing && !ownerIsAleksander) {
+    await updateEvent(event.id, { status: 'ignored', error_message: `Owner ${ownerId || 'empty'} is not Aleksander` })
     await finishAutomationExecution(execution?.id, {
       status: 'ignored',
       filters_evaluated: [{ field: 'owner/user_id', expected: ALEKSANDER_PIPEDRIVE_USER_ID, actual: ownerId, result: false }],
-      error_message: `Owner ${ownerId} is not Aleksander`,
+      error_message: `Owner ${ownerId || 'empty'} is not Aleksander`,
       finished_at: new Date().toISOString(),
     }).catch(() => null)
     return { ok: true, ignored: true, reason: 'Owner is not Aleksander', pipedrive_owner_id: ownerId }
   }
 
-  const crmDeal = await upsertCrmDealFromPipedrive(integration.id, pipedriveDeal)
+  const crmDeal = await upsertCrmDealFromPipedrive(integration.id, pipedriveDeal, { clearCrmOwner: existing ? !ownerIsAleksander : false })
   const notesSynced = await syncPipedriveNotesToHistory(crmDeal.id, dealId).catch(async (error) => {
     await logEvent({ event_id: event.id, level: 'warning', message: 'Pipedrive notes sync skipped', details: { external_id: dealId, error: errorMessage(error) } }).catch(() => null)
     return 0
@@ -167,9 +168,9 @@ async function handlePipedriveWebhook(payload: JsonRecord) {
     status: 'success',
     internal_id: crmDeal.id,
     external_id: dealId,
-    changed_fields: ['deals', 'organizations', 'people', 'custom_field_values', 'deal_history', 'activities', 'external_records'],
-    filters_evaluated: [{ field: 'owner/user_id', expected: ALEKSANDER_PIPEDRIVE_USER_ID, actual: ownerId, result: true }],
-    actions_performed: ['upsert CRM deal', 'sync notes', 'sync activities', 'upsert external records'],
+    changed_fields: existing && !ownerIsAleksander ? ['deals', 'deals.owner_id', 'organizations', 'people', 'custom_field_values', 'deal_history', 'activities', 'external_records'] : ['deals', 'organizations', 'people', 'custom_field_values', 'deal_history', 'activities', 'external_records'],
+    filters_evaluated: [{ field: 'owner/user_id', expected: ALEKSANDER_PIPEDRIVE_USER_ID, actual: ownerId, result: ownerIsAleksander }],
+    actions_performed: existing && !ownerIsAleksander ? ['upsert CRM deal', 'clear CRM owner', 'sync notes', 'sync activities', 'upsert external records'] : ['upsert CRM deal', 'sync notes', 'sync activities', 'upsert external records'],
     details: { notes_synced: notesSynced, activities_synced: activitiesSynced },
     finished_at: new Date().toISOString(),
   }).catch(() => null)
@@ -366,7 +367,12 @@ async function ensurePipedrivePerson(integrationId: string, personId: string, pe
   return externalId
 }
 
-async function upsertCrmDealFromPipedrive(integrationId: string, pdDeal: JsonRecord) {
+function isAleksanderPipedriveOwner(ownerId: number | null) {
+  if (!ALEKSANDER_PIPEDRIVE_USER_ID) return true
+  return ownerId === ALEKSANDER_PIPEDRIVE_USER_ID
+}
+
+async function upsertCrmDealFromPipedrive(integrationId: string, pdDeal: JsonRecord, options: { clearCrmOwner?: boolean } = {}) {
   const externalId = String(pdDeal.id)
   const existing = await findExternalRecordByExternal('deal', externalId)
   const pdOrg = await resolvePipedriveOrg(pdDeal.org_id)
@@ -391,6 +397,7 @@ async function upsertCrmDealFromPipedrive(integrationId: string, pdDeal: JsonRec
     pipedrive_deal_created_at: stringOrNull(pdDeal.add_time) || stringOrNull(pdDeal.create_time),
     pipedrive_stage_entered_at: stringOrNull(pdDeal.stage_change_time) || stringOrNull(pdDeal.update_time) || stringOrNull(pdDeal.add_time),
   }
+  if (existing?.internal_id && options.clearCrmOwner) payload.owner_id = null
   if (!existing?.internal_id && inheritedOwnerId) payload.owner_id = inheritedOwnerId
   if (!existing?.internal_id && inheritedBpoId) payload.bpo_id = inheritedBpoId
 
