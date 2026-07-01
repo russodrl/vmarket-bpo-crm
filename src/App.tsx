@@ -1667,19 +1667,19 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
   return <div className="flex min-h-[calc(100vh-7.5rem)] flex-col md:h-full md:min-h-0">
     <div className="border-b border-slate-200 bg-white">
       <div className="flex flex-wrap items-center gap-2 px-3 py-2 md:h-12 md:flex-nowrap md:px-4 md:py-0">
-        <div className="flex overflow-hidden rounded border border-slate-300">
+        <div className="order-1 flex overflow-hidden rounded border border-slate-300 md:order-none">
           <button onClick={() => setPipelineView('kanban')} className={cn('grid h-11 w-12 place-items-center md:h-8 md:w-9', pipelineView === 'kanban' ? 'bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-300' : 'text-slate-600 hover:bg-slate-50')} title="Kanban" aria-label="Kanban"><GripVertical size={15}/></button>
           <button onClick={() => setPipelineView('list')} className={cn('grid h-11 w-12 place-items-center border-l border-slate-300 md:h-8 md:w-9', pipelineView === 'list' ? 'bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-300' : 'text-slate-600 hover:bg-slate-50')} title="Lista" aria-label="Lista"><List size={15}/></button>
           <button onClick={() => setPipelineView('forecast')} className={cn('grid h-11 w-12 place-items-center border-l border-slate-300 md:h-8 md:w-9', pipelineView === 'forecast' ? 'bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-300' : 'text-slate-600 hover:bg-slate-50')} title="Previsão" aria-label="Previsão"><CalendarClock size={15}/></button>
         </div>
-        {pipelineView === 'kanban' && <label className="flex items-center gap-2 rounded border border-slate-300 bg-white px-2 py-1.5 text-xs font-bold text-slate-600 md:order-none">
+        {pipelineView === 'kanban' && <label className="order-2 flex w-full items-center gap-2 rounded border border-slate-300 bg-white px-2 py-1.5 text-xs font-bold text-slate-600 md:order-none md:w-auto">
           Organizar por
-          <select value={kanbanSort} onChange={(e) => changeKanbanSort(e.target.value as KanbanSortKey)} className="max-w-[210px] bg-white text-xs font-semibold text-slate-700 outline-none">
+          <select value={kanbanSort} onChange={(e) => changeKanbanSort(e.target.value as KanbanSortKey)} className="min-w-0 flex-1 bg-white text-xs font-semibold text-slate-700 outline-none md:max-w-[210px]">
             {kanbanSortOptions.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
           </select>
         </label>}
-        <button onClick={() => setShowCreateDeal(true)} className="h-11 rounded border border-[#087d3e] bg-[#238847] px-4 text-sm font-bold text-white shadow-sm hover:bg-[#1f7a40] md:h-auto md:py-1.5">+ Negócio</button>
-        <div className="flex w-full flex-wrap items-center gap-2 text-sm text-slate-600 md:ml-auto md:w-auto md:flex-nowrap">
+        <button onClick={() => setShowCreateDeal(true)} className="order-3 h-11 rounded border border-[#087d3e] bg-[#238847] px-4 text-sm font-bold text-white shadow-sm hover:bg-[#1f7a40] md:order-none md:h-auto md:py-1.5">+ Negócio</button>
+        <div className="order-4 flex w-full flex-wrap items-center gap-2 text-sm text-slate-600 md:order-none md:ml-auto md:w-auto md:flex-nowrap">
           <div className={cn('flex min-w-0 items-center gap-2 rounded border border-slate-200 bg-slate-50 px-2 py-1 text-xs md:text-sm', expandedPipelineTotals ? 'md:min-w-[380px]' : '')}>
             <button type="button" onClick={() => setExpandedPipelineTotals((current) => !current)} className="grid h-6 w-6 shrink-0 place-items-center rounded border border-slate-200 bg-white text-sm font-black text-slate-600 hover:border-blue-300 hover:text-blue-700" aria-label={expandedPipelineTotals ? 'Fechar detalhamento total do funil' : 'Abrir detalhamento total do funil'} title={expandedPipelineTotals ? 'Ocultar detalhes do funil' : 'Mostrar detalhes do funil'}>{expandedPipelineTotals ? '-' : '+'}</button>
             <div className="min-w-0 whitespace-nowrap font-semibold text-slate-700"><b>{deals.length}</b> negócios <span className="text-slate-300">|</span> {money(pipelineTotalValue)}</div>
