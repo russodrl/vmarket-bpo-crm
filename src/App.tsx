@@ -1259,6 +1259,12 @@ function App() {
     else await loadAll()
   }
 
+  async function markActivityTodo(id: string) {
+    const { error } = await supabase.from('activities').update({ status: 'open', completed_at: null }).eq('id', id)
+    if (error) setError(error.message)
+    else await loadAll()
+  }
+
   async function updateActivity(activityId: string, draft: ActivityEditDraft) {
     const title = draft.title.trim()
     if (!title) throw new Error('Informe o título da atividade.')
@@ -1658,7 +1664,7 @@ function App() {
 
   if (detailDealId) {
     const isAdmin = profile?.role === 'admin_vmarket'
-    return <><DealPage key={detailDealId} deal={detailDeal} loading={loading} error={error} stages={stages} crmUsers={crmUsers} externalRecords={externalRecords} canEditOwner={isAdmin} canViewCustomFields={isAdmin} activities={activities.filter((a) => a.deal_id === detailDealId)} history={history.filter((h) => h.deal_id === detailDealId)} dealLabels={dealLabels} assignedLabels={dealLabelAssignments.filter((assignment) => assignment.deal_id === detailDealId)} attachments={dealAttachments.filter((attachment) => attachment.deal_id === detailDealId)} closeDealPage={closeDealPage} saveDeal={saveDeal} createActivity={createActivityForDeal} createNote={createNoteForDeal} deleteDeal={(id, label) => deleteOneRecord('deal', id, label)} deleteActivity={(id, label) => deleteOneRecord('activity', id, label)} customFields={isAdmin ? customFields.filter((field) => field.entity === 'deal') : []} customFieldValues={isAdmin ? customFieldValues.filter((value) => value.entity_id === detailDealId) : []} completeActivity={completeActivity} updateActivity={updateActivity} createLabel={createDealLabel} deleteLabel={deleteDealLabel} updateDealLabels={updateDealLabels} openPersonPage={openPersonPage} openOrganizationPage={openOrganizationPage} unlinkDealPerson={unlinkDealPerson} unlinkDealOrganization={unlinkDealOrganization} reloadDeal={loadAll} /><TomatinhoChat session={session} contextDealId={detailDealId} onReload={loadAll} /></>
+    return <><DealPage key={detailDealId} deal={detailDeal} loading={loading} error={error} stages={stages} crmUsers={crmUsers} externalRecords={externalRecords} canEditOwner={isAdmin} canViewCustomFields={isAdmin} activities={activities.filter((a) => a.deal_id === detailDealId)} history={history.filter((h) => h.deal_id === detailDealId)} dealLabels={dealLabels} assignedLabels={dealLabelAssignments.filter((assignment) => assignment.deal_id === detailDealId)} attachments={dealAttachments.filter((attachment) => attachment.deal_id === detailDealId)} closeDealPage={closeDealPage} saveDeal={saveDeal} createActivity={createActivityForDeal} createNote={createNoteForDeal} deleteDeal={(id, label) => deleteOneRecord('deal', id, label)} deleteActivity={(id, label) => deleteOneRecord('activity', id, label)} customFields={isAdmin ? customFields.filter((field) => field.entity === 'deal') : []} customFieldValues={isAdmin ? customFieldValues.filter((value) => value.entity_id === detailDealId) : []} completeActivity={completeActivity} markActivityTodo={markActivityTodo} updateActivity={updateActivity} createLabel={createDealLabel} deleteLabel={deleteDealLabel} updateDealLabels={updateDealLabels} openPersonPage={openPersonPage} openOrganizationPage={openOrganizationPage} unlinkDealPerson={unlinkDealPerson} unlinkDealOrganization={unlinkDealOrganization} reloadDeal={loadAll} /><TomatinhoChat session={session} contextDealId={detailDealId} onReload={loadAll} /></>
   }
   if (detailPersonId) {
     return <><ContactPage key={detailPersonId} person={detailPerson} organization={organizations.find((org) => org.id === detailPerson?.organization_id)} loading={loading} error={error} deals={deals} activities={activities} history={history} externalRecords={externalRecords} crmUsers={crmUsers} canDelete={profile?.role === 'admin_vmarket'} deletePerson={(id, label) => deleteOneRecord('person', id, label)} openDealPage={openDealPage} openOrganizationPage={openOrganizationPage} unlinkPersonOrganization={unlinkPersonOrganization} completeActivity={completeActivity} reloadDetail={loadAll} closeDetailPage={closeDetailPage} /><TomatinhoChat session={session} onReload={loadAll} /></>
@@ -1711,7 +1717,7 @@ function App() {
                 {activeView === 'commissions-vmarket' && <VmarketCommissionsView deals={deals} stages={stages} history={history} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} />}
                 {activeView === 'contacts' && <EntityListView title="Contatos" icon={<Contact size={18}/>} entity="person" rows={visiblePeople} deals={deals} people={people} organizations={organizations} stages={stages} crmUsers={crmUsers} dealLabelAssignments={dealLabelAssignments} selectedId={detailPersonId} onOpen={openPersonPage} savedFilters={savedDealFilters} activeFilterId={activeDealFilterId} activeOwnerId={activeOwnerFilterId} setActiveFilterId={setActiveDealFilterId} setActiveOwnerId={setActiveOwnerFilterId} users={crmUsers} filterFields={filterFields} filterContext={filterContext} saveDealFilter={saveDealFilter} onDeleteFilter={deleteDealFilter} onToggleFavoriteFilter={toggleDealFilterFavorite} applyFilterColumns={applyFilterColumns} visibleColumns={personListColumns} setVisibleColumns={setPersonColumns} />}
                 {activeView === 'companies' && <EntityListView title="Empresas" icon={<Building2 size={18}/>} entity="organization" rows={visibleOrganizations} deals={deals} people={people} organizations={organizations} stages={stages} crmUsers={crmUsers} dealLabelAssignments={dealLabelAssignments} selectedId={detailOrganizationId} onOpen={openOrganizationPage} savedFilters={savedDealFilters} activeFilterId={activeDealFilterId} activeOwnerId={activeOwnerFilterId} setActiveFilterId={setActiveDealFilterId} setActiveOwnerId={setActiveOwnerFilterId} users={crmUsers} filterFields={filterFields} filterContext={filterContext} saveDealFilter={saveDealFilter} onDeleteFilter={deleteDealFilter} onToggleFavoriteFilter={toggleDealFilterFavorite} applyFilterColumns={applyFilterColumns} visibleColumns={organizationListColumns} setVisibleColumns={setOrganizationColumns} />}
-                {activeView === 'activities' && <ActivitiesView activities={activities} deals={deals} crmUsers={crmUsers} completeActivity={completeActivity} updateActivity={updateActivity} canDelete={profile?.role === 'admin_vmarket'} deleteActivity={(id, label) => deleteOneRecord('activity', id, label)} />}
+                {activeView === 'activities' && <ActivitiesView activities={activities} deals={deals} crmUsers={crmUsers} completeActivity={completeActivity} markActivityTodo={markActivityTodo} updateActivity={updateActivity} canDelete={profile?.role === 'admin_vmarket'} deleteActivity={(id, label) => deleteOneRecord('activity', id, label)} />}
                 {activeView === 'warnings' && <WarningsView deals={deals} people={people} organizations={organizations} activities={activities} crmUsers={crmUsers} openDealPage={openDealPage} reload={loadAll} setError={setError} />}
                 {activeView === 'lead-distribution' && profile?.role === 'admin_vmarket' && <LeadDistributionView users={crmUsers} deals={deals} />}
                 {activeView === 'automations' && profile?.role === 'admin_vmarket' && <AutomationsView rules={automationRules} executions={automationExecutions} changes={automationChanges} />}
@@ -2438,7 +2444,7 @@ function CompanyPage({ organization, loading, error, deals, people, activities, 
 }
 
 
-function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, canEditOwner, canViewCustomFields, activities, history, attachments, customFields, customFieldValues, dealLabels, assignedLabels, closeDealPage, saveDeal, createActivity, createNote, deleteDeal, deleteActivity, completeActivity, updateActivity, createLabel, deleteLabel, updateDealLabels, openPersonPage, openOrganizationPage, unlinkDealPerson, unlinkDealOrganization, reloadDeal }: {
+function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, canEditOwner, canViewCustomFields, activities, history, attachments, customFields, customFieldValues, dealLabels, assignedLabels, closeDealPage, saveDeal, createActivity, createNote, deleteDeal, deleteActivity, completeActivity, markActivityTodo, updateActivity, createLabel, deleteLabel, updateDealLabels, openPersonPage, openOrganizationPage, unlinkDealPerson, unlinkDealOrganization, reloadDeal }: {
   deal?: Deal
   loading: boolean
   error: string
@@ -2461,6 +2467,7 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
   deleteDeal: (id: string, label: string) => void
   deleteActivity: (id: string, label: string) => void
   completeActivity: (id: string) => Promise<void>
+  markActivityTodo: (id: string) => Promise<void>
   updateActivity: (activityId: string, draft: ActivityEditDraft) => Promise<void>
   createLabel: (name: string, color: string) => Promise<DealLabel>
   deleteLabel: (label: DealLabel) => Promise<void>
@@ -2840,7 +2847,7 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
             <div className="min-h-[420px] space-y-0 p-4">
               {timeline.length ? timeline.map((item) => <div key={item.id} className="grid grid-cols-[40px_1fr] gap-3 pb-5 text-sm last:pb-0">
                 <div className="relative flex justify-center"><TimelineIcon item={item} /><span className="absolute top-10 h-full w-px bg-slate-200" /></div>
-                {item.activity ? <ActivityInlineRow activity={item.activity} deal={deal} ownerName={crmOwnerDisplay(crmUsers, item.activity.owner_id, deal.pipedrive_owner_name || 'Sem usuário')} onComplete={completeActivity} onEdit={setEditingActivity} onDelete={canEditOwner ? deleteActivity : undefined} /> : <div className="rounded border border-slate-200 bg-white p-3 shadow-sm"><div className="flex flex-wrap items-start justify-between gap-2"><div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{item.kind}</p><b className="text-slate-900">{item.title}</b></div><div>{item.date && <span className="text-xs text-slate-500">{formatDateTime(item.date)}</span>}</div></div>{item.description && <p className="mt-2 whitespace-pre-wrap text-slate-600">{item.description}</p>}</div>}
+                {item.activity ? <ActivityInlineRow activity={item.activity} deal={deal} ownerName={crmOwnerDisplay(crmUsers, item.activity.owner_id, deal.pipedrive_owner_name || 'Sem usuário')} onComplete={completeActivity} onMarkTodo={markActivityTodo} onEdit={setEditingActivity} onDelete={canEditOwner ? deleteActivity : undefined} /> : <div className="rounded border border-slate-200 bg-white p-3 shadow-sm"><div className="flex flex-wrap items-start justify-between gap-2"><div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{item.kind}</p><b className="text-slate-900">{item.title}</b></div><div className="flex items-center gap-2">{item.date && <span className="text-xs text-slate-500">{formatDateTime(item.date)}</span>}</div></div>{item.description && <p className="mt-2 whitespace-pre-wrap text-slate-600">{item.description}</p>}</div>}
               </div>) : <p className="rounded border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">Sem histórico ainda.</p>}
             </div>
           </Panel>
@@ -3034,11 +3041,13 @@ function TimelineIcon({ item }: { item: { kind: string; activity?: ActivityRow }
   return <span className={cn('mt-0 grid h-9 w-9 place-items-center rounded-full ring-1 shadow-sm', tone)}>{icon}</span>
 }
 
-function ActivityInlineRow({ activity, deal, ownerName, onComplete, onEdit, onDelete }: { activity: ActivityRow; deal?: Deal; ownerName?: string; onComplete?: (id: string) => Promise<void>; onEdit?: (activity: ActivityRow) => void; onDelete?: (id: string, label: string) => void }) {
+function ActivityInlineRow({ activity, deal, ownerName, onComplete, onMarkTodo, onEdit, onDelete }: { activity: ActivityRow; deal?: Deal; ownerName?: string; onComplete?: (id: string) => Promise<void>; onMarkTodo?: (id: string) => Promise<void>; onEdit?: (activity: ActivityRow) => void; onDelete?: (id: string, label: string) => void }) {
+  const [menuOpen, setMenuOpen] = useState(false)
   const isDone = activity.status === 'done'
   const contactName = deal?.people?.full_name || 'Sem contato'
   const companyName = deal?.organizations?.name || 'Sem empresa'
-  const type = activityTypeOption(activity.activity_type)
+  const hasMenu = Boolean(onEdit || onMarkTodo || onDelete)
+  const closeMenu = () => setMenuOpen(false)
   return <div className={cn('rounded border bg-white px-3 py-2 shadow-sm', isDone ? 'border-emerald-100' : 'border-slate-200')}>
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0 flex-1">
@@ -3046,8 +3055,7 @@ function ActivityInlineRow({ activity, deal, ownerName, onComplete, onEdit, onDe
           <button type="button" title={isDone ? 'Concluído' : 'Marcar como feito'} aria-label={isDone ? 'Atividade concluída' : 'Marcar como feito'} disabled={isDone || !onComplete} onClick={() => onComplete && void onComplete(activity.id)} className={cn('grid h-5 w-5 shrink-0 place-items-center rounded-full border-2 transition', isDone ? 'border-[#2fb344] bg-[#2fb344] text-white shadow-sm' : 'border-[#2fb344] bg-white text-transparent hover:bg-emerald-50 hover:text-[#2fb344] disabled:opacity-60')}>
             <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" aria-hidden="true"><path d="M3.2 8.1 6.5 11.4 12.9 4.6" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
           </button>
-          <span className="grid h-6 w-6 shrink-0 place-items-center rounded border border-slate-200 bg-slate-50 text-slate-600" title={type.label}><ActivityTypeIcon type={activity.activity_type} size={14} /></span>
-          <button type="button" onClick={() => onEdit?.(activity)} className={cn('truncate text-left text-base font-bold hover:text-blue-700 hover:underline', isDone ? 'text-slate-500 line-through' : 'text-slate-900')}>{activity.title}</button>
+          <button type="button" onClick={() => onEdit?.(activity)} className={cn('truncate text-left text-base font-bold hover:text-blue-700 hover:underline', isDone ? 'text-slate-700' : 'text-slate-900')}>{activity.title}</button>
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
           <span className={cn('rounded px-1.5 py-0.5 text-[10px] font-black leading-none', activityStatusTone(activity))}>{activityStatusLabel(activity)}</span>
@@ -3059,9 +3067,14 @@ function ActivityInlineRow({ activity, deal, ownerName, onComplete, onEdit, onDe
         </div>
         {activity.note && <p className="mt-2 whitespace-pre-wrap text-sm text-slate-600">{activity.note}</p>}
       </div>
-      <div className="flex shrink-0 items-center gap-1">
-        {onDelete && <button type="button" aria-label="Apagar atividade" onClick={() => onDelete(activity.id, activity.title)} className="grid h-8 w-8 place-items-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700"><MoreHorizontal size={16}/></button>}
-      </div>
+      {hasMenu && <div className="relative flex shrink-0 items-center gap-1">
+        <button type="button" aria-label="Menu da atividade" onClick={() => setMenuOpen((current) => !current)} className="grid h-8 w-8 place-items-center rounded text-slate-500 hover:bg-slate-100 hover:text-slate-800"><MoreHorizontal size={16}/></button>
+        {menuOpen && <div className="absolute right-0 top-9 z-30 w-56 overflow-hidden rounded border border-slate-200 bg-white py-1 text-sm shadow-xl">
+          {onEdit && <button type="button" onClick={() => { closeMenu(); onEdit(activity) }} className="block w-full px-4 py-2 text-left font-semibold text-slate-700 hover:bg-blue-600 hover:text-white">Editar</button>}
+          {onMarkTodo && <button type="button" onClick={() => { closeMenu(); void onMarkTodo(activity.id) }} className="block w-full px-4 py-2 text-left text-slate-700 hover:bg-blue-600 hover:text-white">Marcar como "Por fazer"</button>}
+          {onDelete && <button type="button" onClick={() => { closeMenu(); onDelete(activity.id, activity.title) }} className="block w-full px-4 py-2 text-left text-slate-700 hover:bg-blue-600 hover:text-white">Excluir</button>}
+        </div>}
+      </div>}
     </div>
   </div>
 }
@@ -3630,7 +3643,7 @@ function EntityListView({ title, icon, entity, rows, deals, people, organization
   </div>
 }
 
-function ActivitiesView({ activities, deals, crmUsers, completeActivity, updateActivity, canDelete = false, deleteActivity }: { activities: ActivityRow[]; deals: Deal[]; crmUsers: CrmUser[]; completeActivity: (id: string) => Promise<void>; updateActivity: (activityId: string, draft: ActivityEditDraft) => Promise<void>; canDelete?: boolean; deleteActivity?: (id: string, label: string) => void }) {
+function ActivitiesView({ activities, deals, crmUsers, completeActivity, markActivityTodo, updateActivity, canDelete = false, deleteActivity }: { activities: ActivityRow[]; deals: Deal[]; crmUsers: CrmUser[]; completeActivity: (id: string) => Promise<void>; markActivityTodo: (id: string) => Promise<void>; updateActivity: (activityId: string, draft: ActivityEditDraft) => Promise<void>; canDelete?: boolean; deleteActivity?: (id: string, label: string) => void }) {
   const [editingActivity, setEditingActivity] = useState<ActivityRow | null>(null)
   const [mode, setMode] = useState<'list' | 'calendar'>('list')
   const [calendarDate, setCalendarDate] = useState<Date>(() => new Date())
@@ -3655,7 +3668,7 @@ function ActivitiesView({ activities, deals, crmUsers, completeActivity, updateA
           {filteredActivities.filter((activity) => sameActivityDay(activity, calendarDate)).map((a) => {
             const deal = deals.find((d) => d.id === a.deal_id)
             const ownerName = crmOwnerDisplay(crmUsers, a.owner_id || deal?.owner_id, deal?.pipedrive_owner_name || 'Sem usuário')
-            return <div key={a.id} className="p-3 hover:bg-slate-50"><ActivityInlineRow activity={a} deal={deal} ownerName={ownerName} onComplete={completeActivity} onEdit={setEditingActivity} onDelete={canDelete ? deleteActivity : undefined} /></div>
+            return <div key={a.id} className="p-3 hover:bg-slate-50"><ActivityInlineRow activity={a} deal={deal} ownerName={ownerName} onComplete={completeActivity} onMarkTodo={markActivityTodo} onEdit={setEditingActivity} onDelete={canDelete ? deleteActivity : undefined} /></div>
           })}
           {!filteredActivities.filter((activity) => sameActivityDay(activity, calendarDate)).length && <div className="p-8 text-center text-slate-400">Nenhuma atividade neste dia.</div>}
         </div>
@@ -3664,7 +3677,7 @@ function ActivitiesView({ activities, deals, crmUsers, completeActivity, updateA
         {filteredActivities.map((a) => {
           const deal = deals.find((d) => d.id === a.deal_id)
           const ownerName = crmOwnerDisplay(crmUsers, a.owner_id || deal?.owner_id, deal?.pipedrive_owner_name || 'Sem usuário')
-          return <div key={a.id} className="p-3 hover:bg-slate-50"><ActivityInlineRow activity={a} deal={deal} ownerName={ownerName} onComplete={completeActivity} onEdit={setEditingActivity} onDelete={canDelete ? deleteActivity : undefined} /></div>
+          return <div key={a.id} className="p-3 hover:bg-slate-50"><ActivityInlineRow activity={a} deal={deal} ownerName={ownerName} onComplete={completeActivity} onMarkTodo={markActivityTodo} onEdit={setEditingActivity} onDelete={canDelete ? deleteActivity : undefined} /></div>
         })}
         {filteredActivities.length === 0 && <div className="p-8 text-center text-slate-400">Nenhuma atividade encontrada.</div>}
       </div>}
