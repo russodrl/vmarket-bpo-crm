@@ -153,7 +153,9 @@ export type Deal = {
   vm_product_type: 'restaurante' | 'hotel' | 'fornecedor' | null
   vm_cnpj_count: number | null
   vm_plan: string | null
+  vm_loyalty_period: 'mensal' | 'semestral' | null
   vm_value_per_cnpj: number | null
+  total_value: number | null
   contract_legal_name: string | null
   contract_tax_id: string | null
   contract_address: string | null

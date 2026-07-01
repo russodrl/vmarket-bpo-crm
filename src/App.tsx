@@ -31,7 +31,7 @@ import {
 import { supabase, supabaseConfigured, type ActivityRow, type AuditLog, type AutomationRule, type AutomationRuleChange, type AutomationRuleExecution, type CrmCompany, type CrmUser, type CustomField, type CustomFieldValue, type Deal, type DealLabel, type DealLabelAssignment, type HistoryRow, type Organization, type Person, type Profile, type Stage } from './supabase'
 import './App.css'
 
-type View = 'pipeline' | 'contacts' | 'companies' | 'activities' | 'warnings' | 'lead-distribution' | 'automations' | 'audit' | 'fields' | 'admin'
+type View = 'pipeline' | 'contacts' | 'companies' | 'activities' | 'warnings' | 'plans-vmarket' | 'lead-distribution' | 'automations' | 'audit' | 'fields' | 'admin'
 type NewDeal = {
   title: string
   organization_name: string
@@ -304,6 +304,7 @@ type DealForm = {
   vm_product_type: string
   vm_cnpj_count: string
   vm_plan: string
+  vm_loyalty_period: string
   vm_value_per_cnpj: string
   contract_legal_name: string
   contract_tax_id: string
@@ -414,6 +415,34 @@ function buildGlobalSearchResults(query: string, deals: Deal[], people: Person[]
 
 const statusLabel: Record<string, string> = { aberto: 'Aberto', ganho: 'Ganho', perdido: 'Perdido' }
 const businessTypeOptions: Array<[string, string]> = [['', 'Selecione'], ['restaurante', 'Restaurante'], ['hotel', 'Hotel'], ['fornecedor', 'Fornecedor']]
+const vmarketPlanOptionsByType: Record<string, string[]> = {
+  restaurante: ['Essencial', 'Premium'],
+  hotel: ['Starter', 'Essencial', 'Premium'],
+}
+const vmarketPeriodOptions: Array<[string, string]> = [['mensal', 'Mensal'], ['semestral', 'Semestral']]
+type VmarketPricingRule = { type: 'restaurante' | 'hotel'; range: string; min: number; max: number | null; plan: string; monthly: number; monthlyBpo: number; semester: number; semesterBpo: number }
+const vmarketPricingRules: VmarketPricingRule[] = [
+  { type: 'restaurante', range: '1 CNPJ', min: 1, max: 1, plan: 'Essencial', monthly: 499.90, monthlyBpo: 374.92, semester: 399.90, semesterBpo: 299.92 },
+  { type: 'restaurante', range: '1 CNPJ', min: 1, max: 1, plan: 'Premium', monthly: 699.90, monthlyBpo: 524.92, semester: 559.90, semesterBpo: 419.92 },
+  { type: 'restaurante', range: '2 a 4 CNPJs', min: 2, max: 4, plan: 'Essencial', monthly: 449.90, monthlyBpo: 337.42, semester: 359.90, semesterBpo: 269.92 },
+  { type: 'restaurante', range: '2 a 4 CNPJs', min: 2, max: 4, plan: 'Premium', monthly: 639.90, monthlyBpo: 479.92, semester: 509.90, semesterBpo: 382.42 },
+  { type: 'restaurante', range: '5 a 8 CNPJs', min: 5, max: 8, plan: 'Essencial', monthly: 409.90, monthlyBpo: 307.42, semester: 329.90, semesterBpo: 247.42 },
+  { type: 'restaurante', range: '5 a 8 CNPJs', min: 5, max: 8, plan: 'Premium', monthly: 596.90, monthlyBpo: 447.67, semester: 459.90, semesterBpo: 344.92 },
+  { type: 'restaurante', range: '9+ CNPJs', min: 9, max: null, plan: 'Essencial', monthly: 369.90, monthlyBpo: 277.42, semester: 299.90, semesterBpo: 224.92 },
+  { type: 'restaurante', range: '9+ CNPJs', min: 9, max: null, plan: 'Premium', monthly: 519.90, monthlyBpo: 389.92, semester: 419.90, semesterBpo: 314.92 },
+  { type: 'hotel', range: '1 CNPJ', min: 1, max: 1, plan: 'Starter', monthly: 599.90, monthlyBpo: 449.92, semester: 479.90, semesterBpo: 359.92 },
+  { type: 'hotel', range: '1 CNPJ', min: 1, max: 1, plan: 'Essencial', monthly: 799.90, monthlyBpo: 599.92, semester: 639.90, semesterBpo: 479.92 },
+  { type: 'hotel', range: '1 CNPJ', min: 1, max: 1, plan: 'Premium', monthly: 1199.90, monthlyBpo: 899.93, semester: 959.90, semesterBpo: 719.92 },
+  { type: 'hotel', range: '2 a 4 CNPJs', min: 2, max: 4, plan: 'Starter', monthly: 539.90, monthlyBpo: 404.92, semester: 431.90, semesterBpo: 323.92 },
+  { type: 'hotel', range: '2 a 4 CNPJs', min: 2, max: 4, plan: 'Essencial', monthly: 719.90, monthlyBpo: 539.92, semester: 575.90, semesterBpo: 431.92 },
+  { type: 'hotel', range: '2 a 4 CNPJs', min: 2, max: 4, plan: 'Premium', monthly: 1079.90, monthlyBpo: 809.93, semester: 864.90, semesterBpo: 648.67 },
+  { type: 'hotel', range: '5 a 8 CNPJs', min: 5, max: 8, plan: 'Starter', monthly: 485.90, monthlyBpo: 364.42, semester: 388.90, semesterBpo: 291.67 },
+  { type: 'hotel', range: '5 a 8 CNPJs', min: 5, max: 8, plan: 'Essencial', monthly: 648.90, monthlyBpo: 486.67, semester: 518.90, semesterBpo: 389.17 },
+  { type: 'hotel', range: '5 a 8 CNPJs', min: 5, max: 8, plan: 'Premium', monthly: 972.90, monthlyBpo: 729.67, semester: 777.90, semesterBpo: 583.42 },
+  { type: 'hotel', range: '9+ CNPJs', min: 9, max: null, plan: 'Starter', monthly: 437.90, monthlyBpo: 328.42, semester: 349.90, semesterBpo: 262.42 },
+  { type: 'hotel', range: '9+ CNPJs', min: 9, max: null, plan: 'Essencial', monthly: 583.90, monthlyBpo: 437.92, semester: 466.90, semesterBpo: 350.17 },
+  { type: 'hotel', range: '9+ CNPJs', min: 9, max: null, plan: 'Premium', monthly: 875.90, monthlyBpo: 656.92, semester: 699.90, semesterBpo: 524.92 },
+]
 const dddStateOptions: Array<[string, string]> = [
   ['', 'Selecione'],
   ...['Acre','Alagoas','Amapá','Amazonas','Bahia','Ceará','Distrito Federal','Espírito Santo','Goiás','Maranhão','Mato Grosso','Mato Grosso do Sul','Minas Gerais','Paraná','Paraíba','Pará','Pernambuco','Piauí','Rio Grande do Norte','Rio Grande do Sul','Rio de Janeiro','Rondônia','Roraima','Santa Catarina','Sergipe','São Paulo','Tocantins'].map((state) => [state, state] as [string, string]),
@@ -434,12 +463,47 @@ function formatShortDate(value?: string | null) {
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })
 }
+function getDealVmarketValue(deal: Pick<Deal, 'value'>) {
+  return Number(deal.value || 0)
+}
+function getDealPartnerValue(deal: Pick<Deal, 'partner_value'>) {
+  return Number(deal.partner_value || 0)
+}
+function getDealTotalValue(deal: Pick<Deal, 'value' | 'partner_value' | 'total_value'>) {
+  return Number(deal.total_value ?? (getDealVmarketValue(deal) + getDealPartnerValue(deal)))
+}
+function findVmarketPricingRule(type: string, cnpjCount: string | number, plan: string, period: string) {
+  const count = Number(cnpjCount || 0)
+  const normalizedType = type === 'hotel' ? 'hotel' : type === 'restaurante' ? 'restaurante' : ''
+  if (!normalizedType || !count || !plan || !period) return null
+  return vmarketPricingRules.find((rule) => rule.type === normalizedType && rule.plan === plan && count >= rule.min && (rule.max === null || count <= rule.max)) || null
+}
+function ruleBpoValue(rule: VmarketPricingRule | null, period: string) {
+  if (!rule) return 0
+  return period === 'semestral' ? rule.semesterBpo : rule.monthlyBpo
+}
+function ruleTableValue(rule: VmarketPricingRule | null, period: string) {
+  if (!rule) return 0
+  return period === 'semestral' ? rule.semester : rule.monthly
+}
+function applyVmarketPricingDefaults(form: DealForm) {
+  if (!form.vm_sale) return form
+  const availablePlans = vmarketPlanOptionsByType[form.vm_product_type] || []
+  const vm_plan = availablePlans.includes(form.vm_plan) ? form.vm_plan : (availablePlans[0] || form.vm_plan)
+  const vm_loyalty_period = form.vm_loyalty_period || 'mensal'
+  const rule = findVmarketPricingRule(form.vm_product_type, form.vm_cnpj_count, vm_plan, vm_loyalty_period)
+  const suggested = ruleBpoValue(rule, vm_loyalty_period)
+  return { ...form, vm_plan, vm_loyalty_period, vm_value_per_cnpj: suggested ? String(suggested) : form.vm_value_per_cnpj }
+}
 function partnerValueFromForm(form: DealForm) {
   return partnerServiceDefinitions.reduce((total, [, , flagKey, valueKey]) => total + (form[flagKey] ? Number(form[valueKey] || 0) : 0), 0) + (form.partner_service_other ? Number(form.partner_service_other_value || 0) : 0)
 }
 function vmarketValueFromForm(form: DealForm) {
   const calculated = Number(form.vm_cnpj_count || 0) * Number(form.vm_value_per_cnpj || 0)
   return form.vm_sale && calculated > 0 ? calculated : Number(form.value || 0)
+}
+function totalValueFromForm(form: DealForm) {
+  return vmarketValueFromForm(form) + partnerValueFromForm(form)
 }
 
 function cn(...classes: Array<string | false | undefined | null>) { return classes.filter(Boolean).join(' ') }
@@ -1170,6 +1234,7 @@ function App() {
         vm_product_type: syncedType || null,
         vm_cnpj_count: form.vm_sale ? numberOrNull(form.vm_cnpj_count) : null,
         vm_plan: form.vm_sale ? (form.vm_plan || null) : null,
+        vm_loyalty_period: form.vm_sale ? (form.vm_loyalty_period || 'mensal') : null,
         vm_value_per_cnpj: form.vm_sale ? numberOrNull(form.vm_value_per_cnpj) : null,
         contract_legal_name: form.vm_sale ? (contractSource.legal || null) : null,
         contract_tax_id: form.vm_sale ? (contractSource.tax || null) : null,
@@ -1240,6 +1305,7 @@ function App() {
 
   const navItems: Array<[View, ReactNode, string]> = [
     ['pipeline', <LayoutDashboard size={19}/>, 'Negócios'],
+    ['plans-vmarket', <FileText size={19}/>, 'Planos VMarket'],
     ['contacts', <Contact size={19}/>, 'Contatos'],
     ['companies', <Building2 size={19}/>, 'Empresas'],
     ['activities', <Activity size={19}/>, 'Atividades'],
@@ -1276,6 +1342,7 @@ function App() {
             {loading ? <LoadingBpo /> : (
               <>
                 {activeView === 'pipeline' && <PipelineView stages={visibleStages} salesStages={salesStages} deals={visibleDeals} allDeals={deals} activities={activities} crmUsers={crmUsers} dealLabelAssignments={dealLabelAssignments} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} setDraggingId={setDraggingId} handleDrop={handleDrop} newDeal={newDeal} setNewDeal={setNewDeal} createDeal={createDeal} creating={creating} canAssignOwner={profile?.role === 'admin_vmarket'} activePipeline={activePipeline} setActivePipeline={setActivePipeline} pipelineNames={pipelineNames} pipelineView={pipelineView} setPipelineView={setPipelineView} savedDealFilters={savedDealFilters} activeDealFilterId={activeDealFilterId} setActiveDealFilterId={setActiveDealFilterId} activeOwnerFilterId={activeOwnerFilterId} setActiveOwnerFilterId={setActiveOwnerFilterId} filterFields={filterFields} filterContext={filterContext} saveDealFilter={saveDealFilter} deleteDealFilter={deleteDealFilter} />}
+                {activeView === 'plans-vmarket' && <VmarketPlansView />}
                 {activeView === 'contacts' && <ListView title="Contatos" icon={<Contact size={18}/>} rows={people.map((p) => ({ id: p.id, title: p.full_name, sub: `${p.role_title || 'Contato'} · ${p.email || 'sem email'}`, meta: p.phone || 'sem telefone' }))} canDelete={profile?.role === 'admin_vmarket'} onDelete={(id, label) => deleteOneRecord('person', id, label)} />}
                 {activeView === 'companies' && <ListView title="Empresas" icon={<Building2 size={18}/>} rows={organizations.map((o) => ({ id: o.id, title: o.name, sub: `${o.type ? businessTypeOptions.find(([id]) => id === o.type)?.[1] || o.type : 'Tipo não informado'} · ${o.city || ''} ${o.state || ''}`, meta: money(o.monthly_purchase) }))} canDelete={profile?.role === 'admin_vmarket'} onDelete={(id, label) => deleteOneRecord('organization', id, label)} />}
                 {activeView === 'activities' && <ActivitiesView activities={activities} deals={deals} completeActivity={completeActivity} updateActivity={updateActivity} canDelete={profile?.role === 'admin_vmarket'} deleteActivity={(id, label) => deleteOneRecord('activity', id, label)} />}
@@ -1354,9 +1421,16 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
   const [showCreateDeal, setShowCreateDeal] = useState(false)
   const [showFilters, setShowFilters] = useState(false)
   const [editingFilter, setEditingFilter] = useState<FilterDraft | null>(null)
+  const [expandedStageTotals, setExpandedStageTotals] = useState<Set<string>>(() => new Set())
   const activeFilter = savedDealFilters.find((filter) => filter.id === activeDealFilterId)
   const activeOwner = crmUsers.find((user) => user.auth_user_id === activeOwnerFilterId)
   const filterButtonLabel = activeFilter?.name || activeOwner?.full_name || 'Filtro'
+  const toggleStageTotals = (stageId: string) => setExpandedStageTotals((current) => {
+    const next = new Set(current)
+    if (next.has(stageId)) next.delete(stageId)
+    else next.add(stageId)
+    return next
+  })
   const submitCreateDeal = async (e: FormEvent) => {
     await createDeal(e)
     setShowCreateDeal(false)
@@ -1431,13 +1505,25 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
       <div className="flex min-h-[420px] gap-3 md:h-full md:min-w-max">
         {stages.map((stage) => {
           const stageDeals = deals.filter((d) => d.stage_id === stage.id)
-          const stageValue = stageDeals.reduce((acc, d) => acc + Number(d.value || 0), 0)
-          return <div key={stage.id} onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }} onDrop={(e) => handleDrop(e, stage.id)} className="flex max-h-[65vh] min-w-[78vw] flex-col bg-[#f0f2f4] ring-1 ring-slate-200 sm:min-w-[320px] md:h-full md:w-[160px] md:min-w-0 xl:w-[180px]">
+          const stageVmarketValue = stageDeals.reduce((acc, d) => acc + getDealVmarketValue(d), 0)
+          const stagePartnerValue = stageDeals.reduce((acc, d) => acc + getDealPartnerValue(d), 0)
+          const stageValue = stageDeals.reduce((acc, d) => acc + getDealTotalValue(d), 0)
+          const totalsOpen = expandedStageTotals.has(stage.id)
+          return <div key={stage.id} onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }} onDrop={(e) => handleDrop(e, stage.id)} className="flex max-h-[65vh] min-w-[78vw] flex-col bg-[#f0f2f4] ring-1 ring-slate-200 sm:min-w-[320px] md:h-full md:w-[170px] md:min-w-0 xl:w-[195px]">
             <div className="border-b border-slate-200 bg-white/60 p-2">
               <div className="flex items-center justify-between gap-1">
                 <p className="truncate text-sm font-bold text-slate-800">{stage.name}</p>
+                <button type="button" onClick={() => toggleStageTotals(stage.id)} className="grid h-6 w-6 shrink-0 place-items-center rounded border border-slate-200 bg-white text-sm font-black text-slate-600 hover:border-blue-300 hover:text-blue-700" aria-label={totalsOpen ? 'Fechar detalhamento de valores' : 'Abrir detalhamento de valores'}>{totalsOpen ? '-' : '+'}</button>
               </div>
-              <p className="mt-1 truncate text-[11px] text-slate-500">{money(stageValue)} · {stageDeals.length} negócios</p>
+              <div className="mt-1 text-[11px] text-slate-500">
+                <p><b>{stageDeals.length}</b> negócios</p>
+                <p className="font-semibold text-slate-700">{money(stageValue)}</p>
+              </div>
+              {totalsOpen && <div className="mt-2 grid grid-cols-[1fr_auto_1fr] gap-2 rounded border border-slate-200 bg-white p-2 text-[11px]">
+                <div><p className="font-black text-slate-700">VMarket</p><p className="text-slate-500">{stageDeals.length} negócios</p><p className="font-semibold text-slate-800">{money(stageVmarketValue)}</p></div>
+                <div className="text-slate-300">|</div>
+                <div><p className="font-black text-slate-700">Serviços</p><p className="text-slate-500">{stageDeals.length} negócios</p><p className="font-semibold text-slate-800">{money(stagePartnerValue)}</p></div>
+              </div>}
             </div>
             <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-1.5">
               {stageDeals.map((deal) => {
@@ -1450,7 +1536,7 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
                   <p className="line-clamp-2 text-sm font-bold leading-snug text-slate-900">{deal.title}</p>
                   <p className="mt-1 truncate text-xs text-slate-600">{deal.organizations?.name || 'Sem empresa'}</p>
                   <p className="truncate text-xs text-slate-500">{deal.people?.full_name || 'Sem contato'}</p>
-                  <p className="mt-0.5 truncate text-[11px] font-semibold text-slate-700">{money(deal.value)}</p>
+                  <p className="mt-0.5 truncate text-[11px] font-semibold text-slate-700">{money(getDealTotalValue(deal))}</p>
                   <div className="mt-2 flex items-center justify-between">
                     <span title={dealOwnerName(deal)} aria-label={`Proprietário: ${dealOwnerName(deal)}`} className="grid h-5 w-5 place-items-center rounded-full bg-slate-200 text-[10px] font-bold text-slate-600">{dealOwnerInitial(deal)}</span>
                     <span title={indicator.title} className={cn('grid h-5 w-5 place-items-center rounded-full text-[11px] font-black', indicator.className)}>{indicator.label}</span>
@@ -1774,6 +1860,7 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
   const [editingActivity, setEditingActivity] = useState<ActivityRow | null>(null)
   const [showCustomFields, setShowCustomFields] = useState(false)
   const [showLostReason, setShowLostReason] = useState(false)
+  const [priceWarning, setPriceWarning] = useState('')
   const [form, setForm] = useState<DealForm>(() => dealToForm(deal))
   const [customDrafts, setCustomDrafts] = useState<Record<string, string>>(() => customValuesToDrafts(customFields, customFieldValues))
 
@@ -1833,10 +1920,22 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
   if (!deal) return <main className="min-h-screen bg-[#f4f5f7] p-5 text-slate-900"><div className="rounded bg-white p-6 shadow-sm"><h1 className="text-xl font-bold">Negócio não encontrado</h1><button onClick={closeDealPage} className="mt-4 rounded bg-[#238847] px-4 py-2 text-sm font-bold text-white">Voltar ao funil</button></div></main>
 
   const update = (key: keyof DealForm, value: string | boolean) => setForm((current) => {
-    if (key === 'business_type') return { ...current, business_type: String(value), vm_product_type: String(value), organization_type: String(value) }
-    if (key === 'vm_product_type') return { ...current, vm_product_type: String(value), business_type: String(value), organization_type: String(value) }
-    if (key === 'organization_type') return { ...current, organization_type: String(value), business_type: String(value), vm_product_type: String(value) }
-    return { ...current, [key]: value }
+    setPriceWarning('')
+    let next: DealForm = { ...current, [key]: value }
+    if (key === 'business_type') next = { ...next, business_type: String(value), vm_product_type: String(value), organization_type: String(value) }
+    if (key === 'vm_product_type') next = { ...next, vm_product_type: String(value), business_type: String(value), organization_type: String(value) }
+    if (key === 'organization_type') next = { ...next, organization_type: String(value), business_type: String(value), vm_product_type: String(value) }
+    if (['vm_sale', 'vm_product_type', 'organization_type', 'business_type', 'vm_cnpj_count', 'vm_plan', 'vm_loyalty_period'].includes(String(key))) next = applyVmarketPricingDefaults(next)
+    if (key === 'vm_value_per_cnpj') {
+      const rule = findVmarketPricingRule(next.vm_product_type, next.vm_cnpj_count, next.vm_plan, next.vm_loyalty_period)
+      const max = ruleTableValue(rule, next.vm_loyalty_period)
+      const numeric = Number(value || 0)
+      if (max && numeric > max) {
+        next = { ...next, vm_value_per_cnpj: String(max) }
+        setPriceWarning('O valor não pode ser maior que o valor comercializado pela VMarket.')
+      }
+    }
+    return next
   })
   const currentStage = stages.find((s) => s.id === form.stage_id) || stages.find((s) => s.id === deal.stage_id)
   const currentPipeline = currentStage?.pipeline_name || deal.pipeline_stages?.pipeline_name || 'Sem funil'
@@ -1850,6 +1949,7 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
   const selectedLabels = assignedLabels.map((assignment) => assignment.deal_labels).filter((label): label is DealLabel => Boolean(label))
   const vmarketValue = vmarketValueFromForm(form)
   const partnerValue = partnerValueFromForm(form)
+  const totalValue = totalValueFromForm(form)
   const fillingSource = fillingSourceLabel[form.source] || form.source || 'Importação'
   const businessTypeLabel = businessTypeOptions.find(([id]) => id === form.organization_type)?.[1] || '-'
   const openActivities = activities.filter((activity) => activity.status === 'open')
@@ -1867,11 +1967,13 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
           <div className="min-w-0 flex-1 md:hidden">
             <input value={form.title} onChange={(e) => update('title', e.target.value)} className="w-full truncate bg-transparent text-lg font-semibold tracking-[-0.03em] text-slate-950 outline-none hover:bg-slate-50 focus:bg-slate-50 focus:ring-2 focus:ring-blue-100" aria-label="Título do negócio" />
             <p className="mt-1 truncate text-xs font-semibold text-blue-600">{currentPipeline} › {currentStage?.name || 'Sem etapa'}</p>
+            <p className="mt-1 text-xs font-semibold text-slate-700">Total: {money(totalValue)} · VMarket: {money(vmarketValue)} · Serviços: {money(partnerValue)}</p>
           </div>
         </div>
         <div className="hidden min-w-0 flex-1 md:block">
           <input value={form.title} onChange={(e) => update('title', e.target.value)} className="w-full truncate bg-transparent text-2xl font-semibold tracking-[-0.03em] text-slate-950 outline-none hover:bg-slate-50 focus:bg-slate-50 focus:ring-2 focus:ring-blue-100" aria-label="Título do negócio" title="Clique para editar o título do negócio" />
           <p className="mt-1 text-xs font-semibold text-blue-600">{currentPipeline} › {currentStage?.name || 'Sem etapa'}</p>
+          <p className="mt-1 text-sm font-semibold text-slate-700">Valor total do negócio: {money(totalValue)} <span className="text-slate-300">|</span> VMarket: {money(vmarketValue)} <span className="text-slate-300">|</span> Serviços: {money(partnerValue)}</p>
         </div>
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <div className="flex max-w-full items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700">
@@ -1907,6 +2009,7 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
 
     <form id="deal-edit-form" onSubmit={submit} className="mx-auto grid w-full max-w-[1600px] min-w-0 gap-4 p-3 sm:p-4 xl:grid-cols-[360px_minmax(0,1fr)]">
       {error && <div className="xl:col-span-2 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><b>Erro:</b> {error}</div>}
+      {priceWarning && <div className="xl:col-span-2 rounded border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">{priceWarning}</div>}
 
       <aside className="min-w-0 space-y-4 xl:sticky xl:top-32 xl:max-h-[calc(100vh-9rem)] xl:overflow-y-auto">
         <CollapsibleSection title="Empresa" defaultOpen>
@@ -1951,6 +2054,7 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
             <InlineSelect label="Etapa" value={form.stage_id} onChange={(v) => update('stage_id', v)} options={currentPipelineStages.map((s) => [s.id, s.name])} />
             <InlineSelect label="Status" value={form.status} onChange={(v) => v === 'perdido' ? setShowLostReason(true) : update('status', v)} options={Object.entries(statusLabel)} />
             {form.status === 'perdido' && <ReadOnlyField label="Motivo da perda" value={form.lost_reason || deal.lost_reason || 'Sem motivo informado'} />}
+            <ReadOnlyField label="Valor total" value={money(totalValue)} />
             <ReadOnlyField label="Valor VMarket" value={money(vmarketValue)} />
             <ReadOnlyField label="Valor Parceiro" value={money(partnerValue)} />
           </div>
@@ -1966,7 +2070,8 @@ function DealPage({ deal, loading, error, stages, crmUsers, canEditOwner, canVie
               <InlineSelect label="Contrato com" value={form.contract_with} onChange={(v) => update('contract_with', v)} options={[['cliente', 'Cliente'], ['parceiro', 'Parceiro']]} />
               <InlineSelect label="Tipo" value={form.vm_product_type} onChange={(v) => update('vm_product_type', v)} options={businessTypeOptions} />
               <InlineField label="Quantidade de CNPJs" value={form.vm_cnpj_count} onChange={(v) => update('vm_cnpj_count', v)} type="number" />
-              <InlineField label="Plano" value={form.vm_plan} onChange={(v) => update('vm_plan', v)} />
+              <InlineSelect label="Plano" value={form.vm_plan} onChange={(v) => update('vm_plan', v)} options={(vmarketPlanOptionsByType[form.vm_product_type] || []).map((plan) => [plan, plan])} />
+              <InlineSelect label="Período de Fidelidade" value={form.vm_loyalty_period} onChange={(v) => update('vm_loyalty_period', v)} options={vmarketPeriodOptions} />
               <InlineField label="Valor por CNPJ" value={form.vm_value_per_cnpj} onChange={(v) => update('vm_value_per_cnpj', v)} type="number" displayValue={money(Number(form.vm_value_per_cnpj || 0))} />
               <ReadOnlyField label="Valor VMarket" value={money(vmarketValue)} />
               <div className="p-3">
@@ -2155,6 +2260,7 @@ function dealToForm(deal?: Deal): DealForm {
     vm_product_type: deal?.organizations?.type || deal?.vm_product_type || deal?.business_type || 'restaurante',
     vm_cnpj_count: String(deal?.vm_cnpj_count ?? ''),
     vm_plan: deal?.vm_plan || deal?.plan || '',
+    vm_loyalty_period: deal?.vm_loyalty_period || 'mensal',
     vm_value_per_cnpj: String(deal?.vm_value_per_cnpj ?? ''),
     contract_legal_name: deal?.contract_legal_name || '',
     contract_tax_id: deal?.contract_tax_id || '',
@@ -2427,6 +2533,54 @@ function FieldsConfigView({ fields, setError, reload }: { fields: CustomField[];
       </div>
       <div className="border-t border-slate-200 bg-emerald-50 p-4 text-sm text-slate-700">
         <b>API direta Pipedrive:</b> a função <code>pipedrive-sync</code> continua responsável por webhooks e mapeamentos. Esta versão adiciona o catálogo fiel de campos para orientar ficha, importação e sincronização.
+      </div>
+    </Panel>
+  </div>
+}
+
+function VmarketPlansView() {
+  const sections: Array<[VmarketPricingRule['type'], string]> = [['restaurante', 'Restaurantes'], ['hotel', 'Hotéis']]
+  const commissionRows = [
+    ['1º mês', '100%', 'Paga após o pagamento da assinatura pelo cliente ou parceiro'],
+    ['2º ao 12º mês', '20%', 'Apurada mensalmente'],
+    ['13º mês em diante', 'Sem comissão', 'Parceiro não recebe mais comissão das assinaturas'],
+  ]
+  return <div className="h-full overflow-y-auto p-5">
+    <Panel className="overflow-hidden">
+      <div className="border-b border-slate-200 bg-white p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2"><FileText size={18} className="text-[#6f5cf6]"/><h2 className="text-lg font-bold">Planos VMarket</h2></div>
+          <Badge tone="bg-emerald-100 text-emerald-700">Regras do contrato de parceria BPO</Badge>
+        </div>
+        <p className="mt-2 text-sm text-slate-500">Tabelas de preços para restaurantes e hotéis. O valor BPO é sugerido automaticamente na ficha do negócio, e o valor editado por CNPJ não pode ultrapassar o preço comercializado pela VMarket.</p>
+      </div>
+      <div className="grid gap-4 p-4">
+        <section className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <h3 className="text-base font-black text-slate-900">Comissão sobre mensalidade</h3>
+          <div className="mt-3 grid gap-2 md:grid-cols-3">
+            {commissionRows.map(([period, commission, note]) => <div key={period} className="rounded border border-slate-200 bg-white p-3 text-sm">
+              <p className="font-black text-slate-800">{period}</p>
+              <p className="mt-1 text-lg font-black text-[#238847]">{commission}</p>
+              <p className="mt-1 text-xs text-slate-500">{note}</p>
+            </div>)}
+          </div>
+        </section>
+        {sections.map(([type, title]) => <section key={type} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+          <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+            <h3 className="text-base font-black text-slate-900">{title}</h3>
+            <p className="text-xs text-slate-500">Valores por CNPJ, por plano e período de fidelidade.</p>
+          </div>
+          <div className="divide-y divide-slate-100">
+            {vmarketPricingRules.filter((rule) => rule.type === type).map((rule) => <div key={`${rule.type}-${rule.range}-${rule.plan}`} className="grid gap-2 p-4 text-sm hover:bg-slate-50 md:grid-cols-[130px_110px_repeat(4,1fr)]">
+              <div><p className="text-xs font-bold uppercase text-slate-400">Faixa</p><p className="font-bold text-slate-900">{rule.range}</p></div>
+              <div><p className="text-xs font-bold uppercase text-slate-400">Plano</p><p className="font-bold text-slate-900">{rule.plan}</p></div>
+              <div><p className="text-xs font-bold uppercase text-slate-400">Mensal</p><p className="font-semibold text-slate-700">{money(rule.monthly)}</p></div>
+              <div><p className="text-xs font-bold uppercase text-slate-400">Mensal BPO</p><p className="font-semibold text-[#238847]">{money(rule.monthlyBpo)}</p></div>
+              <div><p className="text-xs font-bold uppercase text-slate-400">Semestral</p><p className="font-semibold text-slate-700">{money(rule.semester)}</p></div>
+              <div><p className="text-xs font-bold uppercase text-slate-400">Semestral BPO</p><p className="font-semibold text-[#238847]">{money(rule.semesterBpo)}</p></div>
+            </div>)}
+          </div>
+        </section>)}
       </div>
     </Panel>
   </div>
