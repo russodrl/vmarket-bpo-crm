@@ -14,7 +14,7 @@ type ChatRequest = {
 }
 type TomatinhoExpression = 'pensativo' | 'surpreso' | 'feliz' | 'hell-yeah' | 'triste' | 'intrigado' | 'aliviado'
 type TomatinhoAction = {
-  type: 'create_deal' | 'create_person' | 'create_organization' | 'create_activity' | 'create_note' | 'update_focus'
+  type: 'create_deal' | 'create_person' | 'create_organization' | 'create_activity' | 'create_note' | 'update_focus' | 'update_deal' | 'update_person' | 'update_organization'
   payload: JsonRecord
 }
 
@@ -22,6 +22,10 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || ''
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || ''
 const HERMES_CHAT_ENDPOINT = Deno.env.get('HERMES_CHAT_ENDPOINT') || ''
 const HERMES_CHAT_TOKEN = Deno.env.get('HERMES_CHAT_TOKEN') || ''
+const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY') || ''
+const OPENAI_CHAT_MODEL = Deno.env.get('OPENAI_CHAT_MODEL') || 'gpt-4o-mini'
+const OPENAI_TRANSCRIBE_MODEL = Deno.env.get('OPENAI_TRANSCRIBE_MODEL') || 'whisper-1'
+const INTEGRATION_INTERNAL_TOKEN = Deno.env.get('INTEGRATION_INTERNAL_TOKEN') || ''
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
@@ -70,12 +74,19 @@ Deno.serve(async (req: Request) => {
 
     const profile = await getProfile(user.id)
     const crm = await loadCrmSnapshot(profile, payload.contextDealId || null)
+    const files = payload.files || []
     const system = buildSystemPrompt(profile)
     const context = buildContextText(crm)
+    const knowledge = retrieveCrmBpoKnowledge(`${message} ${files.map((file) => `${file.name} ${file.type || ''}`).join(' ')}`)
 
-    let assistant = HERMES_CHAT_ENDPOINT
-      ? await askHermes({ message, files: payload.files || [], history: payload.history || [], system, context })
-      : localTomatinho({ message, files: payload.files || [], crm })
+    let assistant = OPENAI_API_KEY
+      ? await askOpenAI({ message, files, history: payload.history || [], system, context, knowledge })
+      : HERMES_CHAT_ENDPOINT
+        ? await askHermes({ message, files, history: payload.history || [], system, context: `${context}
+
+BASE_DE_CONHECIMENTO_CRM_BPO:
+${knowledge}` })
+        : localTomatinho({ message, files, crm, knowledge })
 
     const actions = Array.isArray(assistant.actions) ? assistant.actions as TomatinhoAction[] : []
     const actionResults = actions.length ? await executeActions(actions, user.id, profile, crm) : []
@@ -92,7 +103,6 @@ Deno.serve(async (req: Request) => {
       reply: assistant.reply || 'Não consegui montar uma resposta agora.',
       expression: normalizeExpression(assistant.expression, assistant.reply || ''),
       actions: actionResults,
-      poweredBy: HERMES_CHAT_ENDPOINT ? 'hermes' : 'tomatinho-local',
     })
   } catch (error) {
     return json({ error: errorMessage(error), reply: 'Erro ao processar. Tente novamente.', expression: 'triste' }, 500)
@@ -157,7 +167,8 @@ async function loadCrmSnapshot(profile: JsonRecord, contextDealId: string | null
 }
 
 function buildSystemPrompt(profile: JsonRecord) {
-  return `Você é o Agente Vmarket BPO, assistente interno do CRM BPO da VMarket. Responda sempre em pt-BR, sem se apresentar, sem saudação, sem rodeios e com o mínimo de tokens possível. Use bullets curtos quando ajudar. Dê apenas a informação objetiva ou execute a ação pedida. Nunca invente dados fora do contexto recebido. Se for criar ou alterar registros, retorne JSON com reply, expression e actions. Expressões permitidas apenas para escolher imagem quando fizer sentido: pensativo, surpreso, feliz, hell-yeah, triste, intrigado, aliviado. Perfil do usuário: ${JSON.stringify(profile)}.`
+  const isAdmin = profile.role === 'admin_vmarket'
+  return `Você é o Agente Vmarket BPO, assistente interno do CRM BPO da VMarket. Responda sempre em pt-BR, sem se apresentar, sem saudação, sem rodeios e com o mínimo de tokens possível. Use bullets curtos quando ajudar. Entenda texto, áudio transcrito e imagens. Nunca diga qual infraestrutura, modelo, endpoint ou ferramenta está usando. Nunca invente dados fora do contexto recebido. Se houver pedido de ação no CRM/Pipedrive, retorne JSON com reply, expression e actions. Respeite permissões: ${isAdmin ? 'usuário administrador, pode agir como administrador nos registros do CRM BPO.' : 'usuário parceiro, só pode agir em registros visíveis/permitidos.'} Ações permitidas: create_deal, create_person, create_organization, create_activity, create_note, update_focus, update_deal, update_person, update_organization. Expressões permitidas: pensativo, surpreso, feliz, hell-yeah, triste, intrigado, aliviado. Perfil do usuário: ${JSON.stringify(profile)}.`
 }
 
 function buildContextText(crm: JsonRecord) {
@@ -185,6 +196,99 @@ function buildContextText(crm: JsonRecord) {
     notas_historico: (crm.history as JsonRecord[]).slice(0, 40),
     etapas: crm.stages,
   })
+}
+
+
+const CRM_BPO_KNOWLEDGE = [
+  { title: 'Visão geral', text: 'CRM BPO organiza funil de Negócios, Contatos, Empresas, Atividades, Avisos, Planos VMarket, Comissões VMarket, Campos, Automações, Distribuição de Leads e Log de Alterações. Admin VMarket vê áreas administrativas; parceiro vê dados próprios ou do BPO permitido.' },
+  { title: 'Ficha do negócio', text: 'Na ficha do negócio há grupos Empresa, Contato, Informações do Negócio, Plataforma VMarket, Serviços Parceiro, anexos/documentos, histórico e foco. Alterações relevantes devem aparecer no histórico em formato Campo: anterior → novo, com data e autor quando disponível.' },
+  { title: 'Histórico', text: 'Histórico central reúne notas, uploads, atividades e mudanças de campos do negócio, empresa e contato vinculados. Deve evitar categoria desnecessária acima do nome do campo e permitir filtro de atividades quando disponível.' },
+  { title: 'Pipedrive', text: 'Integração Pipedrive importa negócios do owner Aleksander, sincroniza etapas do Pipeline de Vendas, campos nativos e campos configuráveis com pipedrive_key. Deals Pipedrive de outro owner ficam sem proprietário no CRM para aparecer em Avisos.' },
+  { title: 'Campos Pipedrive e API', text: 'Tela de campos mostra Mapeamento Pipedrive → CRM BPO e Mapeamento CRM BPO → Pipedrive, incluindo ID Pipedrive, ID CRM BPO, tipos e direção de sincronização. Campos sem pipedrive_key são somente CRM BPO.' },
+  { title: 'Criação e edição', text: 'Usuário pode criar negócio com empresa/contato, criar nota, criar atividade, concluir atividade, marcar ganho/perdido, atualizar foco e editar campos permitidos. Para perdido, motivo é obrigatório.' },
+  { title: 'Lead distribution', text: 'Distribuição de leads usa regras por DDD, estado e fila geral. Conta as cargas de usuários ativos e exclui contas de teste como aspalamar. Registros sem proprietário aparecem em Avisos.' },
+  { title: 'Permissões', text: 'Admin VMarket pode administrar usuários, campos, automações, distribuição, log e exclusões. Parceiro deve ficar limitado ao próprio owner_id/bpo_id e aos dados relacionados permitidos por RLS.' },
+  { title: 'Comercial VMarket', text: 'Valor VMarket e Serviços Parceiro compõem o valor total. Planos VMarket exibem tabelas de Restaurantes e Hotéis, mensal/semestral e valor BPO. Valor por CNPJ não pode ultrapassar valor comercial VMarket.' },
+]
+
+function retrieveCrmBpoKnowledge(query: string) {
+  const terms = asText(query).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').split(/[^a-z0-9]+/).filter((term) => term.length > 2)
+  const scored = CRM_BPO_KNOWLEDGE.map((doc) => {
+    const hay = `${doc.title} ${doc.text}`.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    const score = terms.reduce((sum, term) => sum + (hay.includes(term) ? 1 : 0), 0)
+    return { ...doc, score }
+  }).sort((a, b) => b.score - a.score)
+  return scored.filter((doc) => doc.score > 0).slice(0, 5).concat(scored.filter((doc) => doc.score === 0).slice(0, 2)).map((doc) => `## ${doc.title}\n${doc.text}`).join('\n\n')
+}
+
+function dataUrlToBlob(dataUrl: string) {
+  const match = dataUrl.match(/^data:([^;,]+)?(;base64)?,(.*)$/)
+  if (!match) throw new Error('Arquivo inválido.')
+  const mime = match[1] || 'application/octet-stream'
+  const encoded = match[3] || ''
+  const binary = match[2] ? atob(encoded) : decodeURIComponent(encoded)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
+  return new Blob([bytes], { type: mime })
+}
+
+async function transcribeAudio(file: { name: string; type?: string; content?: string }) {
+  if (!file.content) return ''
+  const form = new FormData()
+  form.append('model', OPENAI_TRANSCRIBE_MODEL)
+  form.append('language', 'pt')
+  form.append('file', dataUrlToBlob(file.content), file.name || 'audio.webm')
+  const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+    method: 'POST',
+    headers: { authorization: `Bearer ${OPENAI_API_KEY}` },
+    body: form,
+  })
+  const data = await res.json().catch(() => ({})) as JsonRecord
+  if (!res.ok) throw new Error(`Falha ao entender áudio: ${asText(data.error && (data.error as JsonRecord).message) || res.status}`)
+  return asText(data.text)
+}
+
+async function askOpenAI(input: { message: string; files: ChatRequest['files']; history: ChatRequest['history']; system: string; context: string; knowledge: string }) {
+  const audioTexts: string[] = []
+  const images = [] as Array<{ type: 'image_url'; image_url: { url: string } }>
+  const otherFiles: string[] = []
+  for (const file of input.files || []) {
+    const type = String(file.type || '')
+    if (type.startsWith('audio/')) {
+      const text = await transcribeAudio(file)
+      if (text) audioTexts.push(`${file.name}: ${text}`)
+    } else if (type.startsWith('image/') && file.content) {
+      images.push({ type: 'image_url', image_url: { url: file.content } })
+    } else {
+      otherFiles.push(`${file.name} (${type || 'arquivo'})`)
+    }
+  }
+  const textParts = [
+    input.message ? `Mensagem do usuário:\n${input.message}` : '',
+    audioTexts.length ? `Áudio transcrito:\n${audioTexts.join('\n')}` : '',
+    otherFiles.length ? `Arquivos anexados sem leitura profunda:\n${otherFiles.join('\n')}` : '',
+    `Contexto CRM:\n${input.context}`,
+    `Base de conhecimento CRM BPO:\n${input.knowledge}`,
+    'Responda JSON puro no formato {"reply":"texto curto","expression":"pensativo|surpreso|feliz|hell-yeah|triste|intrigado|aliviado","actions":[{"type":"...","payload":{}}]}. Se o usuário pedir para criar/editar/executar algo no CRM/Pipedrive e houver dados suficientes, inclua actions. Se faltar dado essencial, pergunte apenas o dado faltante.'
+  ].filter(Boolean).join('\n\n')
+  const messages = [
+    { role: 'system', content: input.system },
+    ...input.history.slice(-6).map((item) => ({ role: item.role, content: item.content })),
+    { role: 'user', content: [{ type: 'text', text: textParts }, ...images] },
+  ]
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { authorization: `Bearer ${OPENAI_API_KEY}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ model: OPENAI_CHAT_MODEL, temperature: 0.2, response_format: { type: 'json_object' }, messages }),
+  })
+  const data = await res.json().catch(() => ({})) as JsonRecord
+  if (!res.ok) throw new Error(asText((data.error as JsonRecord | undefined)?.message) || 'Falha ao processar solicitação.')
+  const content = asText(((data.choices as JsonRecord[] | undefined)?.[0]?.message as JsonRecord | undefined)?.content)
+  try {
+    const parsed = JSON.parse(content)
+    if (typeof parsed.reply === 'string') return parsed
+  } catch { /* ignore */ }
+  return { reply: content || 'Não consegui responder agora.', expression: pickExpression(content || ''), actions: [] }
 }
 
 async function askHermes(input: { message: string; files: ChatRequest['files']; history: ChatRequest['history']; system: string; context: string }) {
@@ -219,7 +323,7 @@ async function askHermes(input: { message: string; files: ChatRequest['files']; 
   }
 }
 
-function localTomatinho(input: { message: string; files: ChatRequest['files']; crm: JsonRecord }) {
+function localTomatinho(input: { message: string; files: ChatRequest['files']; crm: JsonRecord; knowledge: string }) {
   const message = input.message.toLowerCase()
   const deals = input.crm.deals as JsonRecord[]
   const activities = input.crm.activities as JsonRecord[]
@@ -237,7 +341,7 @@ function localTomatinho(input: { message: string; files: ChatRequest['files']; c
     return { expression: 'pensativo', reply: `Resumo rápido:\n• Negócios: ${deals.length}\n• Abertos: ${openDeals.length}\n• Ganhos: ${wonDeals.length}\n• Contatos: ${people.length}\n• Empresas: ${organizations.length}\n• Atividades abertas/atrasadas: ${activities.filter((a) => asText(a.status) === 'open').length}/${overdueActivities.length}\n\nPrincipais negócios abertos:\n${top || 'Nenhum negócio aberto encontrado.'}` }
   }
   if (input.files.length) {
-    return { expression: 'intrigado', reply: `Recebi ${input.files.length} arquivo(s). A análise profunda de arquivo fica ativa quando o endpoint Hermes estiver configurado. Por enquanto consigo responder com base nos dados carregados do CRM.` }
+    return { expression: 'intrigado', reply: 'Não consegui entender o arquivo ainda. Se for urgente, envie o pedido em texto.' }
   }
   return { expression: 'pensativo', reply: 'Peça uma consulta ou ação objetiva no CRM.' }
 }
@@ -262,7 +366,8 @@ async function executeActions(actions: TomatinhoAction[], authUserId: string, pr
 
 async function executeAction(action: TomatinhoAction, authUserId: string, profile: JsonRecord, crm: JsonRecord) {
   const payload = action.payload || {}
-  const ownerId = asText(payload.owner_id) || authUserId
+  const requestedOwnerId = asText(payload.owner_id)
+  const ownerId = profile.role === 'admin_vmarket' && requestedOwnerId ? requestedOwnerId : authUserId
   const bpoId = asText(profile.bpo_id) || null
   if (action.type === 'create_organization') {
     const name = asText(payload.name)
@@ -314,5 +419,71 @@ async function executeAction(action: TomatinhoAction, authUserId: string, profil
     await supabase.from('deal_history').insert({ deal_id: dealId, event_type: 'Edição', title: 'Foco atualizado pelo Agente', description: focusItems.join('\n') })
     return data
   }
+  if (action.type === 'update_deal') {
+    const dealId = asText(payload.deal_id || payload.id)
+    if (!dealId) throw new Error('Informe o negócio.')
+    ensureDealAccess(crm, dealId)
+    const patch: JsonRecord = {}
+    for (const key of ['title', 'status', 'expected_close_date', 'stage_id']) if (payload[key] !== undefined) patch[key] = payload[key] || null
+    if (payload.value !== undefined) patch.value = Number(payload.value || 0) || null
+    if (payload.monthly_purchase !== undefined) patch.monthly_purchase = Number(payload.monthly_purchase || 0) || null
+    if (payload.focus_items !== undefined) patch.focus_items = Array.isArray(payload.focus_items) ? payload.focus_items.map(asText).filter(Boolean) : asText(payload.focus_items).split('\n').map((item) => item.trim()).filter(Boolean)
+    if (!Object.keys(patch).length) throw new Error('Nenhum campo de negócio para atualizar.')
+    const { data, error } = await supabase.from('deals').update(patch).eq('id', dealId).select('id').single()
+    if (error) throw error
+    await supabase.from('deal_history').insert({ deal_id: dealId, event_type: 'Edição', title: 'Negócio atualizado pelo Agente', description: Object.keys(patch).join(', ') })
+    await syncDealToPipedrive(dealId).catch(() => null)
+    return data
+  }
+  if (action.type === 'update_person') {
+    const personId = asText(payload.person_id || payload.id)
+    if (!personId) throw new Error('Informe o contato.')
+    ensurePersonAccess(crm, personId)
+    const patch: JsonRecord = {}
+    if (payload.full_name !== undefined || payload.name !== undefined) patch.full_name = asText(payload.full_name || payload.name)
+    for (const key of ['email', 'phone', 'role_title', 'organization_id']) if (payload[key] !== undefined) patch[key] = payload[key] || null
+    if (!Object.keys(patch).length) throw new Error('Nenhum campo de contato para atualizar.')
+    const { data, error } = await supabase.from('people').update(patch).eq('id', personId).select('id').single()
+    if (error) throw error
+    await syncLinkedDealsToPipedrive('person_id', personId, crm).catch(() => null)
+    return data
+  }
+  if (action.type === 'update_organization') {
+    const organizationId = asText(payload.organization_id || payload.id)
+    if (!organizationId) throw new Error('Informe a empresa.')
+    ensureOrganizationAccess(crm, organizationId)
+    const patch: JsonRecord = {}
+    if (payload.name !== undefined) patch.name = asText(payload.name)
+    for (const key of ['type', 'state', 'city', 'segment']) if (payload[key] !== undefined) patch[key] = payload[key] || null
+    if (payload.monthly_purchase !== undefined) patch.monthly_purchase = Number(payload.monthly_purchase || 0) || null
+    if (payload.cnpjs !== undefined) patch.cnpjs = Number(payload.cnpjs || 0) || null
+    if (!Object.keys(patch).length) throw new Error('Nenhum campo de empresa para atualizar.')
+    const { data, error } = await supabase.from('organizations').update(patch).eq('id', organizationId).select('id').single()
+    if (error) throw error
+    await syncLinkedDealsToPipedrive('organization_id', organizationId, crm).catch(() => null)
+    return data
+  }
   throw new Error(`Ação não suportada: ${action.type}`)
+}
+
+function ensureDealAccess(crm: JsonRecord, dealId: string) {
+  if (!(crm.deals as JsonRecord[]).some((deal) => deal.id === dealId)) throw new Error('Sem permissão para este negócio.')
+}
+function ensurePersonAccess(crm: JsonRecord, personId: string) {
+  if (!(crm.people as JsonRecord[]).some((person) => person.id === personId)) throw new Error('Sem permissão para este contato.')
+}
+function ensureOrganizationAccess(crm: JsonRecord, organizationId: string) {
+  if (!(crm.organizations as JsonRecord[]).some((org) => org.id === organizationId)) throw new Error('Sem permissão para esta empresa.')
+}
+async function syncDealToPipedrive(dealId: string) {
+  if (!INTEGRATION_INTERNAL_TOKEN || !SUPABASE_URL) return
+  await fetch(`${SUPABASE_URL}/functions/v1/pipedrive-sync`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${INTEGRATION_INTERNAL_TOKEN}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ action: 'sync-existing-deal-to-pipedrive', deal_id: dealId }),
+  })
+}
+async function syncLinkedDealsToPipedrive(field: 'person_id' | 'organization_id', id: string, crm: JsonRecord) {
+  const deals = (crm.deals as JsonRecord[]).filter((deal) => deal[field] === id || (field === 'person_id' && deal.people && (deal.people as JsonRecord).id === id) || (field === 'organization_id' && deal.organizations && (deal.organizations as JsonRecord).id === id))
+  for (const deal of deals.slice(0, 10)) if (deal.id) await syncDealToPipedrive(String(deal.id))
 }

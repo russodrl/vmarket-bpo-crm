@@ -131,9 +131,7 @@ export function TomatinhoChat({ session, contextDealId, onReload }: Props) {
   }
 
   return <>
-    <button type="button" onClick={() => setOpen(true)} className="fixed bottom-20 right-4 z-50 flex items-center gap-3 rounded-full bg-[#211746] px-4 py-3 text-sm font-black text-white shadow-2xl ring-4 ring-white/70 transition hover:-translate-y-0.5 hover:bg-[#6f5cf6] md:bottom-6" title="Falar com o agente">
-      <img src={avatarByExpression[currentExpression]} alt="Agente Vmarket BPO" className="h-10 w-10 rounded-full object-cover ring-2 ring-white" />
-      <span className="hidden sm:inline">Agente</span>
+    <button type="button" onClick={() => setOpen(true)} className="fixed bottom-20 right-4 z-50 grid h-16 w-16 place-items-center rounded-full bg-[#211746] text-2xl font-black text-white shadow-2xl ring-4 ring-white/70 transition hover:-translate-y-0.5 hover:bg-[#6f5cf6] md:bottom-6" title="Falar com o agente">!?
     </button>
 
     {open && <div className="fixed inset-0 z-[70] flex justify-end bg-slate-950/20 p-0">
@@ -141,8 +139,8 @@ export function TomatinhoChat({ session, contextDealId, onReload }: Props) {
         <header className="flex items-center gap-3 border-b border-slate-200 bg-[#211746] px-4 py-3 text-white">
           <img src={avatarByExpression[currentExpression]} alt="Agente Vmarket BPO" className="h-14 w-14 rounded-full object-cover ring-2 ring-white" />
           <div className="min-w-0 flex-1">
-            <h2 className="font-black leading-tight">Agente</h2>
-            <p className="text-xs text-white/75">Agente Vmarket BPO</p>
+            <h2 className="font-black leading-tight">Agente Vmarket BPO</h2>
+            <p className="text-xs text-white/75">Tomatinho</p>
           </div>
           <button type="button" onClick={() => setOpen(false)} className="grid h-9 w-9 place-items-center rounded-full bg-white/10 hover:bg-white/20" aria-label="Fechar"><X size={18}/></button>
         </header>
