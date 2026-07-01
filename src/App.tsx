@@ -4236,9 +4236,13 @@ function LeadDistributionView({ users, deals }: { users: CrmUser[]; deals: Deal[
     const companyUsers = activeUsers.filter((user) => companyNameForUser(user) === company)
     const authIds = new Set(companyUsers.map((user) => user.auth_user_id))
     const companyDeals = deals.filter((deal) => deal.owner_id && authIds.has(deal.owner_id))
+    const ddds = [...new Set(companyUsers.map((user) => user.ddd_prefix).filter(Boolean))]
+    const states = [...new Set(companyUsers.map((user) => user.ddd_state).filter(Boolean))]
     return {
       company,
       users: companyUsers,
+      ddds,
+      states,
       received: companyDeals.length,
       open: companyDeals.filter(isDistributionOpenDeal).length,
       won: companyDeals.filter((deal) => deal.status === 'ganho').length,
@@ -4270,16 +4274,16 @@ function LeadDistributionView({ users, deals }: { users: CrmUser[]; deals: Deal[
   return <div className="h-full overflow-auto p-4">
     <div className="mb-4">
       <h2 className="text-2xl font-black tracking-[-0.04em] text-slate-950">Distribuição de Leads</h2>
-      <p className="mt-1 text-sm text-slate-500">Ordem de distribuição: primeiro escolhe a empresa com menor carga na fila. Depois entrega para o próximo usuário ativo dentro dessa empresa. A fila exclui usuários com permissão Admin ou Teste, usuários desativados, deletados e contas de teste.</p>
+      <p className="mt-1 text-sm text-slate-500">Ordem de distribuição: primeiro respeita o DDD do lead, depois o estado, e só então a fila geral. Em cada etapa a escolha é por empresa parceira, não por usuário solto. Depois entrega para o próximo usuário ativo dentro da empresa escolhida. A fila exclui usuários com permissão Admin ou Teste, usuários desativados, deletados e contas de teste.</p>
     </div>
     <div className="grid gap-4 xl:grid-cols-[1fr_2fr]">
       <Panel className="overflow-hidden">
-        <div className="border-b border-slate-200 p-4"><h3 className="font-black">Próximo da fila por empresa</h3><p className="text-xs text-slate-500">Cada novo lead vai para a próxima empresa e, dentro dela, para o próximo usuário.</p></div>
-        <div className="p-4">{queueCard(nextCompany?.company || 'Fila de empresa', nextCompany ? `${nextCompany.open} leads abertos · ${nextCompany.users.length} usuário(s)` : 'Nenhuma empresa ativa', nextUserInCompany, nextCompany ? `Recebidos ${nextCompany.received} · Ganhos ${nextCompany.won} · Perdidos ${nextCompany.lost}` : undefined)}</div>
+        <div className="border-b border-slate-200 p-4"><h3 className="font-black">Próxima empresa na fila geral</h3><p className="text-xs text-slate-500">Para cada lead, o CRM tenta primeiro empresas com o DDD do contato, depois o estado, depois esta fila geral.</p></div>
+        <div className="p-4">{queueCard(nextCompany?.company || 'Fila de empresa', nextCompany ? `${nextCompany.open} leads abertos · ${nextCompany.users.length} usuário(s)` : 'Nenhuma empresa ativa', nextUserInCompany, nextCompany ? `DDDs ${nextCompany.ddds.join(', ') || '-'} · Estados ${nextCompany.states.join(', ') || '-'} · Recebidos ${nextCompany.received}` : undefined)}</div>
       </Panel>
       <Panel className="overflow-hidden">
-        <div className="border-b border-slate-200 p-4"><h3 className="font-black">Fila das empresas</h3><p className="text-xs text-slate-500">Empresas com menos leads abertos aparecem primeiro.</p></div>
-        <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">{companyStats.length ? companyStats.map((company) => queueCard(company.company, `${company.open} abertos · ${company.received} recebidos`, orderUsers(company.users)[0], `${company.users.length} usuário(s) ativo(s)`)) : <p className="text-sm text-slate-500">Nenhuma empresa ativa mapeada.</p>}</div>
+        <div className="border-b border-slate-200 p-4"><h3 className="font-black">Fila das empresas</h3><p className="text-xs text-slate-500">Empresas aparecem na fila do DDD ou estado quando algum usuário elegível da empresa tem esse DDD/estado.</p></div>
+        <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">{companyStats.length ? companyStats.map((company) => queueCard(company.company, `${company.open} abertos · ${company.received} recebidos`, orderUsers(company.users)[0], `DDDs ${company.ddds.join(', ') || '-'} · Estados ${company.states.join(', ') || '-'}`)) : <p className="text-sm text-slate-500">Nenhuma empresa ativa mapeada.</p>}</div>
       </Panel>
     </div>
     <Panel className="mt-4 overflow-hidden">
