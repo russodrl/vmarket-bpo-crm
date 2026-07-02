@@ -4661,7 +4661,9 @@ function AdminUsersView({ users, session, profile, reload, setError }: {
   async function setInitialPassword(user: CrmUser) {
     const password = passwordDrafts[user.id] || ''
     if (password.length < 8) {
-      setError('A senha precisa ter pelo menos 8 caracteres.')
+      const validationMessage = 'A senha precisa ter pelo menos 8 caracteres.'
+      setError(validationMessage)
+      window.alert(validationMessage)
       return
     }
     setBusyId(`password-${user.id}`)
@@ -4670,10 +4672,14 @@ function AdminUsersView({ users, session, profile, reload, setError }: {
     try {
       await callAdminFunction({ action: 'set-initial-password', crm_user_id: user.id, password })
       setPasswordDrafts((current) => ({ ...current, [user.id]: '' }))
-      setMessage(`Senha inicial definida para ${user.full_name}.`)
+      const successMessage = `Senha de ${user.full_name} alterada com sucesso.`
+      setMessage(successMessage)
+      window.alert(successMessage)
       await reload()
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      const failureMessage = e instanceof Error ? e.message : String(e)
+      setError(failureMessage)
+      window.alert(`Não foi possível alterar a senha: ${failureMessage}`)
     } finally {
       setBusyId('')
     }
