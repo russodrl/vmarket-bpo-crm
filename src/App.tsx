@@ -1234,6 +1234,18 @@ function App() {
     return syncRes.data || { ok: true }
   }
 
+  async function syncNoteToPipedrive(noteId: string) {
+    const syncRes = await supabase.functions.invoke('pipedrive-sync', { body: { action: 'sync-note-to-pipedrive', note_id: noteId } })
+    if (syncRes.error || syncRes.data?.error) console.warn('Pipedrive note sync unavailable', syncRes.error || syncRes.data?.error)
+    return syncRes.data || { ok: !syncRes.error, ignored: Boolean(syncRes.error) }
+  }
+
+  async function syncActivityToPipedrive(activityId: string) {
+    const syncRes = await supabase.functions.invoke('pipedrive-sync', { body: { action: 'sync-activity-to-pipedrive', activity_id: activityId } })
+    if (syncRes.error || syncRes.data?.error) console.warn('Pipedrive activity sync unavailable', syncRes.error || syncRes.data?.error)
+    return syncRes.data || { ok: !syncRes.error, ignored: Boolean(syncRes.error) }
+  }
+
   async function moveDeal(stageId: string, dealId = selectedId) {
     if (!dealId) return
     const deal = deals.find((d) => d.id === dealId)
@@ -1255,13 +1267,19 @@ function App() {
   async function completeActivity(id: string) {
     const { error } = await supabase.from('activities').update({ status: 'done', completed_at: new Date().toISOString() }).eq('id', id)
     if (error) setError(error.message)
-    else await loadAll()
+    else {
+      await syncActivityToPipedrive(id)
+      await loadAll()
+    }
   }
 
   async function markActivityTodo(id: string) {
     const { error } = await supabase.from('activities').update({ status: 'open', completed_at: null }).eq('id', id)
     if (error) setError(error.message)
-    else await loadAll()
+    else {
+      await syncActivityToPipedrive(id)
+      await loadAll()
+    }
   }
 
   async function updateActivity(activityId: string, draft: ActivityEditDraft) {
@@ -1291,6 +1309,7 @@ function App() {
         description: title,
       })
     }
+    await syncActivityToPipedrive(activityId)
     await loadAll()
   }
 
@@ -1301,7 +1320,7 @@ function App() {
     const title = activity.title.trim()
     if (!title) throw new Error('Informe o título da atividade.')
     try {
-      const { error: activityErr } = await supabase.from('activities').insert({
+      const { data: newActivityRow, error: activityErr } = await supabase.from('activities').insert({
         title,
         activity_type: activity.activity_type,
         due_at: dueAt,
@@ -1312,7 +1331,7 @@ function App() {
         person_id: detailDeal.person_id,
         owner_id: detailDeal.owner_id || session?.user.id || null,
         bpo_id: detailDeal.bpo_id,
-      })
+      }).select('id').single()
       if (activityErr) throw activityErr
       await supabase.from('deal_history').insert({
         deal_id: detailDeal.id,
@@ -1320,6 +1339,7 @@ function App() {
         title: 'Atividade criada',
         description: title,
       })
+      if (newActivityRow?.id) await syncActivityToPipedrive(newActivityRow.id)
       await loadAll()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -1333,13 +1353,15 @@ function App() {
     if (!text) throw new Error('Escreva uma anotação.')
     setError('')
     try {
-      const { error: noteErr } = await supabase.from('deal_history').insert({
+      const { data: newNoteRow, error: noteErr } = await supabase.from('deal_history').insert({
         deal_id: detailDeal.id,
         event_type: 'Anotação',
         title: 'Anotação adicionada',
         description: text,
-      })
+        actor_id: session?.user.id || null,
+      }).select('id').single()
       if (noteErr) throw noteErr
+      if (newNoteRow?.id) await syncNoteToPipedrive(newNoteRow.id)
       await loadAll()
     } catch (e) {
       setError(errorMessage(e))

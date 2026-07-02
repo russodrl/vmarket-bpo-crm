@@ -7,8 +7,10 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 type JsonRecord = Record<string, unknown>
 type SyncPayload = {
-  action?: 'webhook' | 'sync-deal-to-pipedrive' | 'sync-existing-deal-to-pipedrive' | 'sync-existing-deal-stage-to-pipedrive'
+  action?: 'webhook' | 'sync-deal-to-pipedrive' | 'sync-existing-deal-to-pipedrive' | 'sync-existing-deal-stage-to-pipedrive' | 'sync-note-to-pipedrive' | 'sync-activity-to-pipedrive'
   deal_id?: string
+  note_id?: string
+  activity_id?: string
 }
 
 type CustomFieldRow = {
@@ -74,6 +76,20 @@ Deno.serve(async (req: Request) => {
       const user = await requireInternalOrUserAuth(req)
       if (!payload.deal_id) return json({ error: 'deal_id is required' }, 400)
       const result = await syncExistingDealToPipedrive(payload.deal_id, user?.id || null)
+      return json(result)
+    }
+
+    if (action === 'sync-note-to-pipedrive') {
+      const user = await requireInternalOrUserAuth(req)
+      if (!payload.note_id) return json({ error: 'note_id is required' }, 400)
+      const result = await syncCrmNoteToPipedrive(payload.note_id, user?.id || null)
+      return json(result)
+    }
+
+    if (action === 'sync-activity-to-pipedrive') {
+      const user = await requireInternalOrUserAuth(req)
+      if (!payload.activity_id) return json({ error: 'activity_id is required' }, 400)
+      const result = await syncCrmActivityToPipedrive(payload.activity_id, user?.id || null)
       return json(result)
     }
 
@@ -305,6 +321,84 @@ async function syncExistingDealToPipedrive(dealId: string, userId: string | null
   const external = await findExternalRecord('deal', dealId)
   if (!external?.external_id) return { ok: true, ignored: true, reason: 'Deal has no Pipedrive external record', deal_id: dealId }
   return syncDealToPipedrive(dealId, userId)
+}
+
+async function syncCrmNoteToPipedrive(noteId: string, userId: string | null) {
+  const { data: note, error } = await supabase
+    .from('deal_history')
+    .select('*, deals(id, owner_id, stage_id, pipeline_stages(*))')
+    .eq('id', noteId)
+    .maybeSingle()
+  if (error) throw error
+  if (!note) return { ok: true, ignored: true, reason: 'Note not found', note_id: noteId }
+  if (!String(note.event_type || '').toLowerCase().includes('anot')) return { ok: true, ignored: true, reason: 'History row is not a CRM note', note_id: noteId }
+  const deal = note.deals as JsonRecord | null
+  if (!deal?.id) return { ok: true, ignored: true, reason: 'Note has no deal', note_id: noteId }
+  const ownerId = stringOrNull(deal.owner_id)
+  if (userId && ownerId && ownerId !== userId) throw new Error('User cannot sync a note for a deal owned by another CRM user')
+  const pipelineStage = (deal.pipeline_stages || {}) as JsonRecord
+  if (stringOrNull(pipelineStage.pipeline_name) !== 'Pipeline de Vendas') return { ok: true, ignored: true, reason: 'Deal is not in Pipeline de Vendas', note_id: noteId }
+  const externalDeal = await findExternalRecord('deal', String(deal.id))
+  if (!externalDeal?.external_id) return { ok: true, ignored: true, reason: 'Deal has no Pipedrive external record', note_id: noteId }
+
+  const actorName = await crmUserNameForProfile(stringOrNull(note.actor_id) || userId)
+  const prefix = actorName || 'Usuário CRM BPO'
+  const title = String(note.title || 'Anotação CRM BPO')
+  const description = String(note.description || '').trim()
+  const marker = `CRM BPO note ID ${noteId}`
+  const content = `${prefix}: ${title}${description ? `\n\n${description}` : ''}\n\n${marker}`
+  const response = await pipedrive('/notes', { method: 'POST', body: { deal_id: Number(externalDeal.external_id), content } }) as JsonRecord
+  const pdNote = (response.data || response) as JsonRecord
+  await supabase.from('deal_history').insert({ deal_id: String(deal.id), event_type: 'Integração', title: 'Anotação enviada ao Pipedrive', description: `Pipedrive note ID ${pdNote.id || 'criado'}` })
+  return { ok: true, note_id: noteId, deal_id: String(deal.id), pipedrive_deal_id: externalDeal.external_id, pipedrive_note_id: pdNote.id || null }
+}
+
+async function syncCrmActivityToPipedrive(activityId: string, userId: string | null) {
+  const integration = await getIntegration()
+  const { data: activity, error } = await supabase
+    .from('activities')
+    .select('*, deals(id, owner_id, stage_id, pipeline_stages(*)), organizations(*), people(*)')
+    .eq('id', activityId)
+    .maybeSingle()
+  if (error) throw error
+  if (!activity) return { ok: true, ignored: true, reason: 'Activity not found', activity_id: activityId }
+  const deal = activity.deals as JsonRecord | null
+  if (!deal?.id) return { ok: true, ignored: true, reason: 'Activity has no deal', activity_id: activityId }
+  const ownerId = stringOrNull(deal.owner_id)
+  if (userId && ownerId && ownerId !== userId) throw new Error('User cannot sync an activity for a deal owned by another CRM user')
+  const pipelineStage = (deal.pipeline_stages || {}) as JsonRecord
+  if (stringOrNull(pipelineStage.pipeline_name) !== 'Pipeline de Vendas') return { ok: true, ignored: true, reason: 'Deal is not in Pipeline de Vendas', activity_id: activityId }
+  const externalDeal = await findExternalRecord('deal', String(deal.id))
+  if (!externalDeal?.external_id) return { ok: true, ignored: true, reason: 'Deal has no Pipedrive external record', activity_id: activityId }
+
+  const externalActivity = await findExternalRecord('activity', activityId)
+  const actorName = await crmUserNameForProfile(userId || stringOrNull(activity.owner_id))
+  const prefix = actorName || 'Usuário CRM BPO'
+  const due = splitDueAt(stringOrNull(activity.due_at))
+  const body: JsonRecord = {
+    subject: `${prefix}: ${String(activity.title || 'Atividade CRM BPO')}`,
+    type: String(activity.activity_type || 'task'),
+    done: activity.status === 'done' ? 1 : 0,
+    note: `${prefix}: ${String(activity.note || '').trim() || String(activity.title || 'Atividade CRM BPO')}`,
+    deal_id: Number(externalDeal.external_id),
+    user_id: ALEKSANDER_PIPEDRIVE_USER_ID || undefined,
+    ...(due.due_date ? { due_date: due.due_date } : {}),
+    ...(due.due_time ? { due_time: due.due_time } : {}),
+  }
+  const orgExternal = activity.organization_id ? await findExternalRecord('organization', String(activity.organization_id)) : null
+  const personExternal = activity.person_id ? await findExternalRecord('person', String(activity.person_id)) : null
+  if (orgExternal?.external_id) body.org_id = Number(orgExternal.external_id)
+  if (personExternal?.external_id) body.person_id = Number(personExternal.external_id)
+
+  const response = externalActivity?.external_id
+    ? await pipedrive(`/activities/${externalActivity.external_id}`, { method: 'PUT', body }) as JsonRecord
+    : await pipedrive('/activities', { method: 'POST', body }) as JsonRecord
+  const pdActivity = (response.data || response) as JsonRecord
+  const externalId = String(pdActivity.id || externalActivity?.external_id || '')
+  if (!externalId) throw new Error('Pipedrive did not return an activity id')
+  await upsertExternalRecord(integration.id, 'activity', activityId, externalId, pdActivity)
+  await supabase.from('deal_history').insert({ deal_id: String(deal.id), event_type: 'Integração', title: externalActivity?.external_id ? 'Atividade atualizada no Pipedrive' : 'Atividade enviada ao Pipedrive', description: `Pipedrive activity ID ${externalId}` })
+  return { ok: true, activity_id: activityId, deal_id: String(deal.id), pipedrive_deal_id: externalDeal.external_id, pipedrive_activity_id: externalId }
 }
 
 async function ensurePipedriveOrganization(integrationId: string, organizationId: string, organization: JsonRecord) {
@@ -732,6 +826,29 @@ async function finishAutomationExecution(id: string | undefined, patch: JsonReco
   if (!id) return
   const { error } = await supabase.from('automation_rule_executions').update(patch).eq('id', id)
   if (error) throw error
+}
+
+async function crmUserNameForProfile(profileId: string | null) {
+  if (!profileId) return null
+  const { data: crmUser } = await supabase
+    .from('crm_users')
+    .select('full_name')
+    .eq('auth_user_id', profileId)
+    .maybeSingle()
+  if (crmUser?.full_name) return String(crmUser.full_name)
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('full_name')
+    .eq('id', profileId)
+    .maybeSingle()
+  return profile?.full_name ? String(profile.full_name) : null
+}
+
+function splitDueAt(value: string | null) {
+  if (!value) return { due_date: null, due_time: null }
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return { due_date: value.slice(0, 10), due_time: null }
+  return { due_date: date.toISOString().slice(0, 10), due_time: date.toISOString().slice(11, 16) }
 }
 
 function stringOrNull(value: unknown) {
