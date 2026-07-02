@@ -4731,7 +4731,8 @@ function AdminUsersView({ users, session, profile, reload, setError }: {
     if (user.password_reset_sent_at) return <Badge tone="bg-purple-100 text-purple-700">Redefinição Enviada</Badge>
     return null
   }
-  const currentAdminInUsers = Boolean(session?.user?.id && users.some((user) => user.auth_user_id === session.user.id || user.email?.toLowerCase() === session.user.email?.toLowerCase()))
+  const isCurrentSessionUser = (user: CrmUser) => Boolean(session?.user?.id && (user.auth_user_id === session.user.id || user.email?.toLowerCase() === session.user.email?.toLowerCase()))
+  const currentAdminInUsers = users.some((user) => isCurrentSessionUser(user))
   const adminListUser: CrmUser | null = session?.user && profile && !currentAdminInUsers ? {
     id: profile.crm_user_id || session.user.id,
     full_name: profile.full_name || session.user.user_metadata?.full_name || session.user.email || 'Admin',
@@ -4862,7 +4863,7 @@ function AdminUsersView({ users, session, profile, reload, setError }: {
               <div><Badge tone="bg-purple-100 text-purple-700">{crmPermissionLabel(user)}</Badge></div>
               <div><b>DDD {user.ddd_prefix || '-'}</b><p className="mt-1 text-xs text-slate-500">{user.ddd_state || 'Estado não informado'}</p></div>
               <input value={passwordDrafts[user.id] || ''} onChange={(e) => setPasswordDrafts((current) => ({ ...current, [user.id]: e.target.value }))} className="rounded border border-slate-300 px-3 py-2 text-sm" placeholder="Senha inicial" type="password" autoComplete="new-password" />
-              <button type="button" onClick={() => void setInitialPassword(user)} disabled={busyId === `password-${user.id}` || crmPermissionLabel(user) === 'Admin'} className="rounded border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-60" title={crmPermissionLabel(user) === 'Admin' ? 'Não é possível alterar senha de Admin por aqui.' : undefined}>{busyId === `password-${user.id}` ? 'Salvando...' : 'Definir senha'}</button>
+              <button type="button" onClick={() => void setInitialPassword(user)} disabled={busyId === `password-${user.id}` || isCurrentSessionUser(user)} className="rounded border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-60" title={isCurrentSessionUser(user) ? 'Não é possível alterar a senha do admin logado por aqui.' : undefined}>{busyId === `password-${user.id}` ? 'Salvando...' : 'Definir senha'}</button>
               <button type="button" onClick={() => void sendAccessEmail(user)} disabled={busyId === user.id || crmPermissionLabel(user) === 'Admin'} className="rounded border border-[#238847] px-3 py-2 text-sm font-bold text-[#238847] hover:bg-emerald-50 disabled:opacity-60">{busyId === user.id ? 'Enviando...' : user.auth_user_id ? 'Redefinir senha' : 'Enviar acesso'}</button>
               <div className="flex flex-wrap gap-1">{resetStatusBadge(user) || '-'}</div>
               <AdminUserActionMenu user={user} busyId={busyId} open={actionMenuId === user.id} onToggle={() => setActionMenuId((current) => current === user.id ? '' : user.id)} onClose={() => setActionMenuId('')} onSetPermission={(permission) => void setUserPermission(user, permission)} onDelete={() => void setUserStatus(user, 'deleted')} onDisable={() => void setUserStatus(user, 'disabled')} />
