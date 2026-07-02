@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
-import { Mic, Paperclip, Send, X } from 'lucide-react'
+import { HelpCircle, Mic, Paperclip, Send, X } from 'lucide-react'
 import { supabase } from './supabase'
 
 type BpoAgentExpression = 'pensativo' | 'surpreso' | 'feliz' | 'hell-yeah' | 'triste' | 'intrigado' | 'aliviado'
@@ -59,6 +59,7 @@ export function BpoAgentChat({ session, contextDealId, onReload }: Props) {
   const [speechSupported, setSpeechSupported] = useState(true)
   const [helpBubbleVisible, setHelpBubbleVisible] = useState(false)
   const [helpPhraseIndex, setHelpPhraseIndex] = useState(0)
+  const [helpPromptCycle, setHelpPromptCycle] = useState(0)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const mediaStreamRef = useRef<MediaStream | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
@@ -94,12 +95,23 @@ export function BpoAgentChat({ session, contextDealId, onReload }: Props) {
       setHelpBubbleVisible(false)
       return
     }
-    const timer = window.setTimeout(() => {
+    const showTimer = window.setTimeout(() => {
       setHelpPhraseIndex((current) => (current + 1) % helpPhrases.length)
       setHelpBubbleVisible(true)
-    }, messages.length ? 45000 : 18000)
-    return () => window.clearTimeout(timer)
-  }, [open, messages.length])
+    }, 300000)
+    return () => {
+      window.clearTimeout(showTimer)
+    }
+  }, [open, helpPromptCycle])
+
+  useEffect(() => {
+    if (open || !helpBubbleVisible) return
+    const hideTimer = window.setTimeout(() => {
+      setHelpBubbleVisible(false)
+      setHelpPromptCycle((current) => current + 1)
+    }, 15000)
+    return () => window.clearTimeout(hideTimer)
+  }, [open, helpBubbleVisible])
 
   useEffect(() => () => stopAudioMeter(), [])
 
@@ -269,14 +281,30 @@ export function BpoAgentChat({ session, contextDealId, onReload }: Props) {
     setHelpBubbleVisible(false)
   }
 
+  function dismissHelpPrompt() {
+    setHelpBubbleVisible(false)
+    setHelpPromptCycle((current) => current + 1)
+  }
+
   return <>
+    {!open && <button type="button" onClick={openChat} className="fixed right-4 top-4 z-50 inline-flex items-center gap-1.5 rounded-full border border-violet-100 bg-white px-3 py-2 text-xs font-black uppercase tracking-wide text-[#211746] shadow-lg transition hover:-translate-y-0.5 hover:border-[#6f5cf6] hover:text-[#6f5cf6]" title="Abrir ajuda do Tomatinho">
+      <HelpCircle size={16}/>
+      Ajuda
+    </button>}
     <div className="fixed bottom-20 right-4 z-50 md:bottom-6">
-      {!open && helpBubbleVisible && <button type="button" onClick={openChat} className="absolute bottom-20 right-0 w-44 rounded-2xl rounded-br-sm border border-violet-100 bg-white px-4 py-3 text-left text-sm font-bold text-[#211746] shadow-2xl">
-        {helpPhrases[helpPhraseIndex]}
-      </button>}
-      <button type="button" onClick={openChat} className="grid h-16 w-16 place-items-center overflow-hidden rounded-full bg-[#211746] text-2xl font-black text-white shadow-2xl ring-4 ring-white/70 transition hover:-translate-y-0.5 hover:bg-[#6f5cf6]" title="Falar com o Tomatinho">
-        <img src={avatarByExpression.pensativo} alt="Tomatinho" className="h-full w-full object-cover" />
-      </button>
+      {!open && helpBubbleVisible && <>
+        <button type="button" onClick={openChat} className="absolute bottom-20 right-0 w-44 rounded-2xl rounded-br-sm border border-violet-100 bg-white px-4 py-3 text-left text-sm font-bold text-[#211746] shadow-2xl">
+          {helpPhrases[helpPhraseIndex]}
+        </button>
+        <div className="relative h-16 w-16">
+          <button type="button" onClick={openChat} className="grid h-16 w-16 place-items-center overflow-hidden rounded-full bg-[#211746] text-2xl font-black text-white shadow-2xl ring-4 ring-white/70 transition hover:-translate-y-0.5 hover:bg-[#6f5cf6]" title="Falar com o Tomatinho">
+            <img src={avatarByExpression.pensativo} alt="Tomatinho" className="h-full w-full object-cover" />
+          </button>
+          <button type="button" onClick={dismissHelpPrompt} className="absolute -right-1 -top-1 grid h-6 w-6 place-items-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-md hover:bg-slate-50 hover:text-rose-600" aria-label="Fechar ajuda do Tomatinho" title="Fechar">
+            <X size={13}/>
+          </button>
+        </div>
+      </>}
     </div>
 
     {open && <div className="fixed inset-0 z-[70] flex justify-end bg-slate-950/20 p-0">
