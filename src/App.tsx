@@ -4534,8 +4534,8 @@ function CrmUserTallyDetails({ user, onUpdate }: { user: CrmUser; onUpdate: (upd
   </div>
 }
 
-type CrmPermission = 'Admin' | 'BPO' | 'Vendas' | 'Teste'
-const crmPermissionOptions: CrmPermission[] = ['Admin', 'BPO', 'Vendas', 'Teste']
+type CrmPermission = 'Admin' | 'BPO' | 'Gestor' | 'Vendas' | 'Teste'
+const crmPermissionOptions: CrmPermission[] = ['Admin', 'BPO', 'Gestor', 'Vendas', 'Teste']
 const crmStatusLabel: Record<CrmUser['status'], string> = { active: 'Ativo', pending: 'Pendente', invited: 'Convidado', disabled: 'Desativado', deleted: 'Deletado' }
 const crmPermissionLabel = (user: CrmUser) => user.permission || (user.email?.toLowerCase().includes('teste') ? 'Teste' : 'BPO')
 

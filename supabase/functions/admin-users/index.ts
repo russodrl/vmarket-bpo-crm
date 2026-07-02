@@ -34,7 +34,7 @@ function cleanEmail(email: unknown) {
   return String(email || '').trim().toLowerCase()
 }
 
-const permissionOptions = ['Admin', 'BPO', 'Vendas', 'Teste'] as const
+const permissionOptions = ['Admin', 'BPO', 'Gestor', 'Vendas', 'Teste'] as const
 function cleanPermission(value: unknown) {
   const permission = String(value || 'BPO').trim()
   return permissionOptions.includes(permission as typeof permissionOptions[number]) ? permission : 'BPO'
