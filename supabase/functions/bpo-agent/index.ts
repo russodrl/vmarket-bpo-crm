@@ -79,13 +79,13 @@ Deno.serve(async (req: Request) => {
     const context = buildContextText(crm)
     const knowledge = retrieveCrmBpoKnowledge(`${message} ${files.map((file) => `${file.name} ${file.type || ''}`).join(' ')}`)
 
-    let assistant = OPENAI_API_KEY
-      ? await askOpenAI({ message, files, history: payload.history || [], system, context, knowledge })
-      : HERMES_CHAT_ENDPOINT
-        ? await askHermes({ message, files, history: payload.history || [], system, context: `${context}
+    let assistant = HERMES_CHAT_ENDPOINT
+      ? await askHermes({ message, files, history: payload.history || [], system, context: `${context}
 
 BASE_DE_CONHECIMENTO_CRM_BPO:
 ${knowledge}` })
+      : OPENAI_API_KEY
+        ? await askOpenAI({ message, files, history: payload.history || [], system, context, knowledge })
         : localBpoAgent({ message, files, crm, knowledge })
 
     const actions = Array.isArray(assistant.actions) ? assistant.actions as BpoAgentAction[] : []
