@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
-import { HelpCircle, Mic, Paperclip, Send, X } from 'lucide-react'
+import { Mic, Paperclip, Send, X } from 'lucide-react'
 import { supabase } from './supabase'
 
 type BpoAgentExpression = 'pensativo' | 'surpreso' | 'feliz' | 'hell-yeah' | 'triste' | 'intrigado' | 'aliviado'
@@ -20,6 +20,7 @@ type Props = {
   session: Session
   contextDealId?: string | null
   onReload?: () => Promise<void> | void
+  openRequest?: number
 }
 
 const avatarByExpression: Record<BpoAgentExpression, string> = {
@@ -47,7 +48,7 @@ function fileToPayload(file: File): Promise<ChatAttachment> {
   })
 }
 
-export function BpoAgentChat({ session, contextDealId, onReload }: Props) {
+export function BpoAgentChat({ session, contextDealId, onReload, openRequest = 0 }: Props) {
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -84,6 +85,12 @@ export function BpoAgentChat({ session, contextDealId, onReload }: Props) {
   const busyRef = useRef(busy)
 
   const currentExpression = messages.findLast((message) => message.role === 'assistant')?.expression || 'pensativo'
+
+  useEffect(() => {
+    if (!openRequest) return
+    setOpen(true)
+    setHelpBubbleVisible(false)
+  }, [openRequest])
 
   useEffect(() => { inputRef.current = input }, [input])
   useEffect(() => { attachmentsRef.current = attachments }, [attachments])
@@ -287,10 +294,6 @@ export function BpoAgentChat({ session, contextDealId, onReload }: Props) {
   }
 
   return <>
-    {!open && <button type="button" onClick={openChat} className="fixed right-4 top-4 z-50 inline-flex items-center gap-1.5 rounded-full border border-violet-100 bg-white px-3 py-2 text-xs font-black uppercase tracking-wide text-[#211746] shadow-lg transition hover:-translate-y-0.5 hover:border-[#6f5cf6] hover:text-[#6f5cf6]" title="Abrir ajuda do Tomatinho">
-      <HelpCircle size={16}/>
-      Ajuda
-    </button>}
     <div className="fixed bottom-20 right-4 z-50 md:bottom-6">
       {!open && helpBubbleVisible && <>
         <button type="button" onClick={openChat} className="absolute bottom-20 right-0 w-44 rounded-2xl rounded-br-sm border border-violet-100 bg-white px-4 py-3 text-left text-sm font-bold text-[#211746] shadow-2xl">

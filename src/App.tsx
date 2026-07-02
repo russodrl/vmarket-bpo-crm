@@ -35,7 +35,7 @@ import {
   MoreHorizontal,
   Video,
   Wrench,
-  RefreshCw,
+  HelpCircle,
   Search,
   Settings,
   Tags,
@@ -1008,6 +1008,7 @@ function App() {
   const [detailOrganizationId, setDetailOrganizationId] = useState(() => new URLSearchParams(window.location.search).get('organization') || '')
   const [newDeal, setNewDeal] = useState<NewDeal>(() => blankNewDeal())
   const [userProfileOpen, setUserProfileOpen] = useState(false)
+  const [agentOpenRequest, setAgentOpenRequest] = useState(0)
   const pipelineNames = useMemo(() => {
     const names = stages.map((stage) => stage.pipeline_name).filter((name): name is string => Boolean(name))
     return [...new Set(names)]
@@ -1716,7 +1717,7 @@ function App() {
           <header className="sticky top-0 z-30 flex min-h-14 flex-wrap items-center gap-3 border-b border-slate-200 bg-white px-4 py-2 md:h-14 md:flex-nowrap md:px-5 md:py-0">
             <h1 className="min-w-[155px] text-base font-semibold">{navItems.find(([key]) => key === activeView)?.[2]}</h1>
             <GlobalSearchBox value={globalSearch} onChange={setGlobalSearch} results={globalSearchResults} onOpen={openSearchResult} />
-            <button onClick={loadAll} className="grid h-9 w-9 place-items-center rounded-full border border-slate-200 text-slate-600 hover:bg-slate-50"><RefreshCw size={17}/></button>
+            <button type="button" onClick={() => setAgentOpenRequest((current) => current + 1)} className="grid h-9 w-9 place-items-center rounded-full border border-slate-200 text-slate-600 hover:bg-slate-50" title="Abrir ajuda do Tomatinho" aria-label="Abrir ajuda do Tomatinho"><HelpCircle size={17}/></button>
             <button type="button" onClick={() => setUserProfileOpen(true)} className="flex items-center gap-2 rounded-full border border-transparent px-2 py-1 text-left hover:border-slate-200 hover:bg-slate-50" title="Editar meu usuário">
               <span className="grid h-8 w-8 place-items-center rounded-full bg-slate-100 text-xs font-bold text-slate-600">{currentUserName.slice(0,1).toUpperCase()}</span>
               <span className="max-w-[150px] text-xs font-semibold leading-tight text-slate-700"><span className="block truncate">{currentUserName}</span><span className="font-normal text-slate-500">{currentUserPermission}</span></span>
@@ -1753,7 +1754,7 @@ function App() {
         onClose={() => setUserProfileOpen(false)}
         onSave={async (draft) => { await saveCurrentUserProfile(draft); setUserProfileOpen(false) }}
       />}
-      <BpoAgentChat session={session} onReload={loadAll} />
+      <BpoAgentChat session={session} onReload={loadAll} openRequest={agentOpenRequest} />
     </main>
   )
 }
