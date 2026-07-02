@@ -1927,7 +1927,7 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
         </label>}
         <button onClick={() => setShowCreateDeal(true)} className="order-3 h-11 rounded border border-[#087d3e] bg-[#238847] px-4 text-sm font-bold text-white shadow-sm hover:bg-[#1f7a40] md:order-none md:h-auto md:py-1.5">+ Negócio</button>
         <div className="relative order-3 md:hidden">
-          <button type="button" onClick={() => setShowFilters((current) => !current)} className={cn('inline-flex h-11 items-center gap-2 rounded border px-3 text-sm font-semibold shadow-sm', activeDealFilterId || activeOwnerFilterId ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50')}>
+          <button type="button" data-filter-toggle onClick={() => setShowFilters((current) => !current)} className={cn('inline-flex h-11 items-center gap-2 rounded border px-3 text-sm font-semibold shadow-sm', activeDealFilterId || activeOwnerFilterId ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50')}>
             <Filter size={15}/>
             {filterButtonLabel}
           </button>
@@ -1944,6 +1944,7 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
             onEdit={(filter) => { setEditingFilter({ id: filter.id, name: filter.name, favorite: filter.favorite, rules: filter.rules.length ? filter.rules : [newFilterRule('all')], columns: filter.columns?.length ? filter.columns : visibleColumns, saveColumns: Boolean(filter.columns?.length) }); setShowFilters(false) }}
             onToggleFavorite={toggleDealFilterFavorite}
             onDelete={deleteDealFilter}
+            onClose={() => setShowFilters(false)}
           />}
         </div>
         <div className="order-4 flex w-full flex-wrap items-center gap-2 text-sm text-slate-600 md:order-none md:ml-auto md:w-auto md:flex-nowrap">
@@ -1962,7 +1963,7 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
             {(pipelineNames.length ? pipelineNames : ['Pipeline de Vendas']).map((name) => <option key={name}>{name}</option>)}
           </select>
           <div className="relative hidden md:block">
-            <button type="button" onClick={() => setShowFilters((current) => !current)} className={cn('inline-flex items-center gap-2 rounded border px-3 py-1.5 text-sm font-semibold shadow-sm', activeDealFilterId || activeOwnerFilterId ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50')}>
+            <button type="button" data-filter-toggle onClick={() => setShowFilters((current) => !current)} className={cn('inline-flex items-center gap-2 rounded border px-3 py-1.5 text-sm font-semibold shadow-sm', activeDealFilterId || activeOwnerFilterId ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50')}>
               <Filter size={15}/>
               {filterButtonLabel}
             </button>
@@ -1978,6 +1979,7 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
               onEdit={(filter) => { setEditingFilter({ id: filter.id, name: filter.name, favorite: filter.favorite, rules: filter.rules.length ? filter.rules : [newFilterRule('all')], columns: filter.columns?.length ? filter.columns : visibleColumns, saveColumns: Boolean(filter.columns?.length) }); setShowFilters(false) }}
               onToggleFavorite={toggleDealFilterFavorite}
               onDelete={deleteDealFilter}
+              onClose={() => setShowFilters(false)}
             />}
           </div>
         </div>
@@ -2052,7 +2054,7 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
   </div>
 }
 
-function DealFilterDropdown({ filters, activeFilterId, activeOwnerId, users, mobileCentered = false, onSelectFilter, onSelectOwner, onClear, onCreate, onEdit, onToggleFavorite, onDelete }: {
+function DealFilterDropdown({ filters, activeFilterId, activeOwnerId, users, mobileCentered = false, onSelectFilter, onSelectOwner, onClear, onCreate, onEdit, onToggleFavorite, onDelete, onClose }: {
   filters: SavedDealFilter[]
   activeFilterId: string
   activeOwnerId: string
@@ -2065,16 +2067,36 @@ function DealFilterDropdown({ filters, activeFilterId, activeOwnerId, users, mob
   onEdit: (filter: SavedDealFilter) => void
   onToggleFavorite: (id: string) => void
   onDelete: (id: string) => void
+  onClose: () => void
 }) {
   const [tab, setTab] = useState<'favorites' | 'owners' | 'filters'>('owners')
   const [query, setQuery] = useState('')
+  const dropdownRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    const closeOnOutsideClick = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as Node | null
+      if (target && dropdownRef.current?.contains(target)) return
+      if (target instanceof Element && target.closest('[data-filter-toggle]')) return
+      onClose()
+    }
+    document.addEventListener('mousedown', closeOnOutsideClick)
+    document.addEventListener('touchstart', closeOnOutsideClick)
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutsideClick)
+      document.removeEventListener('touchstart', closeOnOutsideClick)
+    }
+  }, [onClose])
   const normalizedQuery = query.toLocaleLowerCase('pt-BR').trim()
   const visibleUsers = users.filter((user) => user.full_name.toLocaleLowerCase('pt-BR').includes(normalizedQuery) || (user.email || '').toLocaleLowerCase('pt-BR').includes(normalizedQuery))
   const favoriteFilters = filters.filter((filter) => filter.favorite)
   const visibleFilters = (tab === 'favorites' ? favoriteFilters : filters).filter((filter) => filter.name.toLocaleLowerCase('pt-BR').includes(normalizedQuery))
 
-  return <div className={cn('z-40 overflow-hidden rounded border border-slate-200 bg-white text-slate-800 shadow-2xl', mobileCentered ? 'fixed left-1/2 top-1/2 w-[min(92vw,370px)] -translate-x-1/2 -translate-y-1/2' : 'absolute right-0 top-full mt-2 w-[min(92vw,370px)]')}>
+  return <div ref={dropdownRef} className={cn('z-40 overflow-hidden rounded border border-slate-200 bg-white text-slate-800 shadow-2xl', mobileCentered ? 'fixed left-1/2 top-1/2 w-[min(92vw,370px)] -translate-x-1/2 -translate-y-1/2' : 'absolute right-0 top-full mt-2 w-[min(92vw,370px)]')}>
     <div className="border-b border-slate-200 p-2">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="text-xs font-black uppercase tracking-wide text-slate-500">Filtro</span>
+        <button type="button" onClick={onClose} className="grid h-7 w-7 place-items-center rounded-full border border-slate-200 text-sm font-black text-slate-500 hover:bg-slate-50" aria-label="Fechar filtro" title="Fechar filtro">×</button>
+      </div>
       <div className="flex items-center gap-2 rounded border border-slate-300 px-2 py-1.5 text-sm focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100">
         <Search size={16} className="text-slate-500"/>
         <input value={query} onChange={(e) => setQuery(e.target.value)} className="min-w-0 flex-1 bg-transparent outline-none" placeholder="Pesquisar proprietário ou filtro" />
@@ -3695,8 +3717,8 @@ function EntityListView({ title, icon, entity, rows, deals, people, organization
         <div className="flex items-center gap-2"><span className="text-[#6f5cf6]">{icon}</span><h2 className="text-lg font-bold">{title}</h2><Badge>{rows.length} registros</Badge></div>
         <div className="flex items-center gap-2">
           <div className="relative">
-            <button type="button" onClick={() => setShowFilters((current) => !current)} className={cn('inline-flex items-center gap-2 rounded border px-3 py-1.5 text-sm font-semibold shadow-sm', activeFilterId || activeOwnerId ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50')}><Filter size={15}/>{filterButtonLabel}</button>
-            {showFilters && <DealFilterDropdown filters={savedFilters} activeFilterId={activeFilterId} activeOwnerId={activeOwnerId} users={users} onSelectFilter={(id) => { const filter = savedFilters.find((item) => item.id === id); setActiveFilterId(id); setActiveOwnerId(''); applyFilterColumns(filter); setShowFilters(false) }} onSelectOwner={(id) => { setActiveOwnerId(id); setActiveFilterId(''); setShowFilters(false) }} onClear={() => { setActiveFilterId(''); setActiveOwnerId(''); setShowFilters(false) }} onCreate={() => { setEditingFilter({ ...emptyFilterDraft(), columns: visibleColumns, saveColumns: false }); setShowFilters(false) }} onEdit={(filter) => { setEditingFilter({ id: filter.id, name: filter.name, favorite: filter.favorite, rules: filter.rules.length ? filter.rules : [newFilterRule('all')], columns: filter.columns?.length ? filter.columns : visibleColumns, saveColumns: Boolean(filter.columns?.length) }); setShowFilters(false) }} onToggleFavorite={onToggleFavoriteFilter} onDelete={onDeleteFilter} />}
+            <button type="button" data-filter-toggle onClick={() => setShowFilters((current) => !current)} className={cn('inline-flex items-center gap-2 rounded border px-3 py-1.5 text-sm font-semibold shadow-sm', activeFilterId || activeOwnerId ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50')}><Filter size={15}/>{filterButtonLabel}</button>
+            {showFilters && <DealFilterDropdown filters={savedFilters} activeFilterId={activeFilterId} activeOwnerId={activeOwnerId} users={users} onSelectFilter={(id) => { const filter = savedFilters.find((item) => item.id === id); setActiveFilterId(id); setActiveOwnerId(''); applyFilterColumns(filter); setShowFilters(false) }} onSelectOwner={(id) => { setActiveOwnerId(id); setActiveFilterId(''); setShowFilters(false) }} onClear={() => { setActiveFilterId(''); setActiveOwnerId(''); setShowFilters(false) }} onCreate={() => { setEditingFilter({ ...emptyFilterDraft(), columns: visibleColumns, saveColumns: false }); setShowFilters(false) }} onEdit={(filter) => { setEditingFilter({ id: filter.id, name: filter.name, favorite: filter.favorite, rules: filter.rules.length ? filter.rules : [newFilterRule('all')], columns: filter.columns?.length ? filter.columns : visibleColumns, saveColumns: Boolean(filter.columns?.length) }); setShowFilters(false) }} onToggleFavorite={onToggleFavoriteFilter} onDelete={onDeleteFilter} onClose={() => setShowFilters(false)} />}
           </div>
           <button type="button" onClick={() => setShowColumns(true)} className="grid h-9 w-9 place-items-center rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-50" title="Campos da lista" aria-label="Campos da lista"><Settings size={16}/></button>
         </div>
