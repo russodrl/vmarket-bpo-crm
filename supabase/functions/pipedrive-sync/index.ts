@@ -374,7 +374,30 @@ function isAleksanderPipedriveOwner(ownerId: number | null) {
 
 async function upsertCrmDealFromPipedrive(integrationId: string, pdDeal: JsonRecord, options: { clearCrmOwner?: boolean } = {}) {
   const externalId = String(pdDeal.id)
-  const existing = await findExternalRecordByExternal('deal', externalId)
+  let existing = await findExternalRecordByExternal('deal', externalId)
+  let reservedDealId: string | null = null
+  if (!existing?.internal_id) {
+    reservedDealId = crypto.randomUUID()
+    const { error: claimError } = await supabase.from('external_records').insert({
+      integration_id: integrationId,
+      provider: 'pipedrive',
+      entity: 'deal',
+      internal_id: reservedDealId,
+      external_id: externalId,
+      external_key: externalId,
+      last_payload: pdDeal,
+      last_synced_at: new Date().toISOString(),
+    })
+    if (claimError) {
+      const raced = await findExternalRecordByExternal('deal', externalId)
+      if (raced?.internal_id) {
+        existing = raced
+        reservedDealId = null
+      } else {
+        throw claimError
+      }
+    }
+  }
   const pdOrg = await resolvePipedriveOrg(pdDeal.org_id)
   const pdPerson = await resolvePipedrivePerson(pdDeal.person_id)
   const organization = pdOrg ? await upsertCrmOrganizationFromPipedrive(integrationId, pdOrg) : null
@@ -407,7 +430,7 @@ async function upsertCrmDealFromPipedrive(integrationId: string, pdDeal: JsonRec
     if (error) throw error
     deal = data
   } else {
-    const { data, error } = await supabase.from('deals').insert(payload).select('*').single()
+    const { data, error } = await supabase.from('deals').insert({ id: reservedDealId, ...payload }).select('*').single()
     if (error) throw error
     deal = data
   }
@@ -661,6 +684,15 @@ async function findExternalRecordByExternal(entity: string, externalId: string) 
 }
 
 async function upsertExternalRecord(integrationId: string, entity: string, internalId: string, externalId: string, payload: unknown) {
+  const existing = await findExternalRecordByExternal(entity, externalId)
+  if (existing?.internal_id && existing.internal_id !== internalId) {
+    const { error } = await supabase.from('external_records').update({
+      last_payload: payload,
+      last_synced_at: new Date().toISOString(),
+    }).eq('id', existing.id)
+    if (error) throw error
+    return
+  }
   const { error } = await supabase.from('external_records').upsert({
     integration_id: integrationId,
     provider: 'pipedrive',
