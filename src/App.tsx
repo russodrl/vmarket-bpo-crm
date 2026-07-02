@@ -1007,6 +1007,7 @@ function App() {
   const [detailPersonId, setDetailPersonId] = useState(() => new URLSearchParams(window.location.search).get('person') || '')
   const [detailOrganizationId, setDetailOrganizationId] = useState(() => new URLSearchParams(window.location.search).get('organization') || '')
   const [newDeal, setNewDeal] = useState<NewDeal>(() => blankNewDeal())
+  const [userProfileOpen, setUserProfileOpen] = useState(false)
   const pipelineNames = useMemo(() => {
     const names = stages.map((stage) => stage.pipeline_name).filter((name): name is string => Boolean(name))
     return [...new Set(names)]
@@ -1040,6 +1041,9 @@ function App() {
   const detailDeal = useMemo(() => deals.find((d) => d.id === detailDealId), [deals, detailDealId])
   const detailPerson = useMemo(() => people.find((person) => person.id === detailPersonId), [people, detailPersonId])
   const detailOrganization = useMemo(() => organizations.find((org) => org.id === detailOrganizationId), [organizations, detailOrganizationId])
+  const currentCrmUser = useMemo(() => crmUsers.find((user) => user.auth_user_id === session?.user.id || user.id === profile?.crm_user_id), [crmUsers, profile?.crm_user_id, session?.user.id])
+  const currentUserName = currentCrmUser?.full_name || profile?.full_name || session?.user.email || 'Usuário'
+  const currentUserPermission = currentCrmUser?.permission || (profile?.role === 'admin_vmarket' ? 'Admin' : 'BPO')
   const globalSearchResults = useMemo(() => buildGlobalSearchResults(globalSearch, deals, people, organizations, activities, history), [globalSearch, deals, people, organizations, activities, history])
 
   useEffect(() => {
@@ -1652,6 +1656,22 @@ function App() {
     await loadAll()
   }
 
+  async function saveCurrentUserProfile(draft: { full_name: string; email: string; crm_phone: string }) {
+    setError('')
+    if (currentCrmUser?.id) {
+      const { error } = await supabase
+        .from('crm_users')
+        .update({ full_name: draft.full_name.trim(), email: draft.email.trim(), crm_phone: draft.crm_phone.trim() || null })
+        .eq('id', currentCrmUser.id)
+      if (error) throw error
+    }
+    if (profile?.id) {
+      const { error } = await supabase.from('profiles').update({ full_name: draft.full_name.trim() || null }).eq('id', profile.id)
+      if (error) throw error
+    }
+    await loadAll()
+  }
+
   if (isPasswordRecovery && session) return <PasswordRecovery onDone={() => setIsPasswordRecovery(false)} />
   if (!session) return <Login />
 
@@ -1697,7 +1717,10 @@ function App() {
             <h1 className="min-w-[155px] text-base font-semibold">{navItems.find(([key]) => key === activeView)?.[2]}</h1>
             <GlobalSearchBox value={globalSearch} onChange={setGlobalSearch} results={globalSearchResults} onOpen={openSearchResult} />
             <button onClick={loadAll} className="grid h-9 w-9 place-items-center rounded-full border border-slate-200 text-slate-600 hover:bg-slate-50"><RefreshCw size={17}/></button>
-            <div className="hidden items-center gap-2 sm:flex"><span className="grid h-8 w-8 place-items-center rounded-full bg-slate-100 text-xs font-bold text-slate-600">{profile?.full_name?.slice(0,1) || 'V'}</span><span className="text-xs font-semibold leading-tight text-slate-700">VMarket<br/><span className="font-normal text-slate-500">BPO CRM</span></span></div>
+            <button type="button" onClick={() => setUserProfileOpen(true)} className="flex items-center gap-2 rounded-full border border-transparent px-2 py-1 text-left hover:border-slate-200 hover:bg-slate-50" title="Editar meu usuário">
+              <span className="grid h-8 w-8 place-items-center rounded-full bg-slate-100 text-xs font-bold text-slate-600">{currentUserName.slice(0,1).toUpperCase()}</span>
+              <span className="max-w-[150px] text-xs font-semibold leading-tight text-slate-700"><span className="block truncate">{currentUserName}</span><span className="font-normal text-slate-500">{currentUserPermission}</span></span>
+            </button>
             <button onClick={() => supabase.auth.signOut()} className="hidden rounded border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 sm:block">Sair</button>
           </header>
 
@@ -1722,9 +1745,77 @@ function App() {
           </section>
         </div>
       </div>
+      {userProfileOpen && <CurrentUserProfileModal
+        user={currentCrmUser}
+        fallbackEmail={session.user.email || ''}
+        fallbackName={profile?.full_name || ''}
+        permission={currentUserPermission}
+        onClose={() => setUserProfileOpen(false)}
+        onSave={async (draft) => { await saveCurrentUserProfile(draft); setUserProfileOpen(false) }}
+      />}
       <BpoAgentChat session={session} onReload={loadAll} />
     </main>
   )
+}
+
+function CurrentUserProfileModal({ user, fallbackEmail, fallbackName, permission, onClose, onSave }: {
+  user?: CrmUser
+  fallbackEmail: string
+  fallbackName: string
+  permission: string
+  onClose: () => void
+  onSave: (draft: { full_name: string; email: string; crm_phone: string }) => Promise<void>
+}) {
+  const [draft, setDraft] = useState({
+    full_name: user?.full_name || fallbackName || '',
+    email: user?.email || fallbackEmail || '',
+    crm_phone: user?.crm_phone || '',
+  })
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState('')
+  async function submit(e: FormEvent) {
+    e.preventDefault()
+    setSaving(true)
+    setMessage('')
+    try {
+      await onSave(draft)
+    } catch (error) {
+      setMessage(errorMessage(error))
+    } finally {
+      setSaving(false)
+    }
+  }
+  const setField = (key: keyof typeof draft, value: string) => setDraft((current) => ({ ...current, [key]: value }))
+  return <div className="fixed inset-0 z-[80] grid place-items-center bg-slate-950/40 p-3 backdrop-blur-sm">
+    <form onSubmit={(e) => void submit(e)} className="w-full max-w-md overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+      <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
+        <div>
+          <h2 className="text-lg font-black text-slate-950">Meu usuário</h2>
+          <p className="mt-1 text-sm text-slate-500">Edite os dados básicos do seu usuário no CRM.</p>
+        </div>
+        <button type="button" onClick={onClose} className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50" aria-label="Fechar edição do usuário">×</button>
+      </div>
+      <div className="grid gap-4 p-5">
+        <label className="grid gap-1 text-sm font-bold text-slate-700">Nome
+          <input value={draft.full_name} onChange={(e) => setField('full_name', e.target.value)} className="rounded border border-slate-300 px-3 py-2 font-normal outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" placeholder="Nome do usuário" />
+        </label>
+        <label className="grid gap-1 text-sm font-bold text-slate-700">Email
+          <input type="email" value={draft.email} onChange={(e) => setField('email', e.target.value)} className="rounded border border-slate-300 px-3 py-2 font-normal outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" placeholder="email@empresa.com" />
+        </label>
+        <label className="grid gap-1 text-sm font-bold text-slate-700">Telefone
+          <input value={draft.crm_phone} onChange={(e) => setField('crm_phone', e.target.value)} className="rounded border border-slate-300 px-3 py-2 font-normal outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" placeholder="Telefone ou WhatsApp" />
+        </label>
+        <label className="grid gap-1 text-sm font-bold text-slate-700">Permissão
+          <input value={permission || '-'} readOnly className="rounded border border-slate-200 bg-slate-50 px-3 py-2 font-normal text-slate-600 outline-none" />
+        </label>
+        {message && <p className="rounded border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{message}</p>}
+      </div>
+      <div className="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-4">
+        <button type="button" onClick={onClose} className="rounded border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50">Cancelar</button>
+        <button type="submit" disabled={saving} className="rounded bg-[#238847] px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-[#1f7a40] disabled:opacity-50">{saving ? 'Salvando...' : 'Salvar'}</button>
+      </div>
+    </form>
+  </div>
 }
 
 function GlobalSearchBox({ value, onChange, results, onOpen }: { value: string; onChange: (value: string) => void; results: GlobalSearchResult[]; onOpen: (result: GlobalSearchResult) => void }) {
