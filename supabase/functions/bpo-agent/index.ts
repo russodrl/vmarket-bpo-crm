@@ -22,6 +22,8 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || ''
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || ''
 const HERMES_CHAT_ENDPOINT = Deno.env.get('HERMES_CHAT_ENDPOINT') || ''
 const HERMES_CHAT_TOKEN = Deno.env.get('HERMES_CHAT_TOKEN') || ''
+const HERMES_TRANSCRIBE_ENDPOINT = Deno.env.get('HERMES_TRANSCRIBE_ENDPOINT') || deriveHermesTranscribeEndpoint(HERMES_CHAT_ENDPOINT)
+const HERMES_TRANSCRIBE_TOKEN = Deno.env.get('HERMES_TRANSCRIBE_TOKEN') || HERMES_CHAT_TOKEN
 const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY') || ''
 const OPENAI_CHAT_MODEL = Deno.env.get('OPENAI_CHAT_MODEL') || 'gpt-4o-mini'
 const OPENAI_TRANSCRIBE_MODEL = Deno.env.get('OPENAI_TRANSCRIBE_MODEL') || 'whisper-1'
@@ -76,8 +78,9 @@ Deno.serve(async (req: Request) => {
     const crm = await loadCrmSnapshot(profile, payload.contextDealId || null)
     const files = payload.files || []
     const system = buildSystemPrompt(profile)
-    const context = buildContextText(crm)
-    const knowledge = retrieveCrmBpoKnowledge(`${message} ${files.map((file) => `${file.name} ${file.type || ''}`).join(' ')}`)
+    const queryText = `${message} ${files.map((file) => `${file.name} ${file.type || ''}`).join(' ')}`
+    const context = buildContextText(crm, queryText, payload.contextDealId || null)
+    const knowledge = retrieveCrmBpoKnowledge(queryText)
 
     let assistant = HERMES_CHAT_ENDPOINT
       ? await askHermes({ message, files, history: payload.history || [], system, context: `${context}
@@ -166,7 +169,21 @@ function buildSystemPrompt(profile: JsonRecord) {
   return `Você é o Agente Vmarket BPO, assistente interno do CRM BPO da VMarket. Responda sempre em pt-BR, sem se apresentar, sem saudação, sem rodeios e com o mínimo de tokens possível. Use bullets curtos quando ajudar. Entenda texto, áudio transcrito e imagens. Nunca diga qual infraestrutura, modelo, endpoint ou ferramenta está usando. Nunca invente dados fora do contexto recebido. Se houver pedido de ação no CRM/Pipedrive, retorne JSON com reply, expression e actions. Respeite permissões: ${isAdmin ? 'usuário administrador, pode agir como administrador nos registros do CRM BPO.' : 'usuário parceiro, só pode agir em registros visíveis/permitidos.'} Ações permitidas: create_deal, create_person, create_organization, create_activity, create_note, update_focus, update_deal, update_person, update_organization. Expressões permitidas: pensativo, surpreso, feliz, hell-yeah, triste, intrigado, aliviado. Perfil do usuário: ${JSON.stringify(profile)}.`
 }
 
-function buildContextText(crm: JsonRecord) {
+function searchableTerms(query: string) {
+  return asText(query).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').split(/[^a-z0-9]+/).filter((term) => term.length > 2)
+}
+
+function compactRank<T extends JsonRecord>(rows: T[], query: string, limit: number, contextId?: string | null) {
+  const terms = searchableTerms(query)
+  const id = asText(contextId)
+  return rows.map((row, index) => {
+    const hay = JSON.stringify(row).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    const score = (id && row.id === id ? 1000 : 0) + terms.reduce((sum, term) => sum + (hay.includes(term) ? 1 : 0), 0) - index / 1000
+    return { row, score }
+  }).sort((a, b) => b.score - a.score).slice(0, limit).map((item) => item.row)
+}
+
+function buildContextText(crm: JsonRecord, query: string, contextDealId: string | null) {
   const deals = crm.deals as JsonRecord[]
   const activities = crm.activities as JsonRecord[]
   const people = crm.people as JsonRecord[]
@@ -174,6 +191,9 @@ function buildContextText(crm: JsonRecord) {
   const openDeals = deals.filter((deal) => asText(deal.status) === 'aberto' || !deal.status)
   const wonDeals = deals.filter((deal) => asText(deal.status) === 'ganho')
   const overdue = activities.filter((activity) => asText(activity.status) === 'open' && activity.due_at && new Date(asText(activity.due_at)).getTime() < Date.now())
+  const selectedDeals = compactRank(deals, query, contextDealId ? 25 : 18, contextDealId)
+  const selectedDealIds = new Set(selectedDeals.map((deal) => asText(deal.id)).filter(Boolean))
+  const relatedActivities = activities.filter((activity) => selectedDealIds.has(asText(activity.deal_id)))
   return JSON.stringify({
     resumo: {
       negocios: deals.length,
@@ -182,13 +202,14 @@ function buildContextText(crm: JsonRecord) {
       contatos: people.length,
       empresas: organizations.length,
       atividades: activities.length,
+      atividades_abertas: activities.filter((activity) => asText(activity.status) === 'open').length,
       atividades_atrasadas: overdue.length,
     },
-    negocios: deals.slice(0, 60),
-    atividades: activities.slice(0, 60),
-    contatos: people.slice(0, 40),
-    empresas: organizations.slice(0, 40),
-    notas_historico: (crm.history as JsonRecord[]).slice(0, 40),
+    negocios_relevantes: selectedDeals,
+    atividades_relevantes: relatedActivities.concat(compactRank(activities, query, 20)).slice(0, 28),
+    contatos_relevantes: compactRank(people, query, 14),
+    empresas_relevantes: compactRank(organizations, query, 14),
+    notas_historico_relevantes: compactRank(crm.history as JsonRecord[], query, contextDealId ? 28 : 16, contextDealId),
     etapas: crm.stages,
   })
 }
@@ -216,6 +237,13 @@ function retrieveCrmBpoKnowledge(query: string) {
   return scored.filter((doc) => doc.score > 0).slice(0, 5).concat(scored.filter((doc) => doc.score === 0).slice(0, 2)).map((doc) => `## ${doc.title}\n${doc.text}`).join('\n\n')
 }
 
+function deriveHermesTranscribeEndpoint(chatEndpoint: string) {
+  if (!chatEndpoint) return ''
+  if (chatEndpoint.includes('/v1/chat/completions')) return chatEndpoint.replace('/v1/chat/completions', '/v1/audio/transcriptions')
+  if (chatEndpoint.endsWith('/v1')) return `${chatEndpoint}/audio/transcriptions`
+  return chatEndpoint.replace(/\/$/, '') + '/v1/audio/transcriptions'
+}
+
 function dataUrlToBlob(dataUrl: string) {
   const match = dataUrl.match(/^data:([^;,]+)?(;base64)?,(.*)$/)
   if (!match) throw new Error('Arquivo inválido.')
@@ -233,14 +261,17 @@ async function transcribeAudio(file: { name: string; type?: string; content?: st
   form.append('model', OPENAI_TRANSCRIBE_MODEL)
   form.append('language', 'pt')
   form.append('file', dataUrlToBlob(file.content), file.name || 'audio.webm')
-  const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-    method: 'POST',
-    headers: { authorization: `Bearer ${OPENAI_API_KEY}` },
-    body: form,
-  })
+
+  const endpoint = HERMES_TRANSCRIBE_ENDPOINT || (OPENAI_API_KEY ? 'https://api.openai.com/v1/audio/transcriptions' : '')
+  if (!endpoint) throw new Error('Transcrição de áudio não configurada.')
+  const headers: Record<string, string> = {}
+  if (endpoint === HERMES_TRANSCRIBE_ENDPOINT && HERMES_TRANSCRIBE_TOKEN) headers.authorization = `Bearer ${HERMES_TRANSCRIBE_TOKEN}`
+  if (endpoint !== HERMES_TRANSCRIBE_ENDPOINT && OPENAI_API_KEY) headers.authorization = `Bearer ${OPENAI_API_KEY}`
+
+  const res = await fetch(endpoint, { method: 'POST', headers, body: form })
   const data = await res.json().catch(() => ({})) as JsonRecord
   if (!res.ok) throw new Error(`Falha ao entender áudio: ${asText(data.error && (data.error as JsonRecord).message) || res.status}`)
-  return asText(data.text)
+  return asText(data.text || data.transcript)
 }
 
 async function askOpenAI(input: { message: string; files: ChatRequest['files']; history: ChatRequest['history']; system: string; context: string; knowledge: string }) {
@@ -299,7 +330,7 @@ async function askHermes(input: { message: string; files: ChatRequest['files']; 
   for (const file of input.files || []) {
     const type = String(file.type || '')
     if (type.startsWith('audio/')) {
-      if (OPENAI_API_KEY) {
+      if (HERMES_TRANSCRIBE_ENDPOINT || OPENAI_API_KEY) {
         const text = await transcribeAudio(file)
         if (text) audioTexts.push(`${file.name}: ${text}`)
       } else {

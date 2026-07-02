@@ -54,6 +54,7 @@ export function BpoAgentChat({ session, contextDealId, onReload, openRequest = 0
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [busy, setBusy] = useState(false)
+  const [processingStatus, setProcessingStatus] = useState('')
   const [recording, setRecording] = useState(false)
   const [audioLevel, setAudioLevel] = useState(0)
   const [speechTranscript, setSpeechTranscript] = useState('')
@@ -136,8 +137,15 @@ export function BpoAgentChat({ session, contextDealId, onReload, openRequest = 0
     setInput('')
     if (!filesOverride) setAttachments([])
     setBusy(true)
+    setProcessingStatus(hasAudio ? 'Recebi o áudio. Estou transcrevendo...' : 'Recebi. Estou consultando o CRM...')
     try {
       const history = messages.slice(-8).map((message) => ({ role: message.role, content: message.content }))
+      window.setTimeout(() => {
+        if (busyRef.current) setProcessingStatus(hasAudio ? 'Transcrição pronta, consultando o CRM...' : 'Consultando o CRM...')
+      }, 900)
+      window.setTimeout(() => {
+        if (busyRef.current) setProcessingStatus('Gerando resposta final...')
+      }, hasAudio ? 2600 : 1800)
       const { data, error } = await supabase.functions.invoke('bpo-agent', {
         body: { message: text, files, contextDealId: contextDealId || null, history },
         headers: { Authorization: `Bearer ${session.access_token}` },
@@ -164,6 +172,7 @@ export function BpoAgentChat({ session, contextDealId, onReload, openRequest = 0
       }])
     } finally {
       setBusy(false)
+      setProcessingStatus('')
     }
   }
 
@@ -326,7 +335,7 @@ export function BpoAgentChat({ session, contextDealId, onReload, openRequest = 0
             {message.role === 'assistant' && <img src={avatarByExpression[message.expression || 'pensativo']} alt="Tomatinho" className="mt-1 h-8 w-8 rounded-full object-cover" />}
             <div className={cn('max-w-[82%] whitespace-pre-wrap rounded-2xl px-4 py-3 text-sm leading-6 shadow-sm', message.role === 'user' ? 'bg-[#6f5cf6] text-white' : 'border border-slate-200 bg-white text-slate-700')}>{message.content}</div>
           </div>)}
-          {busy && <div className="flex items-center gap-2 text-sm font-semibold text-slate-500"><img src={avatarByExpression.pensativo} alt="Tomatinho processando" className="h-8 w-8 rounded-full object-cover" />Processando...</div>}
+          {busy && <div className="flex items-center gap-2 text-sm font-semibold text-slate-500"><img src={avatarByExpression.pensativo} alt="Tomatinho processando" className="h-8 w-8 rounded-full object-cover" />{processingStatus || 'Processando...'}</div>}
         </div>
 
         {attachments.length > 0 && <div className="flex flex-wrap gap-2 border-t border-slate-200 bg-white px-4 py-2">
