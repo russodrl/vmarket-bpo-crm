@@ -4482,7 +4482,6 @@ function CrmUserTallyDetails({ user, onUpdate }: { user: CrmUser; onUpdate: (upd
         <AdminEditableField label="Email de acesso" value={user.email} onSave={saveField('email')} type="email" />
         <AdminEditableField label="Empresa" value={user.crm_companies?.name || ''} onSave={saveField('company_name')} />
         <AdminEditableSelect label="Status" value={user.status} options={Object.entries(crmStatusLabel)} onSave={saveField('status')} />
-        <AdminEditableSelect label="Permissões" value={crmPermissionLabel(user)} options={crmPermissionOptions.map((permission) => [permission, permission])} onSave={saveField('permission')} />
       </div>
       <div className="rounded-lg border border-slate-200 bg-white">
         <div className="border-b border-slate-100 px-3 py-2 text-xs font-black uppercase text-slate-400">Dados fiscais e representante</div>
@@ -4539,11 +4538,31 @@ const crmPermissionOptions: CrmPermission[] = ['Admin', 'BPO', 'Gestor', 'Vendas
 const crmStatusLabel: Record<CrmUser['status'], string> = { active: 'Ativo', pending: 'Pendente', invited: 'Convidado', disabled: 'Desativado', deleted: 'Deletado' }
 const crmPermissionLabel = (user: CrmUser) => user.permission || (user.email?.toLowerCase().includes('teste') ? 'Teste' : 'BPO')
 
-function AdminUserActionMenu({ user, busyId, open, onToggle, onDelete, onDisable }: { user: CrmUser; busyId: string; open: boolean; onToggle: () => void; onDelete: () => void; onDisable: () => void }) {
+function AdminUserActionMenu({ user, busyId, open, onToggle, onClose, onDelete, onDisable, onSetPermission }: { user: CrmUser; busyId: string; open: boolean; onToggle: () => void; onClose: () => void; onDelete: () => void; onDisable: () => void; onSetPermission: (permission: CrmPermission) => void }) {
+  const menuRef = useRef<HTMLDivElement | null>(null)
   const disabled = crmPermissionLabel(user) === 'Admin'
-  return <div className="relative">
+  const updatingPermission = busyId === `update-${user.id}`
+  useEffect(() => {
+    if (!open) return
+    function closeOnOutsideClick(event: MouseEvent | TouchEvent) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) onClose()
+    }
+    document.addEventListener('mousedown', closeOnOutsideClick)
+    document.addEventListener('touchstart', closeOnOutsideClick)
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutsideClick)
+      document.removeEventListener('touchstart', closeOnOutsideClick)
+    }
+  }, [open, onClose])
+  return <div ref={menuRef} className="relative">
     <button type="button" onClick={onToggle} disabled={disabled || busyId === `deleted-${user.id}` || busyId === `disabled-${user.id}`} className="inline-flex items-center justify-center rounded border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-60"><MoreHorizontal size={16} className="mr-1"/>Ação</button>
-    {open && !disabled && <div className="absolute right-0 top-10 z-30 w-40 overflow-hidden rounded border border-slate-200 bg-white py-1 text-sm shadow-xl">
+    {open && !disabled && <div className="absolute right-0 top-10 z-30 w-56 overflow-hidden rounded border border-slate-200 bg-white py-1 text-sm shadow-xl">
+      <div className="border-b border-slate-100 px-3 py-2">
+        <label className="block text-[11px] font-black uppercase text-slate-400">Permissão</label>
+        <select value={crmPermissionLabel(user)} disabled={updatingPermission} onChange={(e) => onSetPermission(e.target.value as CrmPermission)} className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-sm font-semibold text-slate-800 outline-none focus:border-[#6f5cf6] focus:ring-2 focus:ring-purple-100 disabled:opacity-60">
+          {crmPermissionOptions.map((permission) => <option key={permission} value={permission}>{permission}</option>)}
+        </select>
+      </div>
       <button type="button" onClick={onDelete} className="block w-full px-4 py-2 text-left font-semibold text-rose-600 hover:bg-rose-600 hover:text-white">Apagar</button>
       <button type="button" onClick={onDisable} className="block w-full px-4 py-2 text-left font-semibold text-slate-700 hover:bg-blue-600 hover:text-white">Desativar</button>
     </div>}
@@ -4674,6 +4693,12 @@ function AdminUsersView({ users, session, profile, reload, setError }: {
     } finally {
       setBusyId('')
     }
+  }
+
+  async function setUserPermission(user: CrmUser, permission: CrmPermission) {
+    if (permission === crmPermissionLabel(user)) return
+    setActionMenuId('')
+    await updateUser(user, { permission })
   }
 
   async function setUserStatus(user: CrmUser, status: 'disabled' | 'deleted') {
@@ -4832,9 +4857,9 @@ function AdminUsersView({ users, session, profile, reload, setError }: {
               <div><b>DDD {user.ddd_prefix || '-'}</b><p className="mt-1 text-xs text-slate-500">{user.ddd_state || 'Estado não informado'}</p></div>
               <input value={passwordDrafts[user.id] || ''} onChange={(e) => setPasswordDrafts((current) => ({ ...current, [user.id]: e.target.value }))} className="rounded border border-slate-300 px-3 py-2 text-sm" placeholder="Senha inicial" type="password" autoComplete="new-password" />
               <button type="button" onClick={() => void setInitialPassword(user)} disabled={busyId === `password-${user.id}` || crmPermissionLabel(user) === 'Admin'} className="rounded border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-60" title={crmPermissionLabel(user) === 'Admin' ? 'Não é possível alterar senha de Admin por aqui.' : undefined}>{busyId === `password-${user.id}` ? 'Salvando...' : 'Definir senha'}</button>
-              <button onClick={() => void sendAccessEmail(user)} disabled={busyId === user.id || crmPermissionLabel(user) === 'Admin'} className="rounded border border-[#238847] px-3 py-2 text-sm font-bold text-[#238847] hover:bg-emerald-50 disabled:opacity-60">{busyId === user.id ? 'Enviando...' : user.auth_user_id ? 'Redefinir senha' : 'Enviar acesso'}</button>
+              <button type="button" onClick={() => void sendAccessEmail(user)} disabled={busyId === user.id || crmPermissionLabel(user) === 'Admin'} className="rounded border border-[#238847] px-3 py-2 text-sm font-bold text-[#238847] hover:bg-emerald-50 disabled:opacity-60">{busyId === user.id ? 'Enviando...' : user.auth_user_id ? 'Redefinir senha' : 'Enviar acesso'}</button>
               <div className="flex flex-wrap gap-1">{resetStatusBadge(user) || '-'}</div>
-              <AdminUserActionMenu user={user} busyId={busyId} open={actionMenuId === user.id} onToggle={() => setActionMenuId((current) => current === user.id ? '' : user.id)} onDelete={() => void setUserStatus(user, 'deleted')} onDisable={() => void setUserStatus(user, 'disabled')} />
+              <AdminUserActionMenu user={user} busyId={busyId} open={actionMenuId === user.id} onToggle={() => setActionMenuId((current) => current === user.id ? '' : user.id)} onClose={() => setActionMenuId('')} onSetPermission={(permission) => void setUserPermission(user, permission)} onDelete={() => void setUserStatus(user, 'deleted')} onDisable={() => void setUserStatus(user, 'disabled')} />
             </div>
           </div>)}
           {!filteredUsers.length && <div className="p-8 text-center text-slate-400">Nenhum usuário encontrado.</div>}
@@ -4863,7 +4888,7 @@ function AdminUsersView({ users, session, profile, reload, setError }: {
                 <td className="px-4 py-3 text-slate-700">{user.primary_email || '-'}</td>
                 <td className="max-w-[240px] px-4 py-3 text-slate-700"><span className="line-clamp-2">{user.service_regions || '-'}</span></td>
                 <td className="max-w-[240px] px-4 py-3 text-slate-700"><span className="line-clamp-2">{(user.offered_services || []).join(', ') || '-'}</span></td>
-                <td className="px-4 py-3"><AdminUserActionMenu user={user} busyId={busyId} open={actionMenuId === `list-${user.id}`} onToggle={() => setActionMenuId((current) => current === `list-${user.id}` ? '' : `list-${user.id}`)} onDelete={() => void setUserStatus(user, 'deleted')} onDisable={() => void setUserStatus(user, 'disabled')} /></td>
+                <td className="px-4 py-3"><AdminUserActionMenu user={user} busyId={busyId} open={actionMenuId === `list-${user.id}`} onToggle={() => setActionMenuId((current) => current === `list-${user.id}` ? '' : `list-${user.id}`)} onClose={() => setActionMenuId('')} onSetPermission={(permission) => void setUserPermission(user, permission)} onDelete={() => void setUserStatus(user, 'deleted')} onDisable={() => void setUserStatus(user, 'disabled')} /></td>
               </tr>)}
             </tbody>
           </table>
