@@ -308,9 +308,8 @@ export function BpoAgentChat({ session, contextDealId, onReload }: Props) {
         <footer className="border-t border-slate-200 bg-white p-3">
           <input ref={fileInputRef} type="file" multiple className="hidden" onChange={(event) => void attachFiles(event.target.files)} />
           {recording && <div className="mb-3 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2">
-            <div className="mb-2 flex items-center justify-between text-xs font-black uppercase tracking-wide text-rose-600">
+            <div className="mb-2 flex items-center text-xs font-black uppercase tracking-wide text-rose-600">
               <span>Gravando áudio</span>
-              <span>{audioLevel}%</span>
             </div>
             <div className="flex h-8 items-end gap-1">
               {Array.from({ length: 22 }).map((_, index) => {

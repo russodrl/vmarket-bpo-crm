@@ -336,10 +336,16 @@ async function askHermes(input: { message: string; files: ChatRequest['files']; 
   try {
     const envelope = JSON.parse(text) as JsonRecord
     const content = asText((((envelope.choices as JsonRecord[] | undefined)?.[0]?.message as JsonRecord | undefined)?.content))
-    const parsed = JSON.parse(content || text)
-    if (typeof parsed.reply === 'string') return parsed
-    if (typeof parsed.message === 'string') return { reply: parsed.message, expression: pickExpression(parsed.message), actions: parsed.actions || [] }
-    if (typeof parsed.response === 'string') return { reply: parsed.response, expression: pickExpression(parsed.response), actions: parsed.actions || [] }
+    const candidate = content || text
+    try {
+      const parsed = JSON.parse(candidate) as JsonRecord
+      if (typeof parsed.reply === 'string') return parsed
+      if (typeof parsed.message === 'string') return { reply: parsed.message, expression: pickExpression(parsed.message), actions: parsed.actions || [] }
+      if (typeof parsed.response === 'string') return { reply: parsed.response, expression: pickExpression(parsed.response), actions: parsed.actions || [] }
+    } catch {
+      // Hermes may return a normal assistant message instead of JSON. In that case,
+      // keep the assistant text and do not leak the OpenAI-compatible envelope to the CRM UI.
+    }
     return { reply: content || text, expression: pickExpression(content || text), actions: [] }
   } catch {
     return { reply: text, expression: pickExpression(text), actions: [] }
@@ -363,7 +369,7 @@ function localBpoAgent(input: { message: string; files: ChatRequest['files']; cr
     const top = openDeals.slice(0, 5).map((deal) => `• ${asText(deal.title)}: ${asText(deal.status) || 'aberto'}, valor ${Number(deal.total_value || deal.value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`).join('\n')
     return { expression: 'pensativo', reply: `Resumo rápido:\n• Negócios: ${deals.length}\n• Abertos: ${openDeals.length}\n• Ganhos: ${wonDeals.length}\n• Contatos: ${people.length}\n• Empresas: ${organizations.length}\n• Atividades abertas/atrasadas: ${activities.filter((a) => asText(a.status) === 'open').length}/${overdueActivities.length}\n\nPrincipais negócios abertos:\n${top || 'Nenhum negócio aberto encontrado.'}` }
   }
-  if (input.files.length) {
+  if ((input.files || []).length) {
     return { expression: 'intrigado', reply: 'Não consegui entender o arquivo ainda. Se for urgente, envie o pedido em texto.' }
   }
   return { expression: 'pensativo', reply: 'Peça uma consulta ou ação objetiva no CRM.' }
