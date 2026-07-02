@@ -42,7 +42,7 @@ import {
   Unlink,
 } from 'lucide-react'
 import { supabase, supabaseConfigured, type ActivityRow, type AuditLog, type AutomationRule, type AutomationRuleChange, type AutomationRuleExecution, type CrmCompany, type CrmUser, type CustomField, type CustomFieldValue, type Deal, type DealAttachment, type DealLabel, type DealLabelAssignment, type ExternalRecord, type HistoryRow, type Organization, type Person, type Profile, type Stage } from './supabase'
-import { TomatinhoChat } from './TomatinhoChat'
+import { BpoAgentChat } from './BpoAgentChat'
 import './App.css'
 
 type View = 'pipeline' | 'contacts' | 'companies' | 'activities' | 'warnings' | 'plans-vmarket' | 'commissions-vmarket' | 'lead-distribution' | 'automations' | 'audit' | 'fields' | 'admin'
@@ -1657,13 +1657,13 @@ function App() {
 
   if (detailDealId) {
     const isAdmin = profile?.role === 'admin_vmarket'
-    return <><DealPage key={detailDealId} deal={detailDeal} loading={loading} error={error} stages={stages} crmUsers={crmUsers} externalRecords={externalRecords} canEditOwner={isAdmin} canViewCustomFields={isAdmin} activities={activities.filter((a) => a.deal_id === detailDealId)} history={history.filter((h) => h.deal_id === detailDealId)} dealLabels={dealLabels} assignedLabels={dealLabelAssignments.filter((assignment) => assignment.deal_id === detailDealId)} attachments={dealAttachments.filter((attachment) => attachment.deal_id === detailDealId)} closeDealPage={closeDealPage} saveDeal={saveDeal} createActivity={createActivityForDeal} createNote={createNoteForDeal} deleteDeal={(id, label) => deleteOneRecord('deal', id, label)} deleteActivity={(id, label) => deleteOneRecord('activity', id, label)} customFields={isAdmin ? customFields.filter((field) => field.entity === 'deal') : []} customFieldValues={isAdmin ? customFieldValues.filter((value) => value.entity_id === detailDealId) : []} completeActivity={completeActivity} markActivityTodo={markActivityTodo} updateActivity={updateActivity} createLabel={createDealLabel} deleteLabel={deleteDealLabel} updateDealLabels={updateDealLabels} openPersonPage={openPersonPage} openOrganizationPage={openOrganizationPage} unlinkDealPerson={unlinkDealPerson} unlinkDealOrganization={unlinkDealOrganization} reloadDeal={loadAll} /><TomatinhoChat session={session} contextDealId={detailDealId} onReload={loadAll} /></>
+    return <><DealPage key={detailDealId} deal={detailDeal} loading={loading} error={error} stages={stages} crmUsers={crmUsers} externalRecords={externalRecords} canEditOwner={isAdmin} canViewCustomFields={isAdmin} activities={activities.filter((a) => a.deal_id === detailDealId)} history={history.filter((h) => h.deal_id === detailDealId)} dealLabels={dealLabels} assignedLabels={dealLabelAssignments.filter((assignment) => assignment.deal_id === detailDealId)} attachments={dealAttachments.filter((attachment) => attachment.deal_id === detailDealId)} closeDealPage={closeDealPage} saveDeal={saveDeal} createActivity={createActivityForDeal} createNote={createNoteForDeal} deleteDeal={(id, label) => deleteOneRecord('deal', id, label)} deleteActivity={(id, label) => deleteOneRecord('activity', id, label)} customFields={isAdmin ? customFields.filter((field) => field.entity === 'deal') : []} customFieldValues={isAdmin ? customFieldValues.filter((value) => value.entity_id === detailDealId) : []} completeActivity={completeActivity} markActivityTodo={markActivityTodo} updateActivity={updateActivity} createLabel={createDealLabel} deleteLabel={deleteDealLabel} updateDealLabels={updateDealLabels} openPersonPage={openPersonPage} openOrganizationPage={openOrganizationPage} unlinkDealPerson={unlinkDealPerson} unlinkDealOrganization={unlinkDealOrganization} reloadDeal={loadAll} /><BpoAgentChat session={session} contextDealId={detailDealId} onReload={loadAll} /></>
   }
   if (detailPersonId) {
-    return <><ContactPage key={detailPersonId} person={detailPerson} organization={organizations.find((org) => org.id === detailPerson?.organization_id)} loading={loading} error={error} deals={deals} activities={activities} history={history} externalRecords={externalRecords} crmUsers={crmUsers} canDelete={profile?.role === 'admin_vmarket'} deletePerson={(id, label) => deleteOneRecord('person', id, label)} openDealPage={openDealPage} openOrganizationPage={openOrganizationPage} unlinkPersonOrganization={unlinkPersonOrganization} completeActivity={completeActivity} markActivityTodo={markActivityTodo} reloadDetail={loadAll} closeDetailPage={closeDetailPage} /><TomatinhoChat session={session} onReload={loadAll} /></>
+    return <><ContactPage key={detailPersonId} person={detailPerson} organization={organizations.find((org) => org.id === detailPerson?.organization_id)} loading={loading} error={error} deals={deals} activities={activities} history={history} externalRecords={externalRecords} crmUsers={crmUsers} canDelete={profile?.role === 'admin_vmarket'} deletePerson={(id, label) => deleteOneRecord('person', id, label)} openDealPage={openDealPage} openOrganizationPage={openOrganizationPage} unlinkPersonOrganization={unlinkPersonOrganization} completeActivity={completeActivity} markActivityTodo={markActivityTodo} reloadDetail={loadAll} closeDetailPage={closeDetailPage} /><BpoAgentChat session={session} onReload={loadAll} /></>
   }
   if (detailOrganizationId) {
-    return <><CompanyPage key={detailOrganizationId} organization={detailOrganization} loading={loading} error={error} deals={deals} people={people} activities={activities} history={history} externalRecords={externalRecords} crmUsers={crmUsers} canDelete={profile?.role === 'admin_vmarket'} deleteOrganization={(id, label) => deleteOneRecord('organization', id, label)} openDealPage={openDealPage} openPersonPage={openPersonPage} unlinkPersonOrganization={unlinkPersonOrganization} completeActivity={completeActivity} markActivityTodo={markActivityTodo} reloadDetail={loadAll} closeDetailPage={closeDetailPage} /><TomatinhoChat session={session} onReload={loadAll} /></>
+    return <><CompanyPage key={detailOrganizationId} organization={detailOrganization} loading={loading} error={error} deals={deals} people={people} activities={activities} history={history} externalRecords={externalRecords} crmUsers={crmUsers} canDelete={profile?.role === 'admin_vmarket'} deleteOrganization={(id, label) => deleteOneRecord('organization', id, label)} openDealPage={openDealPage} openPersonPage={openPersonPage} unlinkPersonOrganization={unlinkPersonOrganization} completeActivity={completeActivity} markActivityTodo={markActivityTodo} reloadDetail={loadAll} closeDetailPage={closeDetailPage} /><BpoAgentChat session={session} onReload={loadAll} /></>
   }
 
   const navItems: Array<[View, ReactNode, string]> = [
@@ -1722,7 +1722,7 @@ function App() {
           </section>
         </div>
       </div>
-      <TomatinhoChat session={session} onReload={loadAll} />
+      <BpoAgentChat session={session} onReload={loadAll} />
     </main>
   )
 }

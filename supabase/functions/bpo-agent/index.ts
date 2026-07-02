@@ -12,8 +12,8 @@ type ChatRequest = {
   contextDealId?: string | null
   history?: Array<{ role: 'user' | 'assistant'; content: string }>
 }
-type TomatinhoExpression = 'pensativo' | 'surpreso' | 'feliz' | 'hell-yeah' | 'triste' | 'intrigado' | 'aliviado'
-type TomatinhoAction = {
+type BpoAgentExpression = 'pensativo' | 'surpreso' | 'feliz' | 'hell-yeah' | 'triste' | 'intrigado' | 'aliviado'
+type BpoAgentAction = {
   type: 'create_deal' | 'create_person' | 'create_organization' | 'create_activity' | 'create_note' | 'update_focus' | 'update_deal' | 'update_person' | 'update_organization'
   payload: JsonRecord
 }
@@ -52,7 +52,7 @@ function asText(value: unknown) {
   return String(value || '').trim()
 }
 
-function pickExpression(text: string): TomatinhoExpression {
+function pickExpression(text: string): BpoAgentExpression {
   const lower = text.toLowerCase()
   if (/erro|não consegui|falhou|problema|bloqueio/.test(lower)) return 'triste'
   if (/criado|salvo|feito|concluído|atualizado/.test(lower)) return 'hell-yeah'
@@ -86,9 +86,9 @@ Deno.serve(async (req: Request) => {
 
 BASE_DE_CONHECIMENTO_CRM_BPO:
 ${knowledge}` })
-        : localTomatinho({ message, files, crm, knowledge })
+        : localBpoAgent({ message, files, crm, knowledge })
 
-    const actions = Array.isArray(assistant.actions) ? assistant.actions as TomatinhoAction[] : []
+    const actions = Array.isArray(assistant.actions) ? assistant.actions as BpoAgentAction[] : []
     const actionResults = actions.length ? await executeActions(actions, user.id, profile, crm) : []
     if (actionResults.length) {
       const ok = actionResults.filter((item) => item.ok).length
@@ -289,7 +289,7 @@ async function askOpenAI(input: { message: string; files: ChatRequest['files']; 
 async function askHermes(input: { message: string; files: ChatRequest['files']; history: ChatRequest['history']; system: string; context: string }) {
   const headers: Record<string, string> = {
     'content-type': 'application/json',
-    'x-hermes-session-key': 'crm-bpo-tomatinho',
+    'x-hermes-session-key': 'crm-bpo-agent',
   }
   if (HERMES_CHAT_TOKEN) headers.authorization = `Bearer ${HERMES_CHAT_TOKEN}`
 
@@ -317,7 +317,7 @@ async function askHermes(input: { message: string; files: ChatRequest['files']; 
   const res = await fetch(HERMES_CHAT_ENDPOINT, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ model: 'agentevmarketbpotomatinho', stream: false, messages }),
+    body: JSON.stringify({ model: 'bpo-agent', stream: false, messages }),
   })
   const text = await res.text()
   if (!res.ok) throw new Error(`Hermes retornou HTTP ${res.status}: ${text.slice(0, 240)}`)
@@ -334,7 +334,7 @@ async function askHermes(input: { message: string; files: ChatRequest['files']; 
   }
 }
 
-function localTomatinho(input: { message: string; files: ChatRequest['files']; crm: JsonRecord; knowledge: string }) {
+function localBpoAgent(input: { message: string; files: ChatRequest['files']; crm: JsonRecord; knowledge: string }) {
   const message = input.message.toLowerCase()
   const deals = input.crm.deals as JsonRecord[]
   const activities = input.crm.activities as JsonRecord[]
@@ -357,12 +357,12 @@ function localTomatinho(input: { message: string; files: ChatRequest['files']; c
   return { expression: 'pensativo', reply: 'Peça uma consulta ou ação objetiva no CRM.' }
 }
 
-function normalizeExpression(value: unknown, reply: string): TomatinhoExpression {
+function normalizeExpression(value: unknown, reply: string): BpoAgentExpression {
   const valid = ['pensativo', 'surpreso', 'feliz', 'hell-yeah', 'triste', 'intrigado', 'aliviado']
-  return valid.includes(String(value)) ? String(value) as TomatinhoExpression : pickExpression(reply)
+  return valid.includes(String(value)) ? String(value) as BpoAgentExpression : pickExpression(reply)
 }
 
-async function executeActions(actions: TomatinhoAction[], authUserId: string, profile: JsonRecord, crm: JsonRecord) {
+async function executeActions(actions: BpoAgentAction[], authUserId: string, profile: JsonRecord, crm: JsonRecord) {
   const results: Array<{ ok: boolean; type: string; id?: string; error?: string }> = []
   for (const action of actions.slice(0, 5)) {
     try {
@@ -375,7 +375,7 @@ async function executeActions(actions: TomatinhoAction[], authUserId: string, pr
   return results
 }
 
-async function executeAction(action: TomatinhoAction, authUserId: string, profile: JsonRecord, crm: JsonRecord) {
+async function executeAction(action: BpoAgentAction, authUserId: string, profile: JsonRecord, crm: JsonRecord) {
   const payload = action.payload || {}
   const requestedOwnerId = asText(payload.owner_id)
   const ownerId = profile.role === 'admin_vmarket' && requestedOwnerId ? requestedOwnerId : authUserId

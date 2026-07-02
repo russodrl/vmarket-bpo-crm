@@ -3,12 +3,12 @@ import type { Session } from '@supabase/supabase-js'
 import { Mic, Paperclip, Send, X } from 'lucide-react'
 import { supabase } from './supabase'
 
-type TomatinhoExpression = 'pensativo' | 'surpreso' | 'feliz' | 'hell-yeah' | 'triste' | 'intrigado' | 'aliviado'
+type BpoAgentExpression = 'pensativo' | 'surpreso' | 'feliz' | 'hell-yeah' | 'triste' | 'intrigado' | 'aliviado'
 type ChatMessage = {
   id: string
   role: 'user' | 'assistant'
   content: string
-  expression?: TomatinhoExpression
+  expression?: BpoAgentExpression
 }
 type ChatAttachment = {
   name: string
@@ -22,14 +22,14 @@ type Props = {
   onReload?: () => Promise<void> | void
 }
 
-const avatarByExpression: Record<TomatinhoExpression, string> = {
-  pensativo: '/tomatinho/pensativo.webp',
-  surpreso: '/tomatinho/surpreso.webp',
-  feliz: '/tomatinho/feliz.webp',
-  'hell-yeah': '/tomatinho/hell-yeah.webp',
-  triste: '/tomatinho/triste.webp',
-  intrigado: '/tomatinho/intrigado.webp',
-  aliviado: '/tomatinho/aliviado.webp',
+const avatarByExpression: Record<BpoAgentExpression, string> = {
+  pensativo: '/bpo-agent/pensativo.webp',
+  surpreso: '/bpo-agent/surpreso.webp',
+  feliz: '/bpo-agent/feliz.webp',
+  'hell-yeah': '/bpo-agent/hell-yeah.webp',
+  triste: '/bpo-agent/triste.webp',
+  intrigado: '/bpo-agent/intrigado.webp',
+  aliviado: '/bpo-agent/aliviado.webp',
 }
 
 function cn(...classes: Array<string | false | null | undefined>) {
@@ -45,7 +45,7 @@ function fileToPayload(file: File): Promise<ChatAttachment> {
   })
 }
 
-export function TomatinhoChat({ session, contextDealId, onReload }: Props) {
+export function BpoAgentChat({ session, contextDealId, onReload }: Props) {
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -67,13 +67,13 @@ export function TomatinhoChat({ session, contextDealId, onReload }: Props) {
     setBusy(true)
     try {
       const history = messages.slice(-8).map((message) => ({ role: message.role, content: message.content }))
-      const { data, error } = await supabase.functions.invoke('tomatinho-chat', {
+      const { data, error } = await supabase.functions.invoke('bpo-agent', {
         body: { message: text, files: attachments, contextDealId: contextDealId || null, history },
         headers: { Authorization: `Bearer ${session.access_token}` },
       })
       if (error) throw error
       if (data?.error) throw new Error(String(data.error))
-      const expression = (data?.expression || 'pensativo') as TomatinhoExpression
+      const expression = (data?.expression || 'pensativo') as BpoAgentExpression
       setMessages((current) => [...current, {
         id: `a-${Date.now()}`,
         role: 'assistant',
@@ -140,7 +140,7 @@ export function TomatinhoChat({ session, contextDealId, onReload }: Props) {
           <img src={avatarByExpression[currentExpression]} alt="Agente Vmarket BPO" className="h-14 w-14 rounded-full object-cover ring-2 ring-white" />
           <div className="min-w-0 flex-1">
             <h2 className="font-black leading-tight">Agente Vmarket BPO</h2>
-            <p className="text-xs text-white/75">Tomatinho</p>
+            <p className="text-xs text-white/75">bpo-agent</p>
           </div>
           <button type="button" onClick={() => setOpen(false)} className="grid h-9 w-9 place-items-center rounded-full bg-white/10 hover:bg-white/20" aria-label="Fechar"><X size={18}/></button>
         </header>
