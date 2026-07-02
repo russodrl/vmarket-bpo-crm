@@ -293,19 +293,31 @@ async function askHermes(input: { message: string; files: ChatRequest['files']; 
   }
   if (HERMES_CHAT_TOKEN) headers.authorization = `Bearer ${HERMES_CHAT_TOKEN}`
 
-  const imageParts = (input.files || [])
-    .filter((file) => (file.type || '').startsWith('image/') && file.content)
-    .slice(0, 3)
-    .map((file) => ({ type: 'image_url', image_url: { url: file.content } }))
-  const otherFiles = (input.files || [])
-    .filter((file) => !(file.type || '').startsWith('image/'))
-    .map((file) => `${file.name} (${file.type || 'arquivo'})`)
+  const audioTexts: string[] = []
+  const imageParts = [] as Array<{ type: 'image_url'; image_url: { url: string } }>
+  const otherFiles: string[] = []
+  for (const file of input.files || []) {
+    const type = String(file.type || '')
+    if (type.startsWith('audio/')) {
+      if (OPENAI_API_KEY) {
+        const text = await transcribeAudio(file)
+        if (text) audioTexts.push(`${file.name}: ${text}`)
+      } else {
+        otherFiles.push(`${file.name} (${type || 'áudio'}; transcrição ao vivo do navegador usada quando disponível)`)
+      }
+    } else if (type.startsWith('image/') && file.content) {
+      imageParts.push({ type: 'image_url', image_url: { url: file.content } })
+    } else {
+      otherFiles.push(`${file.name} (${type || 'arquivo'})`)
+    }
+  }
 
   const textParts = [
     input.message ? `Mensagem do usuário:\n${input.message}` : '',
+    audioTexts.length ? `Áudio transcrito:\n${audioTexts.join('\n')}` : '',
     otherFiles.length ? `Arquivos anexados sem leitura profunda:\n${otherFiles.join('\n')}` : '',
     `Contexto e base CRM:\n${input.context}`,
-    'Responda JSON puro no formato {"reply":"texto curto","expression":"pensativo|surpreso|feliz|hell-yeah|triste|intrigado|aliviado","actions":[{"type":"...","payload":{}}]}. Se o usuário pedir para criar/editar/executar algo no CRM/Pipedrive e houver dados suficientes, inclua actions. Se faltar dado essencial, pergunte apenas o dado faltante.',
+    'Responda JSON puro no formato {"reply":"texto curto","expression":"pensativo|surpreso|feliz|hell-yeah|triste|intrigado|aliviado","actions":[{"type":"...","payload":{}}]}. Se o usuário pedir para criar/editar/executar algo no CRM/Pipedrive e houver dados suficientes, inclua actions. Se faltar dado essencial, pergunte apenas o dado faltante. Se houver Áudio transcrito, interprete o conteúdo do áudio como a mensagem principal do usuário.',
   ].filter(Boolean).join('\n\n')
 
   const messages = [
