@@ -67,6 +67,7 @@ type NewActivity = {
   activity_type: string
   due_date: string
   due_time: string
+  meeting_link: string
   note: string
   status?: ActivityRow['status']
 }
@@ -336,6 +337,7 @@ const blankNewActivity = (): NewActivity => ({
   activity_type: 'task',
   due_date: '',
   due_time: '',
+  meeting_link: '',
   note: '',
 })
 
@@ -511,7 +513,7 @@ function buildGlobalSearchResults(query: string, deals: Deal[], people: Person[]
   organizations.forEach((org) => push({ id: `org-${org.id}`, group: 'Empresas', title: org.name, description: `${org.segment || ''} ${org.type || ''} ${org.city || ''} ${org.state || ''}`, view: 'companies', organizationId: org.id }, org.name, `${org.segment || ''} ${org.type || ''} ${org.city || ''} ${org.state || ''}`))
   activities.forEach((activity) => {
     const deal = deals.find((item) => item.id === activity.deal_id)
-    push({ id: `activity-${activity.id}`, group: 'Atividades', title: activity.title, description: `${activity.note || ''} ${activity.activity_type || ''} ${deal?.title || ''}`, dealId: activity.deal_id || undefined, view: activity.deal_id ? undefined : 'activities' }, activity.title, `${activity.note || ''} ${activity.activity_type || ''} ${deal?.title || ''}`)
+    push({ id: `activity-${activity.id}`, group: 'Atividades', title: activity.title, description: `${activity.note || ''} ${activity.meeting_link || ''} ${activity.activity_type || ''} ${deal?.title || ''}`, dealId: activity.deal_id || undefined, view: activity.deal_id ? undefined : 'activities' }, activity.title, `${activity.note || ''} ${activity.meeting_link || ''} ${activity.activity_type || ''} ${deal?.title || ''}`)
   })
   history.forEach((row) => {
     const isNote = row.event_type.toLowerCase().includes('nota') || row.event_type.toLowerCase().includes('anot')
@@ -1293,6 +1295,7 @@ function App() {
       activity_type: draft.activity_type,
       due_at: dueAt,
       status: draft.status,
+      meeting_link: draft.meeting_link.trim() || null,
       note: draft.note.trim() || null,
       owner_id: draft.owner_id || null,
       completed_at: draft.status === 'done' ? (activity?.completed_at || new Date().toISOString()) : null,
@@ -1325,6 +1328,7 @@ function App() {
         activity_type: activity.activity_type,
         due_at: dueAt,
         status: activity.status || 'open',
+        meeting_link: activity.meeting_link.trim() || null,
         note: activity.note.trim() || null,
         deal_id: detailDeal.id,
         organization_id: detailDeal.organization_id,
@@ -3030,7 +3034,7 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
     </form>
 
     {editingActivity && <ActivityEditorModal activity={editingActivity} deal={deal} crmUsers={crmUsers} ownerName={crmOwnerDisplay(crmUsers, editingActivity.owner_id || deal.owner_id, deal.pipedrive_owner_name || 'Sem usuário')} onClose={() => setEditingActivity(null)} onSave={async (draft) => { await updateActivity(editingActivity.id, draft); setEditingActivity(null) }} />}
-    {showNewActivityModal && <ActivityEditorModal mode="create" activity={{ id: 'new-activity', title: activityDraft.title, activity_type: activityDraft.activity_type, due_at: activityDraft.due_date ? new Date(`${activityDraft.due_date}T${activityDraft.due_time || '09:00'}`).toISOString() : null, status: 'open', note: activityDraft.note || null, deal_id: deal.id, organization_id: deal.organization_id, person_id: deal.person_id, owner_id: deal.owner_id, bpo_id: deal.bpo_id, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }} deal={deal} crmUsers={crmUsers} ownerName={crmOwnerDisplay(crmUsers, deal.owner_id, deal.pipedrive_owner_name || 'Sem usuário')} onClose={() => setShowNewActivityModal(false)} onSave={async (draft) => { await createActivity({ title: draft.title, activity_type: draft.activity_type, due_date: draft.due_date, due_time: draft.due_time, note: draft.note, status: draft.status }); setActivityDraft(blankNewActivity()); setShowNewActivityModal(false) }} />}
+    {showNewActivityModal && <ActivityEditorModal mode="create" activity={{ id: 'new-activity', title: activityDraft.title, activity_type: activityDraft.activity_type, due_at: activityDraft.due_date ? new Date(`${activityDraft.due_date}T${activityDraft.due_time || '09:00'}`).toISOString() : null, status: 'open', meeting_link: activityDraft.meeting_link || null, note: activityDraft.note || null, deal_id: deal.id, organization_id: deal.organization_id, person_id: deal.person_id, owner_id: deal.owner_id, bpo_id: deal.bpo_id, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }} deal={deal} crmUsers={crmUsers} ownerName={crmOwnerDisplay(crmUsers, deal.owner_id, deal.pipedrive_owner_name || 'Sem usuário')} onClose={() => setShowNewActivityModal(false)} onSave={async (draft) => { await createActivity({ title: draft.title, activity_type: draft.activity_type, due_date: draft.due_date, due_time: draft.due_time, meeting_link: draft.meeting_link, note: draft.note, status: draft.status }); setActivityDraft(blankNewActivity()); setShowNewActivityModal(false) }} />}
     {showLostReason && <LostReasonModal onCancel={() => setShowLostReason(false)} onConfirm={markLost} />}
     {showLabelPicker && <LabelPickerModal deal={deal} labels={dealLabels} assignedLabelIds={assignedLabels.map((assignment) => assignment.label_id)} onClose={() => setShowLabelPicker(false)} onCreateLabel={createLabel} onDeleteLabel={deleteLabel} onSave={async (labelIds) => { await updateDealLabels(deal.id, labelIds); setShowLabelPicker(false) }} />}
   </main>
@@ -3179,10 +3183,17 @@ function activityToEditDraft(activity: ActivityRow): ActivityEditDraft {
     activity_type: activity.activity_type || 'task',
     due_date: toLocalDate(activity.due_at),
     due_time: toLocalTime(activity.due_at),
+    meeting_link: activity.meeting_link || '',
     note: activity.note || '',
     status: activity.status || 'open',
     owner_id: activity.owner_id || '',
   }
+}
+
+function safeMeetingHref(value: string | null | undefined) {
+  const clean = String(value || '').trim()
+  if (!clean) return ''
+  return /^https?:\/\//i.test(clean) ? clean : `https://${clean}`
 }
 
 function TimelineIcon({ item }: { item: { kind: string; activity?: ActivityRow } }) {
@@ -3289,6 +3300,7 @@ function ActivityInlineRow({ activity, deal, ownerName, onComplete, onMarkTodo, 
           <p className={cn('min-w-0 flex-1 whitespace-pre-wrap px-3 py-2', !descriptionExpanded && 'max-h-16 overflow-hidden')}>{activity.note}</p>
           <button type="button" onClick={() => setDescriptionExpanded((current) => !current)} className="grid w-10 shrink-0 place-items-center border-l border-amber-100 text-slate-500 hover:bg-amber-100" aria-label={descriptionExpanded ? 'Recolher descrição' : 'Expandir descrição'}>{descriptionExpanded ? <ChevronsUp size={16}/> : <ChevronsDown size={16}/>}</button>
         </div>}
+        {activity.meeting_link && <a href={safeMeetingHref(activity.meeting_link)} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()} className="mt-2 inline-flex items-center gap-1 rounded border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-bold text-blue-700 hover:bg-blue-100"><Video size={13}/> Link da reunião</a>}
       </div>
       {hasMenu && <div ref={menuRef} className="relative flex shrink-0 items-center gap-1">
         <button type="button" aria-label="Menu da atividade" onClick={() => setMenuOpen((current) => !current)} className="grid h-8 w-8 place-items-center rounded text-slate-500 hover:bg-slate-100 hover:text-slate-800"><MoreHorizontal size={16}/></button>
@@ -3360,7 +3372,7 @@ function ActivityEditorModal({ activity, deal, crmUsers, ownerName, mode = 'edit
           <div className="mt-4 grid gap-3 text-sm">
             <div className="grid grid-cols-[28px_minmax(0,1fr)] items-center gap-2"><Clock size={19} className="text-slate-600"/><div className="flex flex-wrap items-center gap-2"><input type="date" value={draft.due_date} onChange={(e) => { setDraft((current) => ({ ...current, due_date: e.target.value })); if (e.target.value) setCalendarDate(new Date(`${e.target.value}T12:00`)) }} className="rounded border border-slate-300 px-3 py-2"/><input type="time" value={draft.due_time} onChange={(e) => setDraft((current) => ({ ...current, due_time: e.target.value }))} className="rounded border border-slate-300 px-3 py-2"/><span className="text-slate-400">-</span><input type="time" className="w-28 rounded border border-slate-300 px-3 py-2 text-slate-400" placeholder="HH:mm" disabled/><input type="date" value={draft.due_date} onChange={(e) => setDraft((current) => ({ ...current, due_date: e.target.value }))} className="rounded border border-slate-300 px-3 py-2"/></div></div>
             <div className="grid grid-cols-[28px_minmax(0,1fr)] items-center gap-2"><Flag size={19} className="text-slate-600"/><select className="w-36 rounded border border-slate-300 px-3 py-2 font-semibold"><option>Prioridade</option><option>Alta</option><option>Média</option><option>Baixa</option></select></div>
-            <div className="grid grid-cols-[28px_minmax(0,1fr)] gap-2"><MoreHorizontal size={19} className="mt-1 text-slate-600"/><p className="leading-7 text-slate-700">Adicionar <button type="button" className="font-semibold text-blue-700">convidados</button>] [guests-link], [<button type="button" className="font-semibold text-blue-700">localização</button>, <button type="button" className="font-semibold text-blue-700">videochamada</button>, <button type="button" className="font-semibold text-blue-700">descrição</button></p></div>
+            <div className="grid grid-cols-[28px_minmax(0,1fr)] items-center gap-2"><Video size={19} className="text-slate-600"/><div className="flex min-w-0 flex-wrap items-center gap-2"><label className="text-xs font-bold uppercase tracking-wide text-slate-500">Link da Reunião</label><input type="url" value={draft.meeting_link} onChange={(e) => setDraft((current) => ({ ...current, meeting_link: e.target.value }))} className="min-w-[260px] flex-1 rounded border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400" placeholder="https://meet.google.com/..." />{draft.meeting_link.trim() && <a href={safeMeetingHref(draft.meeting_link)} target="_blank" rel="noreferrer" className="rounded border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-100">Abrir link</a>}</div></div>
             <div className="grid grid-cols-[28px_minmax(0,1fr)] items-center gap-2"><Activity size={18} className="text-slate-600"/><div className="flex items-center gap-2"><select value={draft.status} onChange={(e) => setDraft((current) => ({ ...current, status: e.target.value as ActivityRow['status'] }))} className="rounded border border-slate-300 px-3 py-2"><option value="open">Agendado</option><option value="rescheduled">Reagendado</option><option value="no_show">Não apareceu</option><option value="done">Concluída</option><option value="cancelled">Cancelada</option></select><span className="text-xs text-slate-400">ⓘ</span></div></div>
             <div className="grid grid-cols-[28px_minmax(0,1fr)] gap-2"><MessageSquare size={18} className="mt-2 text-slate-600"/><div><textarea value={draft.note} onChange={(e) => setDraft((current) => ({ ...current, note: e.target.value }))} rows={5} className="w-full rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm outline-none focus:border-amber-300"/><p className="mt-1 text-xs text-slate-500">As anotações ficam visíveis no Pipedrive, exceto para convidados do evento</p></div></div>
             <div className="grid grid-cols-[28px_minmax(0,1fr)] items-center gap-2"><User size={18} className="text-slate-600"/><select value={draft.owner_id} onChange={(e) => setDraft((current) => ({ ...current, owner_id: e.target.value }))} className="w-full rounded border border-slate-300 px-3 py-2"><option value="">{ownerName || 'Sem proprietário'}</option>{crmUsers.filter((user) => user.auth_user_id).map((user) => <option key={user.id} value={user.auth_user_id || ''}>{user.full_name}</option>)}</select></div>
@@ -4142,7 +4154,7 @@ function ActivitiesView({ activities, deals, crmUsers, completeActivity, markAct
       const query = normalizeKey(search)
       if (!query) return true
       const deal = deals.find((item) => item.id === activity.deal_id)
-      const haystack = normalizeKey([activity.title, activity.note, activity.activity_type, deal?.title, deal?.organizations?.name, deal?.people?.full_name, crmOwnerDisplay(crmUsers, activity.owner_id || deal?.owner_id, '')].filter(Boolean).join(' '))
+      const haystack = normalizeKey([activity.title, activity.note, activity.meeting_link, activity.activity_type, deal?.title, deal?.organizations?.name, deal?.people?.full_name, crmOwnerDisplay(crmUsers, activity.owner_id || deal?.owner_id, '')].filter(Boolean).join(' '))
       return haystack.includes(query)
     })
     .sort((a, b) => new Date(a.due_at || '2999-12-31').getTime() - new Date(b.due_at || '2999-12-31').getTime())
@@ -4194,6 +4206,7 @@ function ActivitiesView({ activities, deals, crmUsers, completeActivity, markAct
               <th className="min-w-[150px] border-l border-slate-200 px-3 py-2">Etapa</th>
               <th className="min-w-[240px] border-l border-slate-200 px-3 py-2">Assunto</th>
               <th className="min-w-[230px] border-l border-slate-200 px-3 py-2">Nota</th>
+              <th className="min-w-[160px] border-l border-slate-200 px-3 py-2">Link da Reunião</th>
               <th className="min-w-[190px] border-l border-slate-200 px-3 py-2">Negócio</th>
               <th className="min-w-[190px] border-l border-slate-200 px-3 py-2">Organização</th>
               <th className="min-w-[155px] border-l border-slate-200 px-3 py-2">Data de vencimento</th>
@@ -4213,6 +4226,7 @@ function ActivitiesView({ activities, deals, crmUsers, completeActivity, markAct
                 <td className={cn('border-l border-slate-100 px-3 py-2 font-semibold', rowTone(activity))}>{stage?.name || '-'}</td>
                 <td className={cn('max-w-[260px] truncate border-l border-slate-100 px-3 py-2 font-semibold', rowTone(activity))}><ActivityTypeIcon type={activity.activity_type}/><span className="ml-1 align-middle">{activity.title}</span></td>
                 <td className={cn('max-w-[260px] truncate border-l border-slate-100 px-3 py-2', rowTone(activity))}>{activity.note || '-'}</td>
+                <td className={cn('max-w-[180px] truncate border-l border-slate-100 px-3 py-2 font-semibold', rowTone(activity))}>{activity.meeting_link ? <a href={safeMeetingHref(activity.meeting_link)} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()} className="inline-flex max-w-full items-center gap-1 truncate text-blue-700 hover:underline"><Video size={13}/> Abrir link</a> : '-'}</td>
                 <td className={cn('max-w-[210px] truncate border-l border-slate-100 px-3 py-2 font-semibold', rowTone(activity))}>{deal?.id ? <button type="button" onClick={(event) => { event.stopPropagation(); openDealPage(deal.id) }} className="max-w-full truncate text-left hover:underline">{deal.title}</button> : '-'}</td>
                 <td className={cn('max-w-[210px] truncate border-l border-slate-100 px-3 py-2 font-semibold', rowTone(activity))}>{deal?.organizations?.name || '-'}</td>
                 <td className={cn('border-l border-slate-100 px-3 py-2 font-semibold', dueTone(activity))}>{formatActivityDateTime(activity.due_at).replace('às ', '')}</td>

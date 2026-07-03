@@ -385,6 +385,8 @@ async function syncCrmActivityToPipedrive(activityId: string, userId: string | n
     ...(due.due_date ? { due_date: due.due_date } : {}),
     ...(due.due_time ? { due_time: due.due_time } : {}),
   }
+  const meetingLink = stringOrNull(activity.meeting_link)
+  if (meetingLink) body.location = meetingLink
   const orgExternal = activity.organization_id ? await findExternalRecord('organization', String(activity.organization_id)) : null
   const personExternal = activity.person_id ? await findExternalRecord('person', String(activity.person_id)) : null
   if (orgExternal?.external_id) body.org_id = Number(orgExternal.external_id)
@@ -635,11 +637,13 @@ async function syncPipedriveActivitiesToCrm(integrationId: string, deal: JsonRec
     if (!externalId) continue
     const existing = await findExternalRecordByExternal('activity', externalId)
     const dueAt = activity.due_date ? `${activity.due_date}T${String(activity.due_time || '09:00').slice(0, 5)}:00` : null
+    const meetingLink = extractMeetingLink(activity)
     const payload = {
       title: String(activity.subject || activity.type || `Atividade Pipedrive ${externalId}`),
       activity_type: String(activity.type || 'task'),
       due_at: dueAt,
       status: activity.done ? 'done' : 'open',
+      meeting_link: meetingLink,
       note: stripHtml(String(activity.note || activity.public_description || '')) || null,
       deal_id: String(deal.id),
       organization_id: stringOrNull(deal.organization_id),
@@ -661,6 +665,23 @@ async function syncPipedriveActivitiesToCrm(integrationId: string, deal: JsonRec
     synced += 1
   }
   return synced
+}
+
+function extractMeetingLink(activity: JsonRecord) {
+  const direct = stringOrNull(activity.conference_meeting_url) || stringOrNull(activity.location)
+  const fromDirect = direct && findMeetingUrl(direct)
+  if (fromDirect) return fromDirect
+  const text = [activity.note, activity.public_description, activity.note_clean, activity.location]
+    .map((value) => typeof value === 'string' ? value : '')
+    .join('\n')
+  return findMeetingUrl(stripHtml(text))
+}
+
+function findMeetingUrl(text: string | null | undefined) {
+  const source = String(text || '')
+  const urls = source.match(/https?:\/\/[^\s<>"']+/gi) || []
+  const meet = urls.find((url) => /meet\.google\.com/i.test(url)) || urls.find((url) => /tel\.meet\//i.test(url)) || urls.find((url) => /zoom\.us|teams\.microsoft\.com/i.test(url))
+  return meet ? meet.replace(/[).,;]+$/, '') : null
 }
 
 async function syncCustomFieldsFromPipedrive(entityId: string, entity: string, payload: JsonRecord) {

@@ -217,6 +217,7 @@ export type ActivityRow = {
   due_at: string | null
   status: 'open' | 'done' | 'cancelled' | 'rescheduled' | 'no_show'
   note: string | null
+  meeting_link: string | null
   deal_id: string | null
   organization_id: string | null
   person_id: string | null
