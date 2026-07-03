@@ -536,7 +536,7 @@ async function upsertCrmDealFromPipedrive(integrationId: string, pdDeal: JsonRec
     await syncCustomFieldsFromPipedrive(person.id, 'person', pdPerson || {})
     try {
       await supabase.rpc('enrich_person_ddd', { target_person_id: person.id })
-    } catch (_) {
+    } catch {
       // Best-effort enrichment should never block Pipedrive inbound sync.
     }
   }

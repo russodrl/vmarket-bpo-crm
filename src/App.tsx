@@ -1757,7 +1757,7 @@ function App() {
                 {activeView === 'commissions-vmarket' && <VmarketCommissionsView deals={deals} stages={stages} history={history} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} />}
                 {activeView === 'contacts' && <EntityListView title="Contatos" icon={<Contact size={18}/>} entity="person" rows={visiblePeople} deals={deals} people={people} organizations={organizations} stages={stages} crmUsers={crmUsers} dealLabels={dealLabels} dealLabelAssignments={dealLabelAssignments} selectedId={detailPersonId} onOpen={openPersonPage} savedFilters={savedDealFilters} activeFilterId={activeDealFilterId} activeOwnerId={activeOwnerFilterId} setActiveFilterId={setActiveDealFilterId} setActiveOwnerId={setActiveOwnerFilterId} users={crmUsers} filterFields={filterFields} filterContext={filterContext} saveDealFilter={saveDealFilter} onDeleteFilter={deleteDealFilter} onToggleFavoriteFilter={toggleDealFilterFavorite} applyFilterColumns={applyFilterColumns} visibleColumns={personListColumns} setVisibleColumns={setPersonColumns} reload={loadAll} />}
                 {activeView === 'companies' && <EntityListView title="Empresas" icon={<Building2 size={18}/>} entity="organization" rows={visibleOrganizations} deals={deals} people={people} organizations={organizations} stages={stages} crmUsers={crmUsers} dealLabels={dealLabels} dealLabelAssignments={dealLabelAssignments} selectedId={detailOrganizationId} onOpen={openOrganizationPage} savedFilters={savedDealFilters} activeFilterId={activeDealFilterId} activeOwnerId={activeOwnerFilterId} setActiveFilterId={setActiveDealFilterId} setActiveOwnerId={setActiveOwnerFilterId} users={crmUsers} filterFields={filterFields} filterContext={filterContext} saveDealFilter={saveDealFilter} onDeleteFilter={deleteDealFilter} onToggleFavoriteFilter={toggleDealFilterFavorite} applyFilterColumns={applyFilterColumns} visibleColumns={organizationListColumns} setVisibleColumns={setOrganizationColumns} reload={loadAll} />}
-                {activeView === 'activities' && <ActivitiesView activities={activities} deals={deals} crmUsers={crmUsers} completeActivity={completeActivity} markActivityTodo={markActivityTodo} updateActivity={updateActivity} canDelete={profile?.role === 'admin_vmarket'} deleteActivity={(id, label) => deleteOneRecord('activity', id, label)} />}
+                {activeView === 'activities' && <ActivitiesView activities={activities} deals={deals} crmUsers={crmUsers} completeActivity={completeActivity} markActivityTodo={markActivityTodo} updateActivity={updateActivity} openDealPage={openDealPage} canDelete={profile?.role === 'admin_vmarket'} deleteActivity={(id, label) => deleteOneRecord('activity', id, label)} />}
                 {activeView === 'warnings' && <WarningsView deals={deals} people={people} organizations={organizations} activities={activities} crmUsers={crmUsers} openDealPage={openDealPage} reload={loadAll} setError={setError} />}
                 {activeView === 'lead-distribution' && profile?.role === 'admin_vmarket' && <LeadDistributionView users={crmUsers} deals={deals} />}
                 {activeView === 'automations' && profile?.role === 'admin_vmarket' && <AutomationsView rules={automationRules} executions={automationExecutions} changes={automationChanges} />}
@@ -4028,43 +4028,201 @@ function EntityListView({ title, icon, entity, rows, deals, people, organization
   </div>
 }
 
-function ActivitiesView({ activities, deals, crmUsers, completeActivity, markActivityTodo, updateActivity, canDelete = false, deleteActivity }: { activities: ActivityRow[]; deals: Deal[]; crmUsers: CrmUser[]; completeActivity: (id: string) => Promise<void>; markActivityTodo: (id: string) => Promise<void>; updateActivity: (activityId: string, draft: ActivityEditDraft) => Promise<void>; canDelete?: boolean; deleteActivity?: (id: string, label: string) => void }) {
+type ActivityDateFilter = 'todo' | 'overdue' | 'today' | 'tomorrow' | 'this_week' | 'next_week' | 'custom'
+type SavedActivityFilter = {
+  id: string
+  name: string
+  ownerFilter: string
+  typeFilter: string
+  dateFilter: ActivityDateFilter
+  search: string
+  customStart: string
+  customEnd: string
+}
+
+function loadSavedActivityFilters() {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem('vmarket-crm-activity-filters') || '[]')
+    return Array.isArray(parsed) ? parsed.filter((item): item is SavedActivityFilter => Boolean(item?.id && item?.name)) : []
+  } catch {
+    return []
+  }
+}
+function saveActivityFilters(filters: SavedActivityFilter[]) {
+  window.localStorage.setItem('vmarket-crm-activity-filters', JSON.stringify(filters))
+}
+function endOfLocalDay(date: Date) {
+  const end = new Date(date)
+  end.setHours(23, 59, 59, 999)
+  return end.getTime()
+}
+function weekBounds(offsetWeeks = 0) {
+  const now = new Date()
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const day = (start.getDay() + 6) % 7
+  start.setDate(start.getDate() - day + offsetWeeks * 7)
+  const end = new Date(start)
+  end.setDate(start.getDate() + 6)
+  return { start: start.getTime(), end: endOfLocalDay(end) }
+}
+function activityMatchesDateFilter(activity: ActivityRow, filter: ActivityDateFilter, customStart: string, customEnd: string) {
+  if (filter === 'todo') return activity.status !== 'done'
+  if (!activity.due_at) return false
+  const due = new Date(activity.due_at).getTime()
+  const todayStart = startOfLocalDay(new Date())
+  const todayEnd = endOfLocalDay(new Date())
+  if (filter === 'overdue') return activity.status !== 'done' && due < todayStart
+  if (filter === 'today') return due >= todayStart && due <= todayEnd
+  if (filter === 'tomorrow') {
+    const tomorrow = addDays(new Date(), 1)
+    return due >= startOfLocalDay(tomorrow) && due <= endOfLocalDay(tomorrow)
+  }
+  if (filter === 'this_week') {
+    const bounds = weekBounds(0)
+    return due >= bounds.start && due <= bounds.end
+  }
+  if (filter === 'next_week') {
+    const bounds = weekBounds(1)
+    return due >= bounds.start && due <= bounds.end
+  }
+  if (filter === 'custom') {
+    const start = customStart ? startOfLocalDay(new Date(`${customStart}T12:00`)) : Number.NEGATIVE_INFINITY
+    const end = customEnd ? endOfLocalDay(new Date(`${customEnd}T12:00`)) : Number.POSITIVE_INFINITY
+    return due >= start && due <= end
+  }
+  return true
+}
+
+function ActivitiesView({ activities, deals, crmUsers, completeActivity, markActivityTodo, updateActivity, openDealPage, canDelete = false, deleteActivity }: { activities: ActivityRow[]; deals: Deal[]; crmUsers: CrmUser[]; completeActivity: (id: string) => Promise<void>; markActivityTodo: (id: string) => Promise<void>; updateActivity: (activityId: string, draft: ActivityEditDraft) => Promise<void>; openDealPage: (id: string) => void; canDelete?: boolean; deleteActivity?: (id: string, label: string) => void }) {
   const [editingActivity, setEditingActivity] = useState<ActivityRow | null>(null)
   const [mode, setMode] = useState<'list' | 'calendar'>('list')
   const [calendarDate, setCalendarDate] = useState<Date>(() => new Date())
-  const ownerOptions = crmUsers.filter((user) => user.auth_user_id)
   const [ownerFilter, setOwnerFilter] = useState('all')
-  const filteredActivities = ownerFilter === 'all' ? activities : activities.filter((activity) => activity.owner_id === ownerFilter)
+  const [typeFilter, setTypeFilter] = useState('all')
+  const [dateFilter, setDateFilter] = useState<ActivityDateFilter>('todo')
+  const [customStart, setCustomStart] = useState('')
+  const [customEnd, setCustomEnd] = useState('')
+  const [search, setSearch] = useState('')
+  const [savedFilters, setSavedFilters] = useState<SavedActivityFilter[]>(() => loadSavedActivityFilters())
+  const [activeSavedFilterId, setActiveSavedFilterId] = useState('')
+  const ownerOptions = crmUsers.filter((user) => user.auth_user_id)
   const selectedOwner = ownerOptions.find((user) => user.auth_user_id === ownerFilter)
-  return <div className="h-full overflow-y-auto p-5">
+  const dateTabs: Array<[ActivityDateFilter, string]> = [['todo', 'Para fazer'], ['overdue', 'Vencido'], ['today', 'Hoje'], ['tomorrow', 'Amanhã'], ['this_week', 'Esta semana'], ['next_week', 'Próxima semana'], ['custom', 'Selecionar período']]
+  const saveCurrentFilter = () => {
+    const name = window.prompt('Nome do filtro de atividades')?.trim()
+    if (!name) return
+    const saved: SavedActivityFilter = { id: `activity-filter-${Date.now()}`, name, ownerFilter, typeFilter, dateFilter, search, customStart, customEnd }
+    const next = [...savedFilters, saved]
+    setSavedFilters(next)
+    saveActivityFilters(next)
+    setActiveSavedFilterId(saved.id)
+  }
+  const applySavedFilter = (id: string) => {
+    setActiveSavedFilterId(id)
+    const saved = savedFilters.find((filter) => filter.id === id)
+    if (!saved) return
+    setOwnerFilter(saved.ownerFilter)
+    setTypeFilter(saved.typeFilter)
+    setDateFilter(saved.dateFilter)
+    setSearch(saved.search)
+    setCustomStart(saved.customStart)
+    setCustomEnd(saved.customEnd)
+  }
+  const deleteSavedFilter = (id: string) => {
+    const next = savedFilters.filter((filter) => filter.id !== id)
+    setSavedFilters(next)
+    saveActivityFilters(next)
+    if (activeSavedFilterId === id) setActiveSavedFilterId('')
+  }
+  const activityRows = activities
+    .filter((activity) => ownerFilter === 'all' || activity.owner_id === ownerFilter)
+    .filter((activity) => typeFilter === 'all' || activity.activity_type === typeFilter)
+    .filter((activity) => activityMatchesDateFilter(activity, dateFilter, customStart, customEnd))
+    .filter((activity) => {
+      const query = normalizeKey(search)
+      if (!query) return true
+      const deal = deals.find((item) => item.id === activity.deal_id)
+      const haystack = normalizeKey([activity.title, activity.note, activity.activity_type, deal?.title, deal?.organizations?.name, deal?.people?.full_name, crmOwnerDisplay(crmUsers, activity.owner_id || deal?.owner_id, '')].filter(Boolean).join(' '))
+      return haystack.includes(query)
+    })
+    .sort((a, b) => new Date(a.due_at || '2999-12-31').getTime() - new Date(b.due_at || '2999-12-31').getTime())
+  const shownForCalendar = activityRows.filter((activity) => sameActivityDay(activity, calendarDate))
+  const visibleTypeOptions = activityTypeOptions.filter((option) => activities.some((activity) => activity.activity_type === option.id))
+  const dueTone = (activity: ActivityRow) => {
+    if (activity.status === 'done') return 'text-slate-500'
+    if (!activity.due_at) return 'text-slate-400'
+    return new Date(activity.due_at).getTime() < startOfLocalDay(new Date()) ? 'text-rose-600' : 'text-emerald-700'
+  }
+  const rowTone = (activity: ActivityRow) => activity.status === 'done' ? 'text-slate-500' : activity.due_at && new Date(activity.due_at).getTime() < startOfLocalDay(new Date()) ? 'text-rose-700' : 'text-emerald-700'
+  const activityCheckbox = (activity: ActivityRow) => <button type="button" onClick={(event) => { event.stopPropagation(); void (activity.status === 'done' ? markActivityTodo(activity.id) : completeActivity(activity.id)) }} className={cn('grid h-5 w-5 place-items-center rounded-full border transition', activity.status === 'done' ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-300 bg-white hover:border-emerald-500')} aria-label={activity.status === 'done' ? 'Marcar para fazer' : 'Marcar concluída'}>{activity.status === 'done' ? '✓' : ''}</button>
+  return <div className="h-full overflow-y-auto p-3 sm:p-5">
     <Panel className="overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white p-4">
-        <div className="flex items-center gap-2"><CalendarClock size={18} className="text-[#6f5cf6]"/><h2 className="text-lg font-bold">Atividades</h2><Badge>{filteredActivities.length} registros</Badge>{selectedOwner && <Badge tone="bg-blue-100 text-blue-700">{selectedOwner.full_name}</Badge>}</div>
+        <div className="flex min-w-0 items-center gap-2"><CalendarClock size={18} className="text-[#6f5cf6]"/><h2 className="text-lg font-bold">Atividades</h2><Badge>{activityRows.length} registros</Badge>{selectedOwner && <Badge tone="bg-blue-100 text-blue-700">{selectedOwner.full_name}</Badge>}</div>
         <div className="flex flex-wrap items-center gap-2">
-          <select value={ownerFilter} onChange={(e) => setOwnerFilter(e.target.value)} className="rounded border border-slate-300 bg-white px-3 py-2 text-sm font-semibold"><option value="all">Todos os usuários</option>{ownerOptions.map((user) => <option key={user.id} value={user.auth_user_id || ''}>{user.full_name}</option>)}</select>
+          <input value={search} onChange={(e) => { setSearch(e.target.value); setActiveSavedFilterId('') }} className="h-9 w-56 rounded border border-slate-300 px-3 text-sm outline-none focus:border-blue-400" placeholder="Buscar atividade, negócio, nota" />
+          <select value={activeSavedFilterId} onChange={(e) => applySavedFilter(e.target.value)} className="h-9 rounded border border-slate-300 bg-white px-3 text-sm font-semibold"><option value="">Filtros salvos</option>{savedFilters.map((filter) => <option key={filter.id} value={filter.id}>{filter.name}</option>)}</select>
+          <button type="button" onClick={saveCurrentFilter} className="h-9 rounded border border-slate-300 bg-white px-3 text-sm font-bold text-slate-700 hover:bg-slate-50">Salvar filtro</button>
+          {activeSavedFilterId && <button type="button" onClick={() => deleteSavedFilter(activeSavedFilterId)} className="h-9 rounded border border-rose-200 px-3 text-xs font-bold text-rose-600 hover:bg-rose-50">Apagar filtro</button>}
+          <select value={ownerFilter} onChange={(e) => { setOwnerFilter(e.target.value); setActiveSavedFilterId('') }} className="h-9 rounded border border-slate-300 bg-white px-3 text-sm font-semibold"><option value="all">Todos os usuários</option>{ownerOptions.map((user) => <option key={user.id} value={user.auth_user_id || ''}>{user.full_name}</option>)}</select>
           <div className="flex rounded border border-slate-300 bg-white p-1">
             <button type="button" onClick={() => setMode('list')} className={cn('rounded px-3 py-1.5 text-xs font-bold', mode === 'list' ? 'bg-[#6f5cf6] text-white' : 'text-slate-600 hover:bg-slate-50')}><List size={14} className="mr-1 inline"/>Lista</button>
             <button type="button" onClick={() => setMode('calendar')} className={cn('rounded px-3 py-1.5 text-xs font-bold', mode === 'calendar' ? 'bg-[#6f5cf6] text-white' : 'text-slate-600 hover:bg-slate-50')}><CalendarClock size={14} className="mr-1 inline"/>Calendário</button>
           </div>
         </div>
       </div>
-      {mode === 'calendar' ? <div className="grid lg:grid-cols-[minmax(0,1fr)_360px]">
-        <div className="divide-y divide-slate-100">
-          {filteredActivities.filter((activity) => sameActivityDay(activity, calendarDate)).map((a) => {
-            const deal = deals.find((d) => d.id === a.deal_id)
-            const ownerName = crmOwnerDisplay(crmUsers, a.owner_id || deal?.owner_id, deal?.pipedrive_owner_name || 'Sem usuário')
-            return <div key={a.id} className="p-3 hover:bg-slate-50"><ActivityInlineRow activity={a} deal={deal} ownerName={ownerName} onComplete={completeActivity} onMarkTodo={markActivityTodo} onEdit={setEditingActivity} onDelete={canDelete ? deleteActivity : undefined} /></div>
-          })}
-          {!filteredActivities.filter((activity) => sameActivityDay(activity, calendarDate)).length && <div className="p-8 text-center text-slate-400">Nenhuma atividade neste dia.</div>}
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-white px-3 py-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+          <button type="button" onClick={() => { setTypeFilter('all'); setActiveSavedFilterId('') }} className={cn('h-8 rounded px-2 text-xs font-bold', typeFilter === 'all' ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-200' : 'text-slate-600 hover:bg-slate-50')}>Tudo</button>
+          {visibleTypeOptions.map((option) => <button key={option.id} type="button" onClick={() => { setTypeFilter(option.id); setActiveSavedFilterId('') }} title={option.label} className={cn('grid h-8 w-8 place-items-center rounded text-slate-600 hover:bg-slate-100', typeFilter === option.id && 'bg-blue-50 text-blue-700 ring-1 ring-blue-200')}><option.icon size={15}/></button>)}
         </div>
-        <ActivityDayCalendar activities={filteredActivities} selectedDate={calendarDate} onSelectDate={setCalendarDate} onPickActivity={setEditingActivity} />
-      </div> : <div className="divide-y divide-slate-100">
-        {filteredActivities.map((a) => {
-          const deal = deals.find((d) => d.id === a.deal_id)
-          const ownerName = crmOwnerDisplay(crmUsers, a.owner_id || deal?.owner_id, deal?.pipedrive_owner_name || 'Sem usuário')
-          return <div key={a.id} className="p-3 hover:bg-slate-50"><ActivityInlineRow activity={a} deal={deal} ownerName={ownerName} onComplete={completeActivity} onMarkTodo={markActivityTodo} onEdit={setEditingActivity} onDelete={canDelete ? deleteActivity : undefined} /></div>
-        })}
-        {filteredActivities.length === 0 && <div className="p-8 text-center text-slate-400">Nenhuma atividade encontrada.</div>}
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
+          {dateTabs.map(([id, label]) => <button key={id} type="button" onClick={() => { setDateFilter(id); setActiveSavedFilterId('') }} className={cn('h-8 rounded px-2 text-xs font-bold', dateFilter === id ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-200' : 'text-slate-600 hover:bg-slate-50')}>{label}</button>)}
+          {dateFilter === 'custom' && <div className="flex items-center gap-1"><input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)} className="h-8 rounded border border-slate-300 px-2 text-xs"/><span className="text-slate-400">até</span><input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} className="h-8 rounded border border-slate-300 px-2 text-xs"/></div>}
+        </div>
+      </div>
+      {mode === 'calendar' ? <div className="grid lg:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="divide-y divide-slate-100">{shownForCalendar.map((a) => { const deal = deals.find((d) => d.id === a.deal_id); const ownerName = crmOwnerDisplay(crmUsers, a.owner_id || deal?.owner_id, deal?.pipedrive_owner_name || 'Sem usuário'); return <div key={a.id} className="p-3 hover:bg-slate-50"><ActivityInlineRow activity={a} deal={deal} ownerName={ownerName} onComplete={completeActivity} onMarkTodo={markActivityTodo} onEdit={setEditingActivity} onDelete={canDelete ? deleteActivity : undefined} /></div> })}{!shownForCalendar.length && <div className="p-8 text-center text-slate-400">Nenhuma atividade neste dia.</div>}</div>
+        <ActivityDayCalendar activities={activityRows} selectedDate={calendarDate} onSelectDate={setCalendarDate} onPickActivity={setEditingActivity} />
+      </div> : <div className="overflow-x-auto">
+        <table className="w-full min-w-[1180px] border-collapse text-sm">
+          <thead className="sticky top-0 z-10 bg-white">
+            <tr className="border-b border-slate-200 text-left text-xs font-semibold text-slate-600">
+              <th className="w-9 px-2 py-2"><input type="checkbox" className="h-4 w-4 rounded border-slate-300" disabled /></th>
+              <th className="w-24 px-2 py-2">Concluído</th>
+              <th className="min-w-[150px] border-l border-slate-200 px-3 py-2">Funil</th>
+              <th className="min-w-[150px] border-l border-slate-200 px-3 py-2">Etapa</th>
+              <th className="min-w-[240px] border-l border-slate-200 px-3 py-2">Assunto</th>
+              <th className="min-w-[230px] border-l border-slate-200 px-3 py-2">Nota</th>
+              <th className="min-w-[190px] border-l border-slate-200 px-3 py-2">Negócio</th>
+              <th className="min-w-[190px] border-l border-slate-200 px-3 py-2">Organização</th>
+              <th className="min-w-[155px] border-l border-slate-200 px-3 py-2">Data de vencimento</th>
+              <th className="min-w-[155px] border-l border-slate-200 px-3 py-2">Atribuído a usuário</th>
+              <th className="w-12 border-l border-slate-200 px-3 py-2 text-right"><Settings size={14}/></th>
+            </tr>
+          </thead>
+          <tbody>
+            {activityRows.map((activity) => {
+              const deal = deals.find((d) => d.id === activity.deal_id)
+              const ownerName = crmOwnerDisplay(crmUsers, activity.owner_id || deal?.owner_id, deal?.pipedrive_owner_name || 'Sem usuário')
+              const stage = deal?.pipeline_stages
+              return <tr key={activity.id} onClick={() => setEditingActivity(activity)} className="cursor-pointer border-b border-slate-100 hover:bg-blue-50/70">
+                <td className="px-2 py-2"><input type="checkbox" onClick={(event) => event.stopPropagation()} className="h-4 w-4 rounded border-slate-300" /></td>
+                <td className="px-2 py-2"><div className="flex justify-center">{activityCheckbox(activity)}</div></td>
+                <td className={cn('border-l border-slate-100 px-3 py-2 font-semibold', rowTone(activity))}>{stage?.pipeline_name || '-'}</td>
+                <td className={cn('border-l border-slate-100 px-3 py-2 font-semibold', rowTone(activity))}>{stage?.name || '-'}</td>
+                <td className={cn('max-w-[260px] truncate border-l border-slate-100 px-3 py-2 font-semibold', rowTone(activity))}><ActivityTypeIcon type={activity.activity_type}/><span className="ml-1 align-middle">{activity.title}</span></td>
+                <td className={cn('max-w-[260px] truncate border-l border-slate-100 px-3 py-2', rowTone(activity))}>{activity.note || '-'}</td>
+                <td className={cn('max-w-[210px] truncate border-l border-slate-100 px-3 py-2 font-semibold', rowTone(activity))}>{deal?.id ? <button type="button" onClick={(event) => { event.stopPropagation(); openDealPage(deal.id) }} className="max-w-full truncate text-left hover:underline">{deal.title}</button> : '-'}</td>
+                <td className={cn('max-w-[210px] truncate border-l border-slate-100 px-3 py-2 font-semibold', rowTone(activity))}>{deal?.organizations?.name || '-'}</td>
+                <td className={cn('border-l border-slate-100 px-3 py-2 font-semibold', dueTone(activity))}>{formatActivityDateTime(activity.due_at).replace('às ', '')}</td>
+                <td className={cn('border-l border-slate-100 px-3 py-2 font-semibold', rowTone(activity))}>{ownerName}</td>
+                <td className="border-l border-slate-100 px-3 py-2 text-right">{canDelete && deleteActivity ? <button type="button" onClick={(event) => { event.stopPropagation(); deleteActivity(activity.id, activity.title) }} className="rounded px-2 py-1 text-xs font-bold text-rose-600 hover:bg-rose-50">Apagar</button> : null}</td>
+              </tr>
+            })}
+          </tbody>
+        </table>
+        {activityRows.length === 0 && <div className="p-8 text-center text-slate-400">Nenhuma atividade encontrada.</div>}
       </div>}
     </Panel>
     {editingActivity && <ActivityEditorModal activity={editingActivity} deal={deals.find((deal) => deal.id === editingActivity.deal_id)} crmUsers={crmUsers} ownerName={crmOwnerDisplay(crmUsers, editingActivity.owner_id || deals.find((deal) => deal.id === editingActivity.deal_id)?.owner_id, deals.find((deal) => deal.id === editingActivity.deal_id)?.pipedrive_owner_name || 'Sem usuário')} onClose={() => setEditingActivity(null)} onSave={async (draft) => { await updateActivity(editingActivity.id, draft); setEditingActivity(null) }} />}
