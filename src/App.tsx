@@ -3342,6 +3342,93 @@ function ActivityDayCalendar({ activities, selectedDate, onSelectDate, onPickAct
   </aside>
 }
 
+function ActivityWeekCalendar({ activities, selectedDate, onSelectDate, onPickActivity }: { activities: ActivityRow[]; selectedDate: Date; onSelectDate: (date: Date) => void; onPickActivity?: (activity: ActivityRow) => void }) {
+  const weekDays = daysOfWeek(selectedDate)
+  const hours = Array.from({ length: 13 }, (_, index) => index + 7)
+  const todayKey = new Date().toDateString()
+  const selectedKey = selectedDate.toDateString()
+  const firstDay = weekDays[0]
+  const lastDay = weekDays[6]
+  const sameMonth = firstDay.getMonth() === lastDay.getMonth()
+  const rangeLabel = sameMonth
+    ? `${firstDay.toLocaleDateString('pt-BR', { month: 'short' })} ${firstDay.getDate()} - ${lastDay.getDate()}, ${lastDay.getFullYear()}`
+    : `${firstDay.toLocaleDateString('pt-BR', { month: 'short', day: 'numeric' })} - ${lastDay.toLocaleDateString('pt-BR', { month: 'short', day: 'numeric' })}, ${lastDay.getFullYear()}`
+  const monthLabel = firstDay.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '').toUpperCase()
+  const isCurrentWeek = weekDays.some((day) => day.toDateString() === todayKey)
+  const now = new Date()
+  const nowHour = now.getHours()
+  const nowTop = (now.getMinutes() / 60) * 64
+  const allDayActivities = activities.filter((activity) => !activity.due_at)
+  const dayActivities = (day: Date) => activities
+    .filter((activity) => sameActivityDay(activity, day))
+    .sort((a, b) => new Date(a.due_at || 0).getTime() - new Date(b.due_at || 0).getTime())
+  const activityRange = (activity: ActivityRow) => {
+    if (!activity.due_at) return ''
+    const start = new Date(activity.due_at)
+    const end = new Date(start.getTime() + 60 * 60_000)
+    return `${start.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} → ${end.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
+  }
+  const cardTone = (activity: ActivityRow) => activity.status === 'done'
+    ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
+    : activity.due_at && new Date(activity.due_at).getTime() < now.getTime()
+      ? 'border-rose-300 bg-rose-50 text-rose-800'
+      : 'border-blue-300 bg-blue-50 text-slate-800'
+
+  return <div className="bg-white">
+    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-3 py-2">
+      <div className="flex items-center gap-2">
+        <button type="button" onClick={() => onSelectDate(addDays(selectedDate, -7))} className="grid h-8 w-8 place-items-center rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-50" aria-label="Semana anterior"><ChevronLeft size={16}/></button>
+        <button type="button" onClick={() => onSelectDate(new Date())} className="h-8 rounded border border-slate-300 bg-white px-3 text-xs font-bold text-slate-700 hover:bg-slate-50">Hoje</button>
+        <button type="button" onClick={() => onSelectDate(addDays(selectedDate, 7))} className="grid h-8 w-8 place-items-center rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-50" aria-label="Próxima semana"><ChevronRight size={16}/></button>
+      </div>
+      <div className="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm font-black text-slate-800">{rangeLabel}</div>
+      <Badge tone="bg-emerald-100 text-emerald-700">Sincronização ativa</Badge>
+    </div>
+    <div className="overflow-x-auto">
+      <div className="min-w-[1050px]">
+        <div className="grid grid-cols-[48px_repeat(7,minmax(132px,1fr))] border-b border-slate-200 text-xs font-bold text-slate-600">
+          <div className="border-r border-slate-200 bg-slate-50 px-2 py-2 text-center">{monthLabel}</div>
+          {weekDays.map((day) => {
+            const isToday = day.toDateString() === todayKey
+            return <button key={day.toISOString()} type="button" onClick={() => onSelectDate(day)} className={cn('border-r border-slate-200 px-2 py-2 text-center last:border-r-0 hover:bg-blue-50', day.toDateString() === selectedKey && 'bg-blue-50')}>
+              <span>{day.toLocaleDateString('pt-BR', { weekday: 'short' })}</span> <span className={cn('inline-grid h-5 min-w-5 place-items-center rounded-full px-1', isToday && 'bg-blue-600 text-white')}>{day.getDate()}</span>
+            </button>
+          })}
+        </div>
+        <div className="grid min-h-[58px] grid-cols-[48px_repeat(7,minmax(132px,1fr))] border-b border-slate-200 text-xs">
+          <div className="border-r border-slate-200 bg-slate-50 px-1 py-2 text-center font-bold text-slate-500">Tudo</div>
+          {weekDays.map((day) => {
+            const earlyItems = dayActivities(day).filter((activity) => activity.due_at && new Date(activity.due_at).getHours() < 7)
+            const undated = day.toDateString() === selectedKey ? allDayActivities : []
+            const topItems = [...earlyItems, ...undated]
+            return <div key={day.toISOString()} className="space-y-1 border-r border-slate-200 p-1 last:border-r-0">
+              {topItems.slice(0, 3).map((activity) => <button key={activity.id} type="button" onClick={() => onPickActivity?.(activity)} className={cn('flex w-full items-center gap-1 truncate rounded border-l-2 px-2 py-1 text-left text-[11px] font-bold shadow-sm', cardTone(activity))}><ActivityTypeIcon type={activity.activity_type} size={12}/><span className="truncate">{activity.title}</span><span className="ml-auto h-3 w-3 rounded-full border border-slate-300 bg-white" /></button>)}
+              {topItems.length > 3 && <span className="block px-2 text-[11px] font-bold text-slate-400">+{topItems.length - 3} atividades</span>}
+            </div>
+          })}
+        </div>
+        {hours.map((hour) => <div key={hour} className="relative grid h-16 grid-cols-[48px_repeat(7,minmax(132px,1fr))] border-b border-slate-100 text-xs">
+          <div className="border-r border-slate-200 bg-slate-50 pr-2 pt-1 text-right font-semibold text-slate-400">{String(hour).padStart(2, '0')}:00</div>
+          {weekDays.map((day) => {
+            const entries = dayActivities(day).filter((activity) => activity.due_at && new Date(activity.due_at).getHours() === hour)
+            return <div key={day.toISOString()} className="relative border-r border-slate-100 p-1 last:border-r-0">
+              {entries.map((activity, index) => {
+                const due = new Date(activity.due_at || '')
+                const top = Math.min(42, Math.max(0, (due.getMinutes() / 60) * 64 + index * 3))
+                return <button key={activity.id} type="button" onClick={() => onPickActivity?.(activity)} style={{ top }} className={cn('absolute left-1 right-1 z-10 min-h-9 overflow-hidden rounded border-l-2 px-2 py-1 text-left text-[11px] shadow-sm hover:ring-2 hover:ring-blue-300', cardTone(activity))}>
+                  <span className="flex items-center gap-1 truncate font-black"><ActivityTypeIcon type={activity.activity_type} size={12}/><span className="truncate">{activity.title}</span><span className="ml-auto h-3 w-3 rounded-full border border-slate-300 bg-white" /></span>
+                  <span className="block truncate text-[10px] font-semibold opacity-80">{activityRange(activity)}</span>
+                </button>
+              })}
+            </div>
+          })}
+          {isCurrentWeek && nowHour === hour && <div className="pointer-events-none absolute left-0 right-0 z-20 flex items-center" style={{ top: nowTop }}><span className="w-12 pr-1 text-right text-[10px] font-black text-rose-500">{now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span><span className="h-px flex-1 bg-rose-400" /></div>}
+        </div>)}
+      </div>
+    </div>
+  </div>
+}
+
 function ActivityEditorModal({ activity, deal, crmUsers, ownerName, mode = 'edit', onClose, onSave }: { activity: ActivityRow; deal?: Deal; crmUsers: CrmUser[]; ownerName?: string; mode?: 'edit' | 'create'; onClose: () => void; onSave: (draft: ActivityEditDraft) => Promise<void> }) {
   const [draft, setDraft] = useState<ActivityEditDraft>(() => activityToEditDraft(activity))
   const [saving, setSaving] = useState(false)
@@ -4193,7 +4280,7 @@ function ActivitiesView({ activities, deals, crmUsers, completeActivity, markAct
         </div>
       </div>
       {mode === 'calendar' ? <div className="bg-white">
-        <ActivityDayCalendar activities={activityRows} selectedDate={calendarDate} onSelectDate={setCalendarDate} onPickActivity={setEditingActivity} />
+        <ActivityWeekCalendar activities={activityRows} selectedDate={calendarDate} onSelectDate={setCalendarDate} onPickActivity={setEditingActivity} />
       </div> : <div className="overflow-x-auto">
         <table className="w-full min-w-[1180px] border-collapse text-sm">
           <thead className="sticky top-0 z-10 bg-white">
