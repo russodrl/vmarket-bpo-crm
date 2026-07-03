@@ -4158,7 +4158,6 @@ function ActivitiesView({ activities, deals, crmUsers, completeActivity, markAct
       return haystack.includes(query)
     })
     .sort((a, b) => new Date(a.due_at || '2999-12-31').getTime() - new Date(b.due_at || '2999-12-31').getTime())
-  const shownForCalendar = activityRows.filter((activity) => sameActivityDay(activity, calendarDate))
   const visibleTypeOptions = activityTypeOptions.filter((option) => activities.some((activity) => activity.activity_type === option.id))
   const dueTone = (activity: ActivityRow) => {
     if (activity.status === 'done') return 'text-slate-500'
@@ -4193,8 +4192,7 @@ function ActivitiesView({ activities, deals, crmUsers, completeActivity, markAct
           {dateFilter === 'custom' && <div className="flex items-center gap-1"><input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)} className="h-8 rounded border border-slate-300 px-2 text-xs"/><span className="text-slate-400">até</span><input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} className="h-8 rounded border border-slate-300 px-2 text-xs"/></div>}
         </div>
       </div>
-      {mode === 'calendar' ? <div className="grid lg:grid-cols-[minmax(0,1fr)_360px]">
-        <div className="divide-y divide-slate-100">{shownForCalendar.map((a) => { const deal = deals.find((d) => d.id === a.deal_id); const ownerName = crmOwnerDisplay(crmUsers, a.owner_id || deal?.owner_id, deal?.pipedrive_owner_name || 'Sem usuário'); return <div key={a.id} className="p-3 hover:bg-slate-50"><ActivityInlineRow activity={a} deal={deal} ownerName={ownerName} onComplete={completeActivity} onMarkTodo={markActivityTodo} onEdit={setEditingActivity} onDelete={canDelete ? deleteActivity : undefined} /></div> })}{!shownForCalendar.length && <div className="p-8 text-center text-slate-400">Nenhuma atividade neste dia.</div>}</div>
+      {mode === 'calendar' ? <div className="bg-white">
         <ActivityDayCalendar activities={activityRows} selectedDate={calendarDate} onSelectDate={setCalendarDate} onPickActivity={setEditingActivity} />
       </div> : <div className="overflow-x-auto">
         <table className="w-full min-w-[1180px] border-collapse text-sm">
