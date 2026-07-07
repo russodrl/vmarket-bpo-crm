@@ -33,6 +33,8 @@ import {
   Pencil,
   Flag,
   MoreHorizontal,
+  Image,
+  Trash2,
   Video,
   Wrench,
   HelpCircle,
@@ -521,6 +523,22 @@ function crmOwnerDisplay(crmUsers: CrmUser[], ownerId?: string | null, fallback 
   const statusSuffix = owner.status === 'deleted' ? ' (deletado)' : owner.status === 'disabled' ? ' (desativado)' : ''
   return `${owner.full_name}${statusSuffix}`
 }
+function crmOwnerAvatarUrl(crmUsers: CrmUser[], ownerId?: string | null) {
+  return crmUserForOwner(crmUsers, ownerId)?.avatar_url || ''
+}
+function WhatsAppPhoneLink({ value, className = '' }: { value?: string | null; className?: string }) {
+  const phone = (value || '').trim()
+  if (!phone) return <span className={className}>-</span>
+  const digits = phone.replace(/\D/g, '')
+  const normalized = digits.length <= 11 ? `55${digits}` : digits
+  const href = normalized ? `https://web.whatsapp.com/send?phone=${normalized}` : ''
+  return <a href={href} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()} className={cn('font-semibold text-emerald-700 hover:underline', className)}>{phone}</a>
+}
+function UserAvatar({ name, avatarUrl, sizeClass = 'h-8 w-8', textClass = 'text-xs' }: { name: string; avatarUrl?: string | null; sizeClass?: string; textClass?: string }) {
+  const initial = (name || 'U').trim().slice(0, 1).toUpperCase() || 'U'
+  if (avatarUrl) return <img src={avatarUrl} alt={name || 'Usuário'} className={cn('shrink-0 rounded-full object-cover ring-1 ring-slate-200', sizeClass)} />
+  return <span className={cn('grid shrink-0 place-items-center rounded-full bg-slate-100 font-bold text-slate-600 ring-1 ring-slate-200', sizeClass, textClass)}>{initial}</span>
+}
 function crmOwnerBadgeTone(status?: CrmUser['status']) {
   if (status === 'active') return 'bg-emerald-100 text-emerald-700'
   if (status === 'deleted') return 'bg-rose-100 text-rose-700'
@@ -560,6 +578,7 @@ function buildGlobalSearchResults(query: string, deals: Deal[], people: Person[]
 }
 
 const statusLabel: Record<string, string> = { aberto: 'Aberto', ganho: 'Ganho', perdido: 'Perdido' }
+const lostReasonOptions = ['Preço', 'Sem retorno', 'Não tem interesse', 'Fechou com concorrente', 'Sem fit / perfil', 'Sem orçamento', 'Projeto adiado', 'Outro']
 const businessTypeOptions: Array<[string, string]> = [['', 'Selecione'], ['restaurante', 'Restaurante'], ['hotel', 'Hotel'], ['fornecedor', 'Fornecedor']]
 const vmarketPlanOptionsByType: Record<string, string[]> = {
   restaurante: ['Essencial', 'Premium'],
@@ -568,8 +587,7 @@ const vmarketPlanOptionsByType: Record<string, string[]> = {
 const vmarketPeriodOptions: Array<[string, string]> = [['mensal', 'Mensal'], ['semestral', 'Semestral']]
 type VmarketPlanInclude = { type: 'restaurante' | 'hotel'; plan: string; description: string; items: string[] }
 const vmarketPlanIncludes: VmarketPlanInclude[] = [
-  { type: 'restaurante', plan: 'Lite', description: 'Para bares e restaurantes de pequeno porte que buscam os menores preços.', items: ['Até 2 usuários', 'Contagem de estoque', 'Cotação automática', 'App para conferência de mercadoria', 'Fornecedores VMarket ilimitados', 'Até 10 fornecedores convidados gratuitos', 'Base de insumos VMarket por tipo de cozinha'] },
-  { type: 'restaurante', plan: 'Essencial', description: 'Para bares e restaurantes de médio porte que buscam otimizar as operações.', items: ['Todos os recursos do Lite', '5 usuários', 'Dashboard com indicadores chave do processo de compras', 'Cadastro livre de insumos e fornecedores', 'Definição de perfil de produtos, cotação e exclusivo', 'Configuração de estoque mínimo', 'Sugestão automática de compra', 'Agendamento de solicitação de compra e posição de estoque', 'Emissão de links de cotação via WhatsApp', 'Mapa de preços das cotações com preço, prazos e mínimos por fornecedor', 'Ordens de compras com envio, romaneio e controle de estoque'] },
+  { type: 'restaurante', plan: 'Essencial', description: 'Para bares e restaurantes de médio porte que buscam otimizar as operações.', items: ['5 usuários', 'Dashboard com indicadores chave do processo de compras', 'Cadastro livre de insumos e fornecedores', 'Definição de perfil de produtos, cotação e exclusivo', 'Configuração de estoque mínimo', 'Sugestão automática de compra', 'Agendamento de solicitação de compra e posição de estoque', 'Emissão de links de cotação via WhatsApp', 'Mapa de preços das cotações com preço, prazos e mínimos por fornecedor', 'Ordens de compras com envio, romaneio e controle de estoque'] },
   { type: 'restaurante', plan: 'Premium', description: 'Para redes e grandes operações foodservice que precisam de controle e compliance.', items: ['Todos os recursos do Essencial', 'Usuários ilimitados', 'Todas as integrações disponíveis', 'Aprovação por alçada', 'Priorização de novos recursos', 'Suporte Premium', 'Gerente de sucesso dedicado'] },
   { type: 'hotel', plan: 'Starter', description: 'Para pousadas e hotéis pequenos com operações mais simples.', items: ['5 usuários', 'Cotação automatizada via WhatsApp', 'Comparação de preços em 1 tela', 'Relatórios gerenciais', 'Solicitações internas via app', 'Negociação de preços', 'Recebimento de mercadorias via app'] },
   { type: 'hotel', plan: 'Essencial', description: 'Para hotéis médios que precisam otimizar as operações com automações.', items: ['Todos os recursos do Starter', '10 usuários', 'Integração de ordem de compra', 'Integração de NFe', 'Canal de atendimento via WhatsApp', 'Gerente de sucesso do cliente', 'Construção de relatórios personalizados'] },
@@ -776,7 +794,7 @@ function buildListColumns(): ColumnDef[] {
     { id: 'person:owner', entity: 'person', label: 'Proprietário do contato', value: ({ person, deal, crmUsers }) => crmOwnerDisplay(crmUsers, person?.owner_id || deal?.people?.owner_id, '-') },
     { id: 'person:role_title', entity: 'person', label: 'Cargo', value: ({ person, deal }) => person?.role_title || deal?.people?.role_title || '-' },
     { id: 'person:email', entity: 'person', label: 'Email', value: ({ person, deal }) => person?.email || deal?.people?.email || '-' },
-    { id: 'person:phone', entity: 'person', label: 'Telefone', value: ({ person, deal }) => person?.phone || deal?.people?.phone || '-' },
+    { id: 'person:phone', entity: 'person', label: 'Telefone', value: ({ person, deal }) => <WhatsAppPhoneLink value={person?.phone || deal?.people?.phone} /> },
     { id: 'person:ddd_prefix', entity: 'person', label: 'DDD', value: ({ person, deal }) => person?.ddd_prefix || deal?.people?.ddd_prefix || '-' },
     { id: 'person:ddd_state', entity: 'person', label: 'Estado do contato', value: ({ person, deal }) => person?.ddd_state || deal?.people?.ddd_state || '-' },
     { id: 'person:ddd_region', entity: 'person', label: 'Região do contato', value: ({ person, deal }) => person?.ddd_region || deal?.people?.ddd_region || '-' },
@@ -1115,7 +1133,8 @@ function App() {
   }, [])
 
   async function loadAll() {
-    setLoading(true)
+    const hasLoadedData = Boolean(profile || deals.length || people.length || organizations.length || activities.length || crmUsers.length)
+    if (!hasLoadedData) setLoading(true)
     setError('')
     try {
       const [profileRes, stagesRes, crmUsersRes, crmCompaniesRes, orgRes, peopleRes, dealsRes, actsRes, histRes, attachmentsRes, auditRes, automationRulesRes, automationExecutionsRes, automationChangesRes, labelRes, labelAssignRes, fieldsRes, valuesRes] = await Promise.all([
@@ -1448,6 +1467,19 @@ function App() {
     }
   }
 
+  async function deleteActivityRecord(id: string, label: string) {
+    const confirmed = window.confirm(`Apagar ${label}? Essa ação não pode ser desfeita.`)
+    if (!confirmed) return
+    setError('')
+    try {
+      const { error } = await supabase.from('activities').delete().eq('id', id)
+      if (error) throw error
+      await loadAll()
+    } catch (e) {
+      setError(errorMessage(e))
+    }
+  }
+
   async function deleteOneRecord(target: DeleteTarget, id: string, label: string) {
     if (profile?.role !== 'admin_vmarket') return
     const confirmed = window.confirm(`Apagar ${label}? Essa ação não pode ser desfeita.`)
@@ -1717,12 +1749,12 @@ function App() {
     await loadAll()
   }
 
-  async function saveCurrentUserProfile(draft: { full_name: string; email: string; crm_phone: string }) {
+  async function saveCurrentUserProfile(draft: { full_name: string; email: string; crm_phone: string; avatar_url: string }) {
     setError('')
     if (currentCrmUser?.id) {
       const { error } = await supabase
         .from('crm_users')
-        .update({ full_name: draft.full_name.trim(), email: draft.email.trim(), crm_phone: draft.crm_phone.trim() || null })
+        .update({ full_name: draft.full_name.trim(), email: draft.email.trim(), crm_phone: draft.crm_phone.trim() || null, avatar_url: draft.avatar_url.trim() || null })
         .eq('id', currentCrmUser.id)
       if (error) throw error
     }
@@ -1738,13 +1770,13 @@ function App() {
 
   if (detailDealId) {
     const isAdmin = profile?.role === 'admin_vmarket'
-    return <><DealPage key={detailDealId} deal={detailDeal} loading={loading} error={error} stages={stages} crmUsers={crmUsers} externalRecords={externalRecords} canEditOwner={isAdmin} canViewCustomFields={isAdmin} activities={activities.filter((a) => a.deal_id === detailDealId)} history={history.filter((h) => h.deal_id === detailDealId)} dealLabels={dealLabels} assignedLabels={dealLabelAssignments.filter((assignment) => assignment.deal_id === detailDealId)} attachments={dealAttachments.filter((attachment) => attachment.deal_id === detailDealId)} closeDealPage={closeDealPage} saveDeal={saveDeal} createActivity={createActivityForDeal} createNote={createNoteForDeal} deleteDeal={(id, label) => deleteOneRecord('deal', id, label)} deleteActivity={(id, label) => deleteOneRecord('activity', id, label)} customFields={isAdmin ? customFields.filter((field) => field.entity === 'deal') : []} customFieldValues={isAdmin ? customFieldValues.filter((value) => value.entity_id === detailDealId) : []} completeActivity={completeActivity} markActivityTodo={markActivityTodo} updateActivity={updateActivity} createLabel={createDealLabel} deleteLabel={deleteDealLabel} updateDealLabels={updateDealLabels} openPersonPage={openPersonPage} openOrganizationPage={openOrganizationPage} unlinkDealPerson={unlinkDealPerson} unlinkDealOrganization={unlinkDealOrganization} reloadDeal={loadAll} /><BpoAgentChat session={session} contextDealId={detailDealId} onReload={loadAll} /></>
+    return <DealPage key={detailDealId} deal={detailDeal} loading={loading} error={error} stages={stages} crmUsers={crmUsers} externalRecords={externalRecords} canEditOwner={isAdmin} canViewCustomFields={isAdmin} activities={activities.filter((a) => a.deal_id === detailDealId)} history={history.filter((h) => h.deal_id === detailDealId)} dealLabels={dealLabels} assignedLabels={dealLabelAssignments.filter((assignment) => assignment.deal_id === detailDealId)} attachments={dealAttachments.filter((attachment) => attachment.deal_id === detailDealId)} closeDealPage={closeDealPage} saveDeal={saveDeal} createActivity={createActivityForDeal} createNote={createNoteForDeal} deleteDeal={(id, label) => deleteOneRecord('deal', id, label)} deleteActivity={(id, label) => deleteActivityRecord(id, label)} customFields={isAdmin ? customFields.filter((field) => field.entity === 'deal') : []} customFieldValues={isAdmin ? customFieldValues.filter((value) => value.entity_id === detailDealId) : []} completeActivity={completeActivity} markActivityTodo={markActivityTodo} updateActivity={updateActivity} createLabel={createDealLabel} deleteLabel={deleteDealLabel} updateDealLabels={updateDealLabels} openPersonPage={openPersonPage} openOrganizationPage={openOrganizationPage} unlinkDealPerson={unlinkDealPerson} unlinkDealOrganization={unlinkDealOrganization} reloadDeal={loadAll} />
   }
   if (detailPersonId) {
-    return <><ContactPage key={detailPersonId} person={detailPerson} organization={organizations.find((org) => org.id === detailPerson?.organization_id)} loading={loading} error={error} deals={deals} activities={activities} history={history} externalRecords={externalRecords} crmUsers={crmUsers} canDelete={profile?.role === 'admin_vmarket'} deletePerson={(id, label) => deleteOneRecord('person', id, label)} openDealPage={openDealPage} openOrganizationPage={openOrganizationPage} unlinkPersonOrganization={unlinkPersonOrganization} completeActivity={completeActivity} markActivityTodo={markActivityTodo} reloadDetail={loadAll} closeDetailPage={closeDetailPage} /><BpoAgentChat session={session} onReload={loadAll} /></>
+    return <ContactPage key={detailPersonId} person={detailPerson} organization={organizations.find((org) => org.id === detailPerson?.organization_id)} loading={loading} error={error} deals={deals} activities={activities} history={history} externalRecords={externalRecords} crmUsers={crmUsers} canDelete={profile?.role === 'admin_vmarket'} deletePerson={(id, label) => deleteOneRecord('person', id, label)} openDealPage={openDealPage} openOrganizationPage={openOrganizationPage} unlinkPersonOrganization={unlinkPersonOrganization} completeActivity={completeActivity} markActivityTodo={markActivityTodo} reloadDetail={loadAll} closeDetailPage={closeDetailPage} />
   }
   if (detailOrganizationId) {
-    return <><CompanyPage key={detailOrganizationId} organization={detailOrganization} loading={loading} error={error} deals={deals} people={people} activities={activities} history={history} externalRecords={externalRecords} crmUsers={crmUsers} canDelete={profile?.role === 'admin_vmarket'} deleteOrganization={(id, label) => deleteOneRecord('organization', id, label)} openDealPage={openDealPage} openPersonPage={openPersonPage} unlinkPersonOrganization={unlinkPersonOrganization} completeActivity={completeActivity} markActivityTodo={markActivityTodo} reloadDetail={loadAll} closeDetailPage={closeDetailPage} /><BpoAgentChat session={session} onReload={loadAll} /></>
+    return <CompanyPage key={detailOrganizationId} organization={detailOrganization} loading={loading} error={error} deals={deals} people={people} activities={activities} history={history} externalRecords={externalRecords} crmUsers={crmUsers} canDelete={profile?.role === 'admin_vmarket'} deleteOrganization={(id, label) => deleteOneRecord('organization', id, label)} openDealPage={openDealPage} openPersonPage={openPersonPage} unlinkPersonOrganization={unlinkPersonOrganization} completeActivity={completeActivity} markActivityTodo={markActivityTodo} reloadDetail={loadAll} closeDetailPage={closeDetailPage} />
   }
 
   const navItems: Array<[View, ReactNode, string]> = [
@@ -1779,7 +1811,7 @@ function App() {
             <GlobalSearchBox value={globalSearch} onChange={setGlobalSearch} results={globalSearchResults} onOpen={openSearchResult} />
             <button type="button" onClick={() => setAgentOpenRequest((current) => current + 1)} className="grid h-9 w-9 place-items-center rounded-full border border-slate-200 text-slate-600 hover:bg-slate-50" title="Abrir ajuda do Tomatinho" aria-label="Abrir ajuda do Tomatinho"><HelpCircle size={17}/></button>
             <button type="button" onClick={() => setUserProfileOpen(true)} className="flex items-center gap-2 rounded-full border border-transparent px-2 py-1 text-left hover:border-slate-200 hover:bg-slate-50" title="Editar meu usuário">
-              <span className="grid h-8 w-8 place-items-center rounded-full bg-slate-100 text-xs font-bold text-slate-600">{currentUserName.slice(0,1).toUpperCase()}</span>
+              <UserAvatar name={currentUserName} avatarUrl={currentCrmUser?.avatar_url} />
               <span className="max-w-[150px] text-xs font-semibold leading-tight text-slate-700"><span className="block truncate">{currentUserName}</span><span className="font-normal text-slate-500">{currentUserPermission}</span></span>
             </button>
             <button onClick={() => supabase.auth.signOut()} className="hidden rounded border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 sm:block">Sair</button>
@@ -1794,7 +1826,7 @@ function App() {
                 {activeView === 'commissions-vmarket' && <VmarketCommissionsView deals={deals} stages={stages} history={history} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} />}
                 {activeView === 'contacts' && <EntityListView title="Contatos" icon={<Contact size={18}/>} entity="person" rows={visiblePeople} deals={deals} people={people} organizations={organizations} stages={stages} crmUsers={crmUsers} dealLabels={dealLabels} dealLabelAssignments={dealLabelAssignments} selectedId={detailPersonId} onOpen={openPersonPage} savedFilters={savedDealFilters} activeFilterId={activeDealFilterId} activeOwnerId={activeOwnerFilterId} setActiveFilterId={setActiveDealFilterId} setActiveOwnerId={setActiveOwnerFilterId} users={crmUsers} filterFields={filterFields} filterContext={filterContext} saveDealFilter={saveDealFilter} onDeleteFilter={deleteDealFilter} onToggleFavoriteFilter={toggleDealFilterFavorite} applyFilterColumns={applyFilterColumns} visibleColumns={personListColumns} setVisibleColumns={setPersonColumns} reload={loadAll} />}
                 {activeView === 'companies' && <EntityListView title="Empresas" icon={<Building2 size={18}/>} entity="organization" rows={visibleOrganizations} deals={deals} people={people} organizations={organizations} stages={stages} crmUsers={crmUsers} dealLabels={dealLabels} dealLabelAssignments={dealLabelAssignments} selectedId={detailOrganizationId} onOpen={openOrganizationPage} savedFilters={savedDealFilters} activeFilterId={activeDealFilterId} activeOwnerId={activeOwnerFilterId} setActiveFilterId={setActiveDealFilterId} setActiveOwnerId={setActiveOwnerFilterId} users={crmUsers} filterFields={filterFields} filterContext={filterContext} saveDealFilter={saveDealFilter} onDeleteFilter={deleteDealFilter} onToggleFavoriteFilter={toggleDealFilterFavorite} applyFilterColumns={applyFilterColumns} visibleColumns={organizationListColumns} setVisibleColumns={setOrganizationColumns} reload={loadAll} />}
-                {activeView === 'activities' && <ActivitiesView activities={activities} deals={deals} crmUsers={crmUsers} completeActivity={completeActivity} markActivityTodo={markActivityTodo} updateActivity={updateActivity} openDealPage={openDealPage} canDelete={profile?.role === 'admin_vmarket'} deleteActivity={(id, label) => deleteOneRecord('activity', id, label)} />}
+                {activeView === 'activities' && <ActivitiesView activities={activities} deals={deals} crmUsers={crmUsers} completeActivity={completeActivity} markActivityTodo={markActivityTodo} updateActivity={updateActivity} openDealPage={openDealPage} canDelete deleteActivity={(id, label) => deleteActivityRecord(id, label)} />}
                 {activeView === 'warnings' && <WarningsView deals={deals} people={people} organizations={organizations} activities={activities} crmUsers={crmUsers} openDealPage={openDealPage} reload={loadAll} setError={setError} />}
                 {activeView === 'lead-distribution' && profile?.role === 'admin_vmarket' && <LeadDistributionView users={crmUsers} deals={deals} />}
                 {activeView === 'automations' && profile?.role === 'admin_vmarket' && <AutomationsView rules={automationRules} executions={automationExecutions} changes={automationChanges} />}
@@ -1825,12 +1857,13 @@ function CurrentUserProfileModal({ user, fallbackEmail, fallbackName, permission
   fallbackName: string
   permission: string
   onClose: () => void
-  onSave: (draft: { full_name: string; email: string; crm_phone: string }) => Promise<void>
+  onSave: (draft: { full_name: string; email: string; crm_phone: string; avatar_url: string }) => Promise<void>
 }) {
   const [draft, setDraft] = useState({
     full_name: user?.full_name || fallbackName || '',
     email: user?.email || fallbackEmail || '',
     crm_phone: user?.crm_phone || '',
+    avatar_url: user?.avatar_url || '',
   })
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
@@ -1847,6 +1880,23 @@ function CurrentUserProfileModal({ user, fallbackEmail, fallbackName, permission
     }
   }
   const setField = (key: keyof typeof draft, value: string) => setDraft((current) => ({ ...current, [key]: value }))
+  async function uploadAvatar(file: File | null) {
+    if (!file) return
+    setSaving(true)
+    setMessage('')
+    try {
+      const ext = file.name.split('.').pop() || 'jpg'
+      const path = `${user?.auth_user_id || user?.id || 'usuario'}/${Date.now()}.${ext}`
+      const { error: uploadError } = await supabase.storage.from('user-avatars').upload(path, file, { upsert: true })
+      if (uploadError) throw uploadError
+      const { data } = supabase.storage.from('user-avatars').getPublicUrl(path)
+      setField('avatar_url', data.publicUrl)
+    } catch (error) {
+      setMessage(errorMessage(error))
+    } finally {
+      setSaving(false)
+    }
+  }
   return <div className="fixed inset-0 z-[80] grid place-items-center bg-slate-950/40 p-3 backdrop-blur-sm">
     <form onSubmit={(e) => void submit(e)} className="w-full max-w-md overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
       <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
@@ -1857,6 +1907,15 @@ function CurrentUserProfileModal({ user, fallbackEmail, fallbackName, permission
         <button type="button" onClick={onClose} className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50" aria-label="Fechar edição do usuário">×</button>
       </div>
       <div className="grid gap-4 p-5">
+        <div className="flex items-center gap-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <UserAvatar name={draft.full_name || fallbackName || 'Usuário'} avatarUrl={draft.avatar_url} sizeClass="h-16 w-16" textClass="text-xl" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-black text-slate-800"><Image size={14} className="mr-1 inline"/>Foto de perfil</p>
+            <p className="mb-2 text-xs text-slate-500">Aparece nos cards do funil quando houver foto.</p>
+            <input type="file" accept="image/*" onChange={(e) => void uploadAvatar(e.target.files?.[0] || null)} className="block w-full text-xs text-slate-600 file:mr-3 file:rounded file:border-0 file:bg-[#238847] file:px-3 file:py-1.5 file:text-xs file:font-bold file:text-white" />
+            <input value={draft.avatar_url} onChange={(e) => setField('avatar_url', e.target.value)} className="mt-2 w-full rounded border border-slate-300 px-3 py-2 text-xs font-normal outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" placeholder="URL da foto" />
+          </div>
+        </div>
         <label className="grid gap-1 text-sm font-bold text-slate-700">Nome
           <input value={draft.full_name} onChange={(e) => setField('full_name', e.target.value)} className="rounded border border-slate-300 px-3 py-2 font-normal outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" placeholder="Nome do usuário" />
         </label>
@@ -1967,10 +2026,6 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
   const submitCreateDeal = async (e: FormEvent) => {
     await createDeal(e)
     setShowCreateDeal(false)
-  }
-
-  const dealOwnerInitial = (deal: Deal) => {
-    return crmOwnerDisplay(crmUsers, deal.owner_id, deal.people?.full_name || '•').trim().slice(0, 1).toUpperCase()
   }
 
   const dealOwnerName = (deal: Deal) => {
@@ -2091,9 +2146,9 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
             activeFilterId={activeDealFilterId}
             activeOwnerId={activeOwnerFilterId}
             users={crmUsers}
-            onSelectFilter={(id) => { const filter = savedDealFilters.find((item) => item.id === id); setActiveDealFilterId(id); setActiveOwnerFilterId(''); applyFilterColumns(filter); setShowFilters(false) }}
-            onSelectOwner={(id) => { setActiveOwnerFilterId(id); setActiveDealFilterId(''); setShowFilters(false) }}
-            onClear={() => { setActiveDealFilterId(''); setActiveOwnerFilterId(''); setShowFilters(false) }}
+            onSelectFilter={(id) => { const filter = savedDealFilters.find((item) => item.id === id); setActiveDealFilterId(id); setActiveOwnerFilterId(''); applyFilterColumns(filter) }}
+            onSelectOwner={(id) => { setActiveOwnerFilterId(id); setActiveDealFilterId('') }}
+            onClear={() => { setActiveDealFilterId(''); setActiveOwnerFilterId('') }}
             onCreate={() => { setEditingFilter({ ...emptyFilterDraft(), columns: visibleColumns, saveColumns: false }); setShowFilters(false) }}
             onEdit={(filter) => { setEditingFilter({ id: filter.id, name: filter.name, favorite: filter.favorite, rules: filter.rules.length ? filter.rules : [newFilterRule('all')], columns: filter.columns?.length ? filter.columns : visibleColumns, saveColumns: Boolean(filter.columns?.length) }); setShowFilters(false) }}
             onToggleFavorite={toggleDealFilterFavorite}
@@ -2126,9 +2181,9 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
               activeFilterId={activeDealFilterId}
               activeOwnerId={activeOwnerFilterId}
               users={crmUsers}
-              onSelectFilter={(id) => { const filter = savedDealFilters.find((item) => item.id === id); setActiveDealFilterId(id); setActiveOwnerFilterId(''); applyFilterColumns(filter); setShowFilters(false) }}
-              onSelectOwner={(id) => { setActiveOwnerFilterId(id); setActiveDealFilterId(''); setShowFilters(false) }}
-              onClear={() => { setActiveDealFilterId(''); setActiveOwnerFilterId(''); setShowFilters(false) }}
+              onSelectFilter={(id) => { const filter = savedDealFilters.find((item) => item.id === id); setActiveDealFilterId(id); setActiveOwnerFilterId(''); applyFilterColumns(filter) }}
+              onSelectOwner={(id) => { setActiveOwnerFilterId(id); setActiveDealFilterId('') }}
+              onClear={() => { setActiveDealFilterId(''); setActiveOwnerFilterId('') }}
               onCreate={() => { setEditingFilter({ ...emptyFilterDraft(), columns: visibleColumns, saveColumns: false }); setShowFilters(false) }}
               onEdit={(filter) => { setEditingFilter({ id: filter.id, name: filter.name, favorite: filter.favorite, rules: filter.rules.length ? filter.rules : [newFilterRule('all')], columns: filter.columns?.length ? filter.columns : visibleColumns, saveColumns: Boolean(filter.columns?.length) }); setShowFilters(false) }}
               onToggleFavorite={toggleDealFilterFavorite}
@@ -2183,7 +2238,7 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
                     v {money(getDealVmarketValue(deal))} <span className="font-normal text-slate-400">|</span> s {money(getDealPartnerValue(deal))}
                   </p>
                   <div className="mt-2 flex items-center justify-between">
-                    <span title={dealOwnerName(deal)} aria-label={`Proprietário: ${dealOwnerName(deal)}`} className="grid h-5 w-5 place-items-center rounded-full bg-slate-200 text-[10px] font-bold text-slate-600">{dealOwnerInitial(deal)}</span>
+                    <span title={dealOwnerName(deal)} aria-label={`Proprietário: ${dealOwnerName(deal)}`}><UserAvatar name={dealOwnerName(deal)} avatarUrl={crmOwnerAvatarUrl(crmUsers, deal.owner_id)} sizeClass="h-5 w-5" textClass="text-[10px]" /></span>
                     <span title={indicator.title} className={cn('grid h-5 w-5 place-items-center rounded-full text-[11px] font-black', indicator.className)}>{indicator.label}</span>
                   </div>
                 </div>
@@ -2265,7 +2320,7 @@ function DealFilterDropdown({ filters, activeFilterId, activeOwnerId, users, mob
       {tab === 'owners' && <>
         <button type="button" onClick={onClear} className="flex w-full items-center justify-between px-4 py-2 text-left text-sm font-bold hover:bg-blue-50"><span>Todos</span>{!activeFilterId && !activeOwnerId && <span>✓</span>}</button>
         {visibleUsers.map((user) => <button type="button" key={user.id} onClick={() => user.auth_user_id ? onSelectOwner(user.auth_user_id) : undefined} disabled={!user.auth_user_id} className="flex w-full items-center gap-3 px-4 py-2 text-left text-sm hover:bg-blue-50 disabled:opacity-45">
-          <span className="grid h-7 w-7 place-items-center rounded-full bg-slate-200 text-xs font-bold text-slate-600">{user.full_name.slice(0, 1)}</span>
+          <UserAvatar name={user.full_name} avatarUrl={user.avatar_url} sizeClass="h-7 w-7" textClass="text-xs" />
           <span className="min-w-0 flex-1 truncate">{user.full_name}</span>
           {activeOwnerId === user.auth_user_id && <span>✓</span>}
         </button>)}
@@ -2513,6 +2568,9 @@ function LostReasonModal({ onCancel, onConfirm }: { onCancel: () => void; onConf
       </div>
       <div className="p-5">
         {error && <p className="mb-3 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</p>}
+        <div className="mb-3 flex flex-wrap gap-2">
+          {lostReasonOptions.map((option) => <button key={option} type="button" onClick={() => setReason(option)} className={cn('rounded-full border px-3 py-1 text-xs font-bold', reason === option ? 'border-rose-500 bg-rose-50 text-rose-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50')}>{option}</button>)}
+        </div>
         <textarea autoFocus value={reason} onChange={(e) => setReason(e.target.value)} rows={5} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" placeholder="Explique por que o negócio foi perdido" />
       </div>
       <div className="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-4">
@@ -2587,8 +2645,8 @@ function ContactPage({ person, organization, loading, error, deals, activities, 
     await reloadDetail()
   }
   return <main className="min-h-screen bg-[#f4f5f7] text-slate-900">
-    <header className="sticky top-0 z-30 border-b border-slate-200 bg-white shadow-sm"><div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-3 px-4 py-3"><button onClick={closeDetailPage} className="rounded border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">← Voltar</button><div className="min-w-0 flex-1"><h1 className="truncate text-2xl font-semibold tracking-[-0.03em] text-slate-950">{person.full_name}</h1><p className="mt-1 truncate text-sm font-semibold text-slate-600">{person.phone || 'sem telefone'} · {person.email || 'sem email'}</p></div><Badge tone="bg-blue-100 text-blue-700">Ficha de contato</Badge>{canDelete && <button type="button" onClick={() => deletePerson?.(person.id, person.full_name)} className="rounded border border-rose-200 px-4 py-2 text-sm font-bold text-rose-600 hover:bg-rose-50">Apagar</button>}</div></header>
-    <div className="mx-auto grid max-w-[1600px] gap-4 p-4 xl:grid-cols-[360px_minmax(0,1fr)]">{error && <div className="xl:col-span-2 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><b>Erro:</b> {error}</div>}<aside className="space-y-4"><CollapsibleSection title="Detalhes" defaultOpen><div className="divide-y divide-slate-100"><InlineField label="Nome do Contato" value={person.full_name} onChange={() => undefined} onSaveValue={(value) => savePersonField('full_name', value)} /><ReadOnlyField label="Proprietário do contato" value={personOwner} /><LinkedEditableField label="Empresa vinculada" value={organization?.name || 'Sem empresa vinculada'} onOpen={organization ? () => openOrganizationPage(organization.id) : undefined} onUnlink={person.organization_id ? () => unlinkPersonOrganization(person.id) : undefined} /><ReadOnlyField label="ID do contato no Pipedrive" value={pipedrivePersonId || 'Não sincronizado'} /><InlineField label="Cargo" value={person.role_title || ''} onChange={() => undefined} onSaveValue={(value) => savePersonField('role_title', value)} /><InlineField label="Email" value={person.email || ''} onChange={() => undefined} onSaveValue={(value) => savePersonField('email', value)} type="email" /><InlineField label="Telefone" value={person.phone || ''} onChange={() => undefined} onSaveValue={(value) => savePersonField('phone', value)} /><ReadOnlyField label="DDD" value={person.ddd_prefix || '-'} /><ReadOnlyField label="Estado DDD" value={person.ddd_state || '-'} /></div></CollapsibleSection><EntityDealsSummary deals={linkedDeals} openDealPage={openDealPage} /></aside><section><LinkedTimeline deals={linkedDeals} activities={activities} history={history} crmUsers={crmUsers} completeActivity={completeActivity} markActivityTodo={markActivityTodo} openDealPage={openDealPage} /></section></div>
+    <header className="sticky top-0 z-30 border-b border-slate-200 bg-white shadow-sm"><div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-3 px-4 py-3"><button onClick={closeDetailPage} className="rounded border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">← Voltar</button><div className="min-w-0 flex-1"><h1 className="truncate text-2xl font-semibold tracking-[-0.03em] text-slate-950">{person.full_name}</h1><p className="mt-1 truncate text-sm font-semibold text-slate-600"><WhatsAppPhoneLink value={person.phone} /> · {person.email || 'sem email'}</p></div><Badge tone="bg-blue-100 text-blue-700">Ficha de contato</Badge>{canDelete && <button type="button" onClick={() => deletePerson?.(person.id, person.full_name)} className="rounded border border-rose-200 px-4 py-2 text-sm font-bold text-rose-600 hover:bg-rose-50">Apagar</button>}</div></header>
+    <div className="mx-auto grid max-w-[1600px] gap-4 p-4 xl:grid-cols-[360px_minmax(0,1fr)]">{error && <div className="xl:col-span-2 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><b>Erro:</b> {error}</div>}<aside className="space-y-4"><CollapsibleSection title="Detalhes" defaultOpen><div className="divide-y divide-slate-100"><InlineField label="Nome do Contato" value={person.full_name} onChange={() => undefined} onSaveValue={(value) => savePersonField('full_name', value)} /><ReadOnlyField label="Proprietário do contato" value={personOwner} /><LinkedEditableField label="Empresa vinculada" value={organization?.name || 'Sem empresa vinculada'} onOpen={organization ? () => openOrganizationPage(organization.id) : undefined} onUnlink={person.organization_id ? () => unlinkPersonOrganization(person.id) : undefined} /><ReadOnlyField label="ID do contato no Pipedrive" value={pipedrivePersonId || 'Não sincronizado'} /><InlineField label="Cargo" value={person.role_title || ''} onChange={() => undefined} onSaveValue={(value) => savePersonField('role_title', value)} /><InlineField label="Email" value={person.email || ''} onChange={() => undefined} onSaveValue={(value) => savePersonField('email', value)} type="email" /><InlineField label="Telefone" value={person.phone || ''} onChange={() => undefined} onSaveValue={(value) => savePersonField('phone', value)} displayValue={<WhatsAppPhoneLink value={person.phone} />} /><ReadOnlyField label="DDD" value={person.ddd_prefix || '-'} /><ReadOnlyField label="Estado DDD" value={person.ddd_state || '-'} /></div></CollapsibleSection><EntityDealsSummary deals={linkedDeals} openDealPage={openDealPage} /></aside><section><LinkedTimeline deals={linkedDeals} activities={activities} history={history} crmUsers={crmUsers} completeActivity={completeActivity} markActivityTodo={markActivityTodo} openDealPage={openDealPage} /></section></div>
   </main>
 }
 
@@ -3040,7 +3098,7 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
         <Panel className="overflow-hidden border-transparent bg-transparent shadow-none">
           <div className="border-b border-slate-200 bg-transparent p-4"><h2 className="text-2xl font-bold tracking-[-0.03em] text-slate-950">Foco</h2></div>
           <div className="space-y-3 p-4">
-            {openActivities.length ? openActivities.map((activity) => <ActivityInlineRow key={activity.id} activity={activity} deal={deal} ownerName={crmOwnerDisplay(crmUsers, activity.owner_id, deal.pipedrive_owner_name || 'Sem usuário')} onComplete={completeActivity} onMarkTodo={markActivityTodo} onEdit={setEditingActivity} onDelete={canEditOwner ? deleteActivity : undefined} />) : <p className="rounded border border-dashed border-slate-300 p-6 text-center text-sm text-slate-500">Nenhuma atividade aberta no foco.</p>}
+            {openActivities.length ? openActivities.map((activity) => <ActivityInlineRow key={activity.id} activity={activity} deal={deal} ownerName={crmOwnerDisplay(crmUsers, activity.owner_id, deal.pipedrive_owner_name || 'Sem usuário')} onComplete={completeActivity} onMarkTodo={markActivityTodo} onEdit={setEditingActivity} onDelete={deleteActivity} />) : <p className="rounded border border-dashed border-slate-300 p-6 text-center text-sm text-slate-500">Nenhuma atividade aberta no foco.</p>}
           </div>
         </Panel>
 
@@ -3058,7 +3116,7 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
             <div className="min-h-[420px] space-y-0 p-4">
               {visibleTimeline.length ? visibleTimeline.map((item) => <div key={item.id} className="grid grid-cols-[40px_1fr] gap-3 pb-5 text-sm last:pb-0">
                 <div className="relative flex justify-center"><TimelineIcon item={item} /><span className="absolute top-10 h-full w-px bg-slate-200" /></div>
-                {item.activity ? <ActivityInlineRow activity={item.activity} deal={deal} ownerName={crmOwnerDisplay(crmUsers, item.activity.owner_id, deal.pipedrive_owner_name || 'Sem usuário')} onComplete={completeActivity} onMarkTodo={markActivityTodo} onEdit={setEditingActivity} onDelete={canEditOwner ? deleteActivity : undefined} /> : item.history && timelineCategory(item) === 'notes' ? <NoteTimelineRow note={item.history} onUpdate={updateNote} onTogglePin={toggleNotePin} onDelete={deleteNote} /> : <div className="rounded border border-slate-200 bg-white p-3 shadow-sm"><div className="flex flex-wrap items-start justify-between gap-2"><div><b className="text-slate-900">{item.title}</b></div><div className="flex items-center gap-2">{item.date && <span className="text-xs text-slate-500">{formatDateTime(item.date)}</span>}</div></div>{item.description && <p className="mt-2 whitespace-pre-wrap text-slate-600">{item.description}</p>}</div>}
+                {item.activity ? <ActivityInlineRow activity={item.activity} deal={deal} ownerName={crmOwnerDisplay(crmUsers, item.activity.owner_id, deal.pipedrive_owner_name || 'Sem usuário')} onComplete={completeActivity} onMarkTodo={markActivityTodo} onEdit={setEditingActivity} onDelete={deleteActivity} /> : item.history && timelineCategory(item) === 'notes' ? <NoteTimelineRow note={item.history} onUpdate={updateNote} onTogglePin={toggleNotePin} onDelete={deleteNote} /> : <div className="rounded border border-slate-200 bg-white p-3 shadow-sm"><div className="flex flex-wrap items-start justify-between gap-2"><div><b className="text-slate-900">{item.title}</b></div><div className="flex items-center gap-2">{item.date && <span className="text-xs text-slate-500">{formatDateTime(item.date)}</span>}</div></div>{item.description && <p className="mt-2 whitespace-pre-wrap text-slate-600">{item.description}</p>}</div>}
               </div>) : <p className="rounded border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">Sem histórico para este filtro.</p>}
             </div>
           </>}
@@ -3340,7 +3398,7 @@ function ActivityInlineRow({ activity, deal, ownerName, onComplete, onMarkTodo, 
         {menuOpen && <div className="absolute right-0 top-9 z-30 w-56 overflow-hidden rounded border border-slate-200 bg-white py-1 text-sm shadow-xl">
           {onEdit && <button type="button" onClick={() => { closeMenu(); onEdit(activity) }} className="block w-full px-4 py-2 text-left font-semibold text-slate-700 hover:bg-blue-600 hover:text-white">Editar</button>}
           {onMarkTodo && <button type="button" onClick={() => { closeMenu(); void onMarkTodo(activity.id) }} className="block w-full px-4 py-2 text-left text-slate-700 hover:bg-blue-600 hover:text-white">Marcar como "Por fazer"</button>}
-          {onDelete && <button type="button" onClick={() => { closeMenu(); onDelete(activity.id, activity.title) }} className="block w-full px-4 py-2 text-left text-slate-700 hover:bg-blue-600 hover:text-white">Excluir</button>}
+          {onDelete && <button type="button" onClick={() => { closeMenu(); onDelete(activity.id, activity.title) }} className="flex w-full items-center gap-2 px-4 py-2 text-left text-slate-700 hover:bg-blue-600 hover:text-white"><Trash2 size={14}/>Excluir</button>}
         </div>}
       </div>}
     </div>
@@ -3527,7 +3585,7 @@ function DealLabelPills({ labels, compact = false }: { labels: DealLabel[]; comp
   return <div className={cn('mb-1.5 flex flex-wrap gap-1', compact && 'min-h-[10px]')}>{labels.slice(0, compact ? 4 : 8).map((label) => compact ? <span key={label.id} className="block h-2.5 w-9 rounded-sm shadow-sm" style={{ backgroundColor: label.color }} title={label.name} aria-label={label.name} /> : <span key={label.id} className="inline-flex max-w-full items-center rounded px-1.5 py-0.5 text-[10px] font-black uppercase leading-none text-white shadow-sm" style={{ backgroundColor: label.color }} title={label.name}>{label.name}</span>)}</div>
 }
 
-function InlineField({ label, value, onChange, onSaveValue, type = 'text', displayValue, onOpen, onUnlink }: { label: string; value: string; onChange: (value: string) => void; onSaveValue?: (value: string) => Promise<void> | void; type?: string; displayValue?: string; onOpen?: () => void; onUnlink?: () => Promise<void> | void }) {
+function InlineField({ label, value, onChange, onSaveValue, type = 'text', displayValue, onOpen, onUnlink }: { label: string; value: string; onChange: (value: string) => void; onSaveValue?: (value: string) => Promise<void> | void; type?: string; displayValue?: ReactNode; onOpen?: () => void; onUnlink?: () => Promise<void> | void }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(value)
   const [busy, setBusy] = useState(false)
@@ -4122,7 +4180,7 @@ function EntityListView({ title, icon, entity, rows, deals, people, organization
         <div className="flex items-center gap-2">
           <div className="relative">
             <button type="button" data-filter-toggle onClick={() => setShowFilters((current) => !current)} className={cn('inline-flex items-center gap-2 rounded border px-3 py-1.5 text-sm font-semibold shadow-sm', activeFilterId || activeOwnerId ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50')}><Filter size={15}/>{filterButtonLabel}</button>
-            {showFilters && <DealFilterDropdown filters={savedFilters} activeFilterId={activeFilterId} activeOwnerId={activeOwnerId} users={users} onSelectFilter={(id) => { const filter = savedFilters.find((item) => item.id === id); setActiveFilterId(id); setActiveOwnerId(''); applyFilterColumns(filter); setShowFilters(false) }} onSelectOwner={(id) => { setActiveOwnerId(id); setActiveFilterId(''); setShowFilters(false) }} onClear={() => { setActiveFilterId(''); setActiveOwnerId(''); setShowFilters(false) }} onCreate={() => { setEditingFilter({ ...emptyFilterDraft(), columns: visibleColumns, saveColumns: false }); setShowFilters(false) }} onEdit={(filter) => { setEditingFilter({ id: filter.id, name: filter.name, favorite: filter.favorite, rules: filter.rules.length ? filter.rules : [newFilterRule('all')], columns: filter.columns?.length ? filter.columns : visibleColumns, saveColumns: Boolean(filter.columns?.length) }); setShowFilters(false) }} onToggleFavorite={onToggleFavoriteFilter} onDelete={onDeleteFilter} onClose={() => setShowFilters(false)} />}
+            {showFilters && <DealFilterDropdown filters={savedFilters} activeFilterId={activeFilterId} activeOwnerId={activeOwnerId} users={users} onSelectFilter={(id) => { const filter = savedFilters.find((item) => item.id === id); setActiveFilterId(id); setActiveOwnerId(''); applyFilterColumns(filter) }} onSelectOwner={(id) => { setActiveOwnerId(id); setActiveFilterId('') }} onClear={() => { setActiveFilterId(''); setActiveOwnerId('') }} onCreate={() => { setEditingFilter({ ...emptyFilterDraft(), columns: visibleColumns, saveColumns: false }); setShowFilters(false) }} onEdit={(filter) => { setEditingFilter({ id: filter.id, name: filter.name, favorite: filter.favorite, rules: filter.rules.length ? filter.rules : [newFilterRule('all')], columns: filter.columns?.length ? filter.columns : visibleColumns, saveColumns: Boolean(filter.columns?.length) }); setShowFilters(false) }} onToggleFavorite={onToggleFavoriteFilter} onDelete={onDeleteFilter} onClose={() => setShowFilters(false)} />}
           </div>
           <button type="button" onClick={() => setShowColumns(true)} className="grid h-9 w-9 place-items-center rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-50" title="Campos da lista" aria-label="Campos da lista"><Settings size={16}/></button>
         </div>
@@ -5722,23 +5780,24 @@ function ForecastView({ deals, stages, selectedId, setSelectedId, openDealPage }
           </div>
           <span className="text-xs font-semibold text-slate-600">{pctWon}%</span>
         </div>
-        <table className="w-full text-sm">
+        <table className="w-full table-fixed text-sm">
+          <colgroup><col className="w-[32%]"/><col className="w-[26%]"/><col className="w-[18%]"/><col className="w-[12%]"/><col className="w-[12%]"/></colgroup>
           <thead>
             <tr className="border-b border-slate-100 text-left text-[11px] font-semibold uppercase text-slate-400">
               <th className="px-5 py-2">Negócio</th>
               <th className="px-5 py-2">Empresa</th>
               <th className="px-5 py-2">Etapa</th>
-              <th className="px-5 py-2">Valor</th>
-              <th className="px-5 py-2">Status</th>
+              <th className="px-5 py-2 text-right">Valor</th>
+              <th className="px-5 py-2 text-center">Status</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">
             {group.deals.map((deal) => <tr key={deal.id} onClick={() => { setSelectedId(deal.id); openDealPage(deal.id) }} className={cn('cursor-pointer transition hover:bg-blue-50', selectedId === deal.id ? 'bg-blue-50' : '')}>
-              <td className="px-5 py-2 font-semibold text-slate-900">{deal.title}</td>
-              <td className="px-5 py-2 text-slate-600">{deal.organizations?.name || '-'}</td>
+              <td className="truncate px-5 py-2 font-semibold text-slate-900">{deal.title}</td>
+              <td className="truncate px-5 py-2 text-slate-600">{deal.organizations?.name || '-'}</td>
               <td className="px-5 py-2"><span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-700">{stageName(deal.stage_id || '') || '-'}</span></td>
-              <td className="px-5 py-2 font-semibold text-slate-800">{money(deal.value)}</td>
-              <td className="px-5 py-2"><span className={cn('rounded-full px-2 py-0.5 text-[10px] font-bold uppercase', deal.status === 'ganho' ? 'bg-green-100 text-green-700' : deal.status === 'perdido' ? 'bg-slate-200 text-slate-700' : 'bg-blue-100 text-blue-700')}>{statusLabel[deal.status || 'aberto'] || 'Aberto'}</span></td>
+              <td className="px-5 py-2 text-right font-semibold text-slate-800">{money(deal.value)}</td>
+              <td className="px-5 py-2 text-center"><span className={cn('rounded-full px-2 py-0.5 text-[10px] font-bold uppercase', deal.status === 'ganho' ? 'bg-green-100 text-green-700' : deal.status === 'perdido' ? 'bg-slate-200 text-slate-700' : 'bg-blue-100 text-blue-700')}>{statusLabel[deal.status || 'aberto'] || 'Aberto'}</span></td>
             </tr>)}
           </tbody>
         </table>

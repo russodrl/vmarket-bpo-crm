@@ -58,6 +58,7 @@ export type CrmUser = {
   company_role?: string | null
   primary_email?: string | null
   crm_phone?: string | null
+  avatar_url?: string | null
   ddd_prefix?: string | null
   ddd_state?: string | null
   ddd_region?: string | null
