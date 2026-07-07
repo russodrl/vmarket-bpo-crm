@@ -117,6 +117,8 @@ export type Organization = {
   supplier_count: number | null
   bpo_id: string | null
   owner_id: string | null
+  created_at?: string
+  updated_at?: string
 }
 
 export type ExternalRecord = {
@@ -143,6 +145,8 @@ export type Person = {
   labels: string[] | null
   bpo_id: string | null
   owner_id: string | null
+  created_at?: string
+  updated_at?: string
 }
 
 export type Deal = {

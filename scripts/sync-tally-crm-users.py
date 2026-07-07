@@ -216,7 +216,7 @@ def sync_users_rest(users):
         payload.pop("company_name", None)
         payload["company_id"] = company_id
         payload.setdefault("status", "pending")
-        status, data = supabase_request("POST", "/rest/v1/crm_users?on_conflict=email", payload)
+        status, data = supabase_request("POST", "/rest/v1/crm_users?on_conflict=tally_submission_id", payload)
         synced += 1
     return synced, skipped, "rest"
 
@@ -304,7 +304,7 @@ select
   r.tally_form_id, r.tally_submission_id, r.tally_submitted_at, r.tally_synced_at
 from rows r
 join all_companies c on c.name = r.company_name
-on conflict (email) do update set
+on conflict (tally_submission_id) do update set
   full_name = excluded.full_name,
   company_id = excluded.company_id,
   legal_company_name = excluded.legal_company_name,

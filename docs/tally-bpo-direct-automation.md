@@ -21,6 +21,7 @@ A rotina recorrente está agendada no Hermes cron:
 
 ```text
 Nome: vmarket-tally-bpo-pipedrive-sync
+Job ID: 0c0b800ae6e0
 Frequência: every 5m
 Script: vmarket_tally_pipedrive_sync.sh
 Workdir: /opt/data/projects/vmarket-bpo-crm
@@ -29,14 +30,14 @@ Workdir: /opt/data/projects/vmarket-bpo-crm
 O wrapper executado pelo cron fica em:
 
 ```text
-/opt/data/.hermes/scripts/vmarket_tally_pipedrive_sync.sh
+/opt/data/profiles/bpo-agent-vmarket/scripts/vmarket_tally_pipedrive_sync.sh
 ```
 
 Ele roda:
 
 ```bash
-python3 scripts/sync-tally-crm-users.py
-python3 scripts/tally_bpo_pipedrive_sync.py --process-new
+uv run --with mcp python scripts/sync-tally-crm-users.py
+uv run --with mcp python scripts/tally_bpo_pipedrive_sync.py --process-new
 ```
 
 A saída é silenciosa quando não há novidade. Se houver nova resposta processada para Pipedrive, o resumo é enviado para o chat de origem. Erros de execução geram alerta pelo próprio cron.
@@ -180,8 +181,8 @@ Esse diretório é runtime local e não entra no Git.
 Resultado validado pelo comando `--check-forms`:
 
 ```text
-qualification completed 2 fields 22 partial_or_empty_fields 0
-registration completed 8 fields 39 partial_or_empty_fields 10
+qualification completed 3 fields 22 partial_or_empty_fields 0
+registration completed 9 fields 39 partial_or_empty_fields 14
 ```
 
 No formulário de cadastro, os campos parciais são opcionais:
@@ -221,11 +222,12 @@ Interpretação:
 Resultado da agregação em `crm_users`:
 
 ```text
-tally_users: 8
-with_cnpj: 8
-with_phone: 8
-with_regions: 8
-with_extra_contacts: 5
+tally_users: 11
+distinct_submission_ids: 11
+with_cnpj: 11
+with_phone: 10
+with_regions: 11
+with_extra_contacts: 7
 ```
 
 ## Relação com a integração CRM BPO ↔ Pipedrive

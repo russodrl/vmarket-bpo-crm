@@ -478,6 +478,40 @@ function normalizeKey(value?: string | null) {
 function normalizeDigits(value?: string | null) {
   return String(value || '').replace(/\D/g, '')
 }
+function canonicalPeopleRows(rows: Person[], deals: Deal[]) {
+  const dealCounts = new Map<string, number>()
+  for (const deal of deals) if (deal.person_id) dealCounts.set(deal.person_id, (dealCounts.get(deal.person_id) || 0) + 1)
+  const best = new Map<string, Person>()
+  for (const person of rows) {
+    const key = normalizeKey(person.email) || normalizeDigits(person.phone) || normalizeKey(person.full_name)
+    if (!key) continue
+    const current = best.get(key)
+    const currentDeals = current ? dealCounts.get(current.id) || 0 : -1
+    const personDeals = dealCounts.get(person.id) || 0
+    if (!current || personDeals > currentDeals || (personDeals === currentDeals && String(person.created_at || '') < String(current.created_at || ''))) best.set(key, person)
+  }
+  return rows.filter((person) => {
+    const key = normalizeKey(person.email) || normalizeDigits(person.phone) || normalizeKey(person.full_name)
+    return !key || best.get(key)?.id === person.id
+  })
+}
+function canonicalOrganizationRows(rows: Organization[], deals: Deal[]) {
+  const dealCounts = new Map<string, number>()
+  for (const deal of deals) if (deal.organization_id) dealCounts.set(deal.organization_id, (dealCounts.get(deal.organization_id) || 0) + 1)
+  const best = new Map<string, Organization>()
+  for (const org of rows) {
+    const key = normalizeKey(org.name)
+    if (!key) continue
+    const current = best.get(key)
+    const currentDeals = current ? dealCounts.get(current.id) || 0 : -1
+    const orgDeals = dealCounts.get(org.id) || 0
+    if (!current || orgDeals > currentDeals || (orgDeals === currentDeals && String(org.created_at || '') < String(current.created_at || ''))) best.set(key, org)
+  }
+  return rows.filter((org) => {
+    const key = normalizeKey(org.name)
+    return !key || best.get(key)?.id === org.id
+  })
+}
 function crmUserForOwner(crmUsers: CrmUser[], ownerId?: string | null) {
   return ownerId ? crmUsers.find((user) => user.auth_user_id === ownerId) : undefined
 }
@@ -1035,11 +1069,13 @@ function App() {
   const activeSavedFilter = useMemo(() => savedDealFilters.find((filter) => filter.id === activeDealFilterId), [savedDealFilters, activeDealFilterId])
   const visiblePeople = useMemo(() => {
     const ownerRows = activeOwnerFilterId ? people.filter((person) => person.owner_id === activeOwnerFilterId) : people
-    return filterPeopleBySavedFilter(ownerRows, deals, activeSavedFilter, filterFields, filterContext)
+    const filteredRows = filterPeopleBySavedFilter(ownerRows, deals, activeSavedFilter, filterFields, filterContext)
+    return canonicalPeopleRows(filteredRows, deals)
   }, [people, deals, activeOwnerFilterId, activeSavedFilter, filterFields, filterContext])
   const visibleOrganizations = useMemo(() => {
     const ownerRows = activeOwnerFilterId ? organizations.filter((org) => org.owner_id === activeOwnerFilterId) : organizations
-    return filterOrganizationsBySavedFilter(ownerRows, deals, activeSavedFilter, filterFields, filterContext)
+    const filteredRows = filterOrganizationsBySavedFilter(ownerRows, deals, activeSavedFilter, filterFields, filterContext)
+    return canonicalOrganizationRows(filteredRows, deals)
   }, [organizations, deals, activeOwnerFilterId, activeSavedFilter, filterFields, filterContext])
 
   const detailDeal = useMemo(() => deals.find((d) => d.id === detailDealId), [deals, detailDealId])
@@ -1210,12 +1246,9 @@ function App() {
     }
   }
 
-  function isSalesPipelineStage(stageId: string) {
-    return stages.find((stage) => stage.id === stageId)?.pipeline_name === 'Pipeline de Vendas'
-  }
-
-  async function syncExistingDealToPipedriveIfSalesPipeline(dealId: string, stageId: string, mode: 'deal' | 'stage' = 'deal') {
-    if (!isSalesPipelineStage(stageId)) return { ok: true, ignored: true }
+  async function syncExistingDealToPipedriveIfMapped(dealId: string, stageId: string, mode: 'deal' | 'stage' = 'deal') {
+    const stage = stages.find((item) => item.id === stageId)
+    if (!stage?.pipedrive_stage_id) return { ok: true, ignored: true, reason: 'Etapa sem mapeamento Pipedrive' }
     const action = mode === 'stage' ? 'sync-existing-deal-stage-to-pipedrive' : 'sync-existing-deal-to-pipedrive'
     const syncRes = await supabase.functions.invoke('pipedrive-sync', { body: { action, deal_id: dealId } })
     if (syncRes.error) {
@@ -1257,7 +1290,7 @@ function App() {
     else {
       try {
         await supabase.from('deal_history').insert({ deal_id: dealId, event_type: 'Campo', title: 'Etapa do pipeline alterada', description: `Nova etapa: ${stages.find((s) => s.id === stageId)?.name || ''}` })
-        await syncExistingDealToPipedriveIfSalesPipeline(dealId, stageId, 'stage')
+        await syncExistingDealToPipedriveIfMapped(dealId, stageId, 'stage')
         await loadAll()
         setSelectedId(dealId)
       } catch (e) {
@@ -1654,7 +1687,7 @@ function App() {
         }
       }
 
-      const pipedriveSync = form.stage_id ? await syncExistingDealToPipedriveIfSalesPipeline(detailDeal.id, form.stage_id) : null
+      const pipedriveSync = form.stage_id ? await syncExistingDealToPipedriveIfMapped(detailDeal.id, form.stage_id) : null
 
       await supabase.from('deal_history').insert({ deal_id: detailDeal.id, event_type: 'Edição', title: 'Ficha do negócio atualizada', description: pipedriveSync?.ignored ? 'Campos editados na URL da ficha completa.' : 'Campos editados na URL da ficha completa e enviados ao Pipedrive quando havia vínculo.' })
       await loadAll()

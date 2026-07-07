@@ -269,7 +269,6 @@ async function syncExistingDealStageToPipedrive(dealId: string, userId: string |
     .single()
   if (error) throw error
   if (userId && deal.owner_id && deal.owner_id !== userId) throw new Error('User cannot sync a deal owned by another CRM user')
-  if (deal.pipeline_stages?.pipeline_name !== 'Pipeline de Vendas') return { ok: true, ignored: true, reason: 'Stage is not in Pipeline de Vendas', deal_id: dealId }
   const external = await findExternalRecord('deal', dealId)
   const execution = await createAutomationExecution({
     rule_id: 'crm_deal_stage_to_pipedrive',
@@ -280,7 +279,7 @@ async function syncExistingDealStageToPipedrive(dealId: string, userId: string |
     internal_id: dealId,
     external_id: external?.external_id || null,
     filters_evaluated: [
-      { field: 'pipeline_stages.pipeline_name', expected: 'Pipeline de Vendas', actual: deal.pipeline_stages?.pipeline_name, result: deal.pipeline_stages?.pipeline_name === 'Pipeline de Vendas' },
+      { field: 'pipeline_stages.pipeline_name', actual: deal.pipeline_stages?.pipeline_name || null, result: true },
       { field: 'external_records.deal', result: Boolean(external?.external_id) },
       { field: 'pipeline_stages.pipedrive_stage_id', result: Boolean(deal.pipeline_stages?.pipedrive_stage_id) },
     ],
@@ -317,7 +316,6 @@ async function syncExistingDealToPipedrive(dealId: string, userId: string | null
   if (error) throw error
   if (!deal) return { ok: true, ignored: true, reason: 'Deal not found', deal_id: dealId }
   if (userId && deal.owner_id && deal.owner_id !== userId) throw new Error('User cannot sync a deal owned by another CRM user')
-  if (deal.pipeline_stages?.pipeline_name !== 'Pipeline de Vendas') return { ok: true, ignored: true, reason: 'Deal is not in Pipeline de Vendas', deal_id: dealId }
   const external = await findExternalRecord('deal', dealId)
   if (!external?.external_id) return { ok: true, ignored: true, reason: 'Deal has no Pipedrive external record', deal_id: dealId }
   return syncDealToPipedrive(dealId, userId)
@@ -555,8 +553,13 @@ async function upsertCrmOrganizationFromPipedrive(integrationId: string, pdOrg: 
     city: stringOrNull(pdOrg.address_locality),
     state: stringOrNull(pdOrg.address_admin_area_level_1),
   }
+  const naturalMatch = await findCrmOrganizationByName(payload.name)
   let org
-  if (existing?.internal_id) {
+  if (naturalMatch?.id) {
+    const { data, error } = await supabase.from('organizations').update(payload).eq('id', naturalMatch.id).select('*').single()
+    if (error) throw error
+    org = data
+  } else if (existing?.internal_id) {
     const { data, error } = await supabase.from('organizations').update(payload).eq('id', existing.internal_id).select('*').single()
     if (error) throw error
     org = data
@@ -579,8 +582,13 @@ async function upsertCrmPersonFromPipedrive(integrationId: string, pdPerson: Jso
     phone: firstContactValue(pdPerson.phone),
     organization_id: organizationId,
   }
+  const naturalMatch = await findCrmPersonByContact(payload.email, payload.phone)
   let person
-  if (existing?.internal_id) {
+  if (naturalMatch?.id) {
+    const { data, error } = await supabase.from('people').update(payload).eq('id', naturalMatch.id).select('*').single()
+    if (error) throw error
+    person = data
+  } else if (existing?.internal_id) {
     const { data, error } = await supabase.from('people').update(payload).eq('id', existing.internal_id).select('*').single()
     if (error) throw error
     person = data
@@ -722,6 +730,45 @@ async function findPipedrivePerson(email: string | null, phone: string | null) {
   return null
 }
 
+async function findCrmOrganizationByName(name: string | null) {
+  const normalized = stringOrNull(name)?.trim()
+  if (!normalized) return null
+  const { data, error } = await supabase
+    .from('organizations')
+    .select('*')
+    .ilike('name', normalized)
+    .order('created_at', { ascending: true })
+    .limit(1)
+  if (error) throw error
+  return data?.[0] || null
+}
+
+async function findCrmPersonByContact(email: string | null, phone: string | null) {
+  const cleanEmailValue = stringOrNull(email)?.trim().toLowerCase()
+  if (cleanEmailValue) {
+    const { data, error } = await supabase
+      .from('people')
+      .select('*')
+      .ilike('email', cleanEmailValue)
+      .order('created_at', { ascending: true })
+      .limit(1)
+    if (error) throw error
+    if (data?.[0]) return data[0]
+  }
+  const digits = stringOrNull(phone)?.replace(/\D/g, '')
+  if (digits) {
+    const { data, error } = await supabase
+      .from('people')
+      .select('*')
+      .ilike('phone', `%${digits.slice(-8)}%`)
+      .order('created_at', { ascending: true })
+      .limit(1)
+    if (error) throw error
+    if (data?.[0]) return data[0]
+  }
+  return null
+}
+
 async function findPipedriveOrganizationBySimilarName(name: string) {
   if (!name) return null
   const result = await searchPipedrive('/organizations/search', name, 'name', false)
@@ -809,6 +856,15 @@ async function upsertExternalRecord(integrationId: string, entity: string, inter
       last_payload: payload,
       last_synced_at: new Date().toISOString(),
     }).eq('id', existing.id)
+    if (error) throw error
+    return
+  }
+  const existingInternal = await findExternalRecord(entity, internalId)
+  if (existingInternal?.external_id && existingInternal.external_id !== externalId) {
+    const { error } = await supabase.from('external_records').update({
+      last_payload: payload,
+      last_synced_at: new Date().toISOString(),
+    }).eq('id', existingInternal.id)
     if (error) throw error
     return
   }
