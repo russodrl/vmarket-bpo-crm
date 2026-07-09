@@ -2057,7 +2057,7 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
   reload: () => Promise<void>
 }) {
   const [showCreateDeal, setShowCreateDeal] = useState(false)
-  const [showFilters, setShowFilters] = useState(false)
+  const [openFilterMenu, setOpenFilterMenu] = useState<'mobile' | 'desktop' | null>(null)
   const [editingFilter, setEditingFilter] = useState<FilterDraft | null>(null)
   const [expandedStageTotals, setExpandedStageTotals] = useState<Set<string>>(() => new Set())
   const [expandedPipelineTotals, setExpandedPipelineTotals] = useState(false)
@@ -2189,11 +2189,11 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
         </label>}
         <button onClick={() => setShowCreateDeal(true)} className="order-3 h-11 rounded border border-[#087d3e] bg-[#238847] px-4 text-sm font-bold text-white shadow-sm hover:bg-[#1f7a40] md:order-none md:h-auto md:py-1.5">+ Negócio</button>
         <div className="relative order-3 md:hidden">
-          <button type="button" data-filter-toggle onClick={() => setShowFilters((current) => !current)} className={cn('inline-flex h-11 items-center gap-2 rounded border px-3 text-sm font-semibold shadow-sm', activeDealFilterId || activeOwnerFilterId ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50')}>
+          <button type="button" data-filter-toggle onClick={() => setOpenFilterMenu((current) => current === 'mobile' ? null : 'mobile')} className={cn('inline-flex h-11 items-center gap-2 rounded border px-3 text-sm font-semibold shadow-sm', activeDealFilterId || activeOwnerFilterId ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50')}>
             <Filter size={15}/>
             {filterButtonLabel}
           </button>
-          {showFilters && <DealFilterDropdown
+          {openFilterMenu === 'mobile' && <DealFilterDropdown
             mobileCentered
             filters={savedDealFilters}
             activeFilterId={activeDealFilterId}
@@ -2202,11 +2202,11 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
             onSelectFilter={(id) => { const filter = savedDealFilters.find((item) => item.id === id); setActiveDealFilterId(id); setActiveOwnerFilterId(''); applyFilterColumns(filter) }}
             onSelectOwner={(id) => { setActiveOwnerFilterId(id); setActiveDealFilterId('') }}
             onClear={() => { setActiveDealFilterId(''); setActiveOwnerFilterId('') }}
-            onCreate={() => { setEditingFilter({ ...emptyFilterDraft(), columns: visibleColumns, saveColumns: false }); setShowFilters(false) }}
-            onEdit={(filter) => { setEditingFilter({ id: filter.id, name: filter.name, favorite: filter.favorite, rules: filter.rules.length ? filter.rules : [newFilterRule('all')], columns: filter.columns?.length ? filter.columns : visibleColumns, saveColumns: Boolean(filter.columns?.length) }); setShowFilters(false) }}
+            onCreate={() => { setEditingFilter({ ...emptyFilterDraft(), columns: visibleColumns, saveColumns: false }); setOpenFilterMenu(null) }}
+            onEdit={(filter) => { setEditingFilter({ id: filter.id, name: filter.name, favorite: filter.favorite, rules: filter.rules.length ? filter.rules : [newFilterRule('all')], columns: filter.columns?.length ? filter.columns : visibleColumns, saveColumns: Boolean(filter.columns?.length) }); setOpenFilterMenu(null) }}
             onToggleFavorite={toggleDealFilterFavorite}
             onDelete={deleteDealFilter}
-            onClose={() => setShowFilters(false)}
+            onClose={() => setOpenFilterMenu(null)}
           />}
         </div>
         <div className="order-4 flex w-full flex-wrap items-center gap-2 text-sm text-slate-600 md:order-none md:ml-auto md:w-auto md:flex-nowrap">
@@ -2225,11 +2225,11 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
             {(pipelineNames.length ? pipelineNames : ['Pipeline de Vendas']).map((name) => <option key={name}>{name}</option>)}
           </select>
           <div className="relative hidden md:block">
-            <button type="button" data-filter-toggle onClick={() => setShowFilters((current) => !current)} className={cn('inline-flex items-center gap-2 rounded border px-3 py-1.5 text-sm font-semibold shadow-sm', activeDealFilterId || activeOwnerFilterId ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50')}>
+            <button type="button" data-filter-toggle onClick={() => setOpenFilterMenu((current) => current === 'desktop' ? null : 'desktop')} className={cn('inline-flex items-center gap-2 rounded border px-3 py-1.5 text-sm font-semibold shadow-sm', activeDealFilterId || activeOwnerFilterId ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50')}>
               <Filter size={15}/>
               {filterButtonLabel}
             </button>
-            {showFilters && <DealFilterDropdown
+            {openFilterMenu === 'desktop' && <DealFilterDropdown
               filters={savedDealFilters}
               activeFilterId={activeDealFilterId}
               activeOwnerId={activeOwnerFilterId}
@@ -2237,11 +2237,11 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
               onSelectFilter={(id) => { const filter = savedDealFilters.find((item) => item.id === id); setActiveDealFilterId(id); setActiveOwnerFilterId(''); applyFilterColumns(filter) }}
               onSelectOwner={(id) => { setActiveOwnerFilterId(id); setActiveDealFilterId('') }}
               onClear={() => { setActiveDealFilterId(''); setActiveOwnerFilterId('') }}
-              onCreate={() => { setEditingFilter({ ...emptyFilterDraft(), columns: visibleColumns, saveColumns: false }); setShowFilters(false) }}
-              onEdit={(filter) => { setEditingFilter({ id: filter.id, name: filter.name, favorite: filter.favorite, rules: filter.rules.length ? filter.rules : [newFilterRule('all')], columns: filter.columns?.length ? filter.columns : visibleColumns, saveColumns: Boolean(filter.columns?.length) }); setShowFilters(false) }}
+              onCreate={() => { setEditingFilter({ ...emptyFilterDraft(), columns: visibleColumns, saveColumns: false }); setOpenFilterMenu(null) }}
+              onEdit={(filter) => { setEditingFilter({ id: filter.id, name: filter.name, favorite: filter.favorite, rules: filter.rules.length ? filter.rules : [newFilterRule('all')], columns: filter.columns?.length ? filter.columns : visibleColumns, saveColumns: Boolean(filter.columns?.length) }); setOpenFilterMenu(null) }}
               onToggleFavorite={toggleDealFilterFavorite}
               onDelete={deleteDealFilter}
-              onClose={() => setShowFilters(false)}
+              onClose={() => setOpenFilterMenu(null)}
             />}
           </div>
         </div>
