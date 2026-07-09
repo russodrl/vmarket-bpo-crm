@@ -515,7 +515,14 @@ function canonicalOrganizationRows(rows: Organization[], deals: Deal[]) {
   })
 }
 function crmUserForOwner(crmUsers: CrmUser[], ownerId?: string | null) {
-  return ownerId ? crmUsers.find((user) => user.auth_user_id === ownerId) : undefined
+  return ownerId ? crmUsers.find((user) => user.auth_user_id === ownerId || user.id === ownerId) : undefined
+}
+function crmOwnerMatches(crmUsers: CrmUser[], ownerId: string | null | undefined, selectedOwnerId: string) {
+  if (!selectedOwnerId) return true
+  if (!ownerId) return false
+  if (ownerId === selectedOwnerId) return true
+  const selected = crmUsers.find((user) => user.id === selectedOwnerId || user.auth_user_id === selectedOwnerId)
+  return Boolean(selected && (ownerId === selected.id || ownerId === selected.auth_user_id))
 }
 function crmOwnerDisplay(crmUsers: CrmUser[], ownerId?: string | null, fallback = 'Sem proprietário CRM') {
   const owner = crmUserForOwner(crmUsers, ownerId)
@@ -1054,6 +1061,10 @@ function App() {
   const [savedDealFilters, setSavedDealFilters] = useState<SavedDealFilter[]>(() => loadSavedDealFilters())
   const [activeDealFilterId, setActiveDealFilterId] = useState('')
   const [activeOwnerFilterId, setActiveOwnerFilterId] = useState('')
+  const [activePersonFilterId, setActivePersonFilterId] = useState('')
+  const [activePersonOwnerFilterId, setActivePersonOwnerFilterId] = useState('')
+  const [activeOrganizationFilterId, setActiveOrganizationFilterId] = useState('')
+  const [activeOrganizationOwnerFilterId, setActiveOrganizationOwnerFilterId] = useState('')
   const [dealListColumns, setDealListColumns] = useState<string[]>(() => loadVisibleColumns('vmarket-crm-deal-list-columns', defaultDealListColumns))
   const [personListColumns, setPersonListColumns] = useState<string[]>(() => loadVisibleColumns('vmarket-crm-person-list-columns', defaultPersonListColumns))
   const [organizationListColumns, setOrganizationListColumns] = useState<string[]>(() => loadVisibleColumns('vmarket-crm-organization-list-columns', defaultOrganizationListColumns))
@@ -1081,20 +1092,21 @@ function App() {
     const canShowNonOpenDeals = filterIncludesDealStatus(activeSavedFilter)
     const pipelineDeals = visibleStageIds.size ? deals.filter((deal) => deal.stage_id && visibleStageIds.has(deal.stage_id)) : deals
     const openPipelineDeals = canShowNonOpenDeals ? pipelineDeals : pipelineDeals.filter((deal) => deal.status === 'aberto' || !deal.status || !statusLabel[deal.status])
-    const ownerDeals = activeOwnerFilterId ? openPipelineDeals.filter((deal) => deal.owner_id === activeOwnerFilterId) : openPipelineDeals
+    const ownerDeals = activeOwnerFilterId ? openPipelineDeals.filter((deal) => crmOwnerMatches(crmUsers, deal.owner_id, activeOwnerFilterId)) : openPipelineDeals
     return filterDealsBySavedFilter(ownerDeals, activeSavedFilter, filterFields, filterContext)
-  }, [deals, visibleStages, activeOwnerFilterId, savedDealFilters, activeDealFilterId, filterFields, filterContext])
-  const activeSavedFilter = useMemo(() => savedDealFilters.find((filter) => filter.id === activeDealFilterId), [savedDealFilters, activeDealFilterId])
+  }, [deals, visibleStages, activeOwnerFilterId, savedDealFilters, activeDealFilterId, filterFields, filterContext, crmUsers])
+  const activePersonSavedFilter = useMemo(() => savedDealFilters.find((filter) => filter.id === activePersonFilterId), [savedDealFilters, activePersonFilterId])
+  const activeOrganizationSavedFilter = useMemo(() => savedDealFilters.find((filter) => filter.id === activeOrganizationFilterId), [savedDealFilters, activeOrganizationFilterId])
   const visiblePeople = useMemo(() => {
-    const ownerRows = activeOwnerFilterId ? people.filter((person) => person.owner_id === activeOwnerFilterId) : people
-    const filteredRows = filterPeopleBySavedFilter(ownerRows, deals, activeSavedFilter, filterFields, filterContext)
+    const ownerRows = activePersonOwnerFilterId ? people.filter((person) => crmOwnerMatches(crmUsers, person.owner_id, activePersonOwnerFilterId)) : people
+    const filteredRows = filterPeopleBySavedFilter(ownerRows, deals, activePersonSavedFilter, filterFields, filterContext)
     return canonicalPeopleRows(filteredRows, deals)
-  }, [people, deals, activeOwnerFilterId, activeSavedFilter, filterFields, filterContext])
+  }, [people, deals, activePersonOwnerFilterId, activePersonSavedFilter, filterFields, filterContext, crmUsers])
   const visibleOrganizations = useMemo(() => {
-    const ownerRows = activeOwnerFilterId ? organizations.filter((org) => org.owner_id === activeOwnerFilterId) : organizations
-    const filteredRows = filterOrganizationsBySavedFilter(ownerRows, deals, activeSavedFilter, filterFields, filterContext)
+    const ownerRows = activeOrganizationOwnerFilterId ? organizations.filter((org) => crmOwnerMatches(crmUsers, org.owner_id, activeOrganizationOwnerFilterId)) : organizations
+    const filteredRows = filterOrganizationsBySavedFilter(ownerRows, deals, activeOrganizationSavedFilter, filterFields, filterContext)
     return canonicalOrganizationRows(filteredRows, deals)
-  }, [organizations, deals, activeOwnerFilterId, activeSavedFilter, filterFields, filterContext])
+  }, [organizations, deals, activeOrganizationOwnerFilterId, activeOrganizationSavedFilter, filterFields, filterContext, crmUsers])
 
   const detailDeal = useMemo(() => deals.find((d) => d.id === detailDealId), [deals, detailDealId])
   const detailPerson = useMemo(() => people.find((person) => person.id === detailPersonId), [people, detailPersonId])
@@ -1579,8 +1591,16 @@ function App() {
       ? savedDealFilters.map((filter) => filter.id === saved.id ? saved : filter)
       : [...savedDealFilters, saved]
     persistDealFilters(next)
-    setActiveDealFilterId(saved.id)
-    setActiveOwnerFilterId('')
+    if (activeView === 'contacts') {
+      setActivePersonFilterId(saved.id)
+      setActivePersonOwnerFilterId('')
+    } else if (activeView === 'companies') {
+      setActiveOrganizationFilterId(saved.id)
+      setActiveOrganizationOwnerFilterId('')
+    } else {
+      setActiveDealFilterId(saved.id)
+      setActiveOwnerFilterId('')
+    }
   }
 
   function applyFilterColumns(filter?: SavedDealFilter) {
@@ -1612,6 +1632,8 @@ function App() {
     const next = savedDealFilters.filter((filter) => filter.id !== id)
     persistDealFilters(next)
     if (activeDealFilterId === id) setActiveDealFilterId('')
+    if (activePersonFilterId === id) setActivePersonFilterId('')
+    if (activeOrganizationFilterId === id) setActiveOrganizationFilterId('')
   }
 
   async function saveDeal(form: DealForm, customValues: Record<string, string>) {
@@ -1855,8 +1877,8 @@ function App() {
                 {activeView === 'pipeline' && <PipelineView stages={visibleStages} salesStages={salesStages} deals={visibleDeals} allDeals={deals} activities={activities} crmUsers={crmUsers} organizations={organizations} people={people} dealLabels={dealLabels} dealLabelAssignments={dealLabelAssignments} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} setDraggingId={setDraggingId} handleDrop={handleDrop} newDeal={newDeal} setNewDeal={setNewDeal} createDeal={createDeal} creating={creating} canAssignOwner={profile?.role === 'admin_vmarket'} activePipeline={activePipeline} setActivePipeline={setActivePipeline} pipelineNames={pipelineNames} pipelineView={pipelineView} setPipelineView={setPipelineView} savedDealFilters={savedDealFilters} activeDealFilterId={activeDealFilterId} setActiveDealFilterId={setActiveDealFilterId} activeOwnerFilterId={activeOwnerFilterId} setActiveOwnerFilterId={setActiveOwnerFilterId} filterFields={filterFields} filterContext={filterContext} saveDealFilter={saveDealFilter} deleteDealFilter={deleteDealFilter} toggleDealFilterFavorite={toggleDealFilterFavorite} applyFilterColumns={applyFilterColumns} visibleColumns={dealListColumns} setVisibleColumns={setDealColumns} reload={loadAll} />}
                 {activeView === 'plans-vmarket' && <VmarketPlansView />}
                 {activeView === 'commissions-vmarket' && <VmarketCommissionsView deals={deals} stages={stages} history={history} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} />}
-                {activeView === 'contacts' && <EntityListView title="Contatos" icon={<Contact size={18}/>} entity="person" rows={visiblePeople} deals={deals} people={people} organizations={organizations} stages={stages} crmUsers={crmUsers} dealLabels={dealLabels} dealLabelAssignments={dealLabelAssignments} selectedId={detailPersonId} onOpen={openPersonPage} savedFilters={savedDealFilters} activeFilterId={activeDealFilterId} activeOwnerId={activeOwnerFilterId} setActiveFilterId={setActiveDealFilterId} setActiveOwnerId={setActiveOwnerFilterId} users={crmUsers} filterFields={filterFields} filterContext={filterContext} saveDealFilter={saveDealFilter} onDeleteFilter={deleteDealFilter} onToggleFavoriteFilter={toggleDealFilterFavorite} applyFilterColumns={applyFilterColumns} visibleColumns={personListColumns} setVisibleColumns={setPersonColumns} reload={loadAll} />}
-                {activeView === 'companies' && <EntityListView title="Empresas" icon={<Building2 size={18}/>} entity="organization" rows={visibleOrganizations} deals={deals} people={people} organizations={organizations} stages={stages} crmUsers={crmUsers} dealLabels={dealLabels} dealLabelAssignments={dealLabelAssignments} selectedId={detailOrganizationId} onOpen={openOrganizationPage} savedFilters={savedDealFilters} activeFilterId={activeDealFilterId} activeOwnerId={activeOwnerFilterId} setActiveFilterId={setActiveDealFilterId} setActiveOwnerId={setActiveOwnerFilterId} users={crmUsers} filterFields={filterFields} filterContext={filterContext} saveDealFilter={saveDealFilter} onDeleteFilter={deleteDealFilter} onToggleFavoriteFilter={toggleDealFilterFavorite} applyFilterColumns={applyFilterColumns} visibleColumns={organizationListColumns} setVisibleColumns={setOrganizationColumns} reload={loadAll} />}
+                {activeView === 'contacts' && <EntityListView title="Contatos" icon={<Contact size={18}/>} entity="person" rows={visiblePeople} deals={deals} people={people} organizations={organizations} stages={stages} crmUsers={crmUsers} dealLabels={dealLabels} dealLabelAssignments={dealLabelAssignments} selectedId={detailPersonId} onOpen={openPersonPage} savedFilters={savedDealFilters} activeFilterId={activePersonFilterId} activeOwnerId={activePersonOwnerFilterId} setActiveFilterId={setActivePersonFilterId} setActiveOwnerId={setActivePersonOwnerFilterId} users={crmUsers} filterFields={filterFields} filterContext={filterContext} saveDealFilter={saveDealFilter} onDeleteFilter={deleteDealFilter} onToggleFavoriteFilter={toggleDealFilterFavorite} applyFilterColumns={applyFilterColumns} visibleColumns={personListColumns} setVisibleColumns={setPersonColumns} reload={loadAll} />}
+                {activeView === 'companies' && <EntityListView title="Empresas" icon={<Building2 size={18}/>} entity="organization" rows={visibleOrganizations} deals={deals} people={people} organizations={organizations} stages={stages} crmUsers={crmUsers} dealLabels={dealLabels} dealLabelAssignments={dealLabelAssignments} selectedId={detailOrganizationId} onOpen={openOrganizationPage} savedFilters={savedDealFilters} activeFilterId={activeOrganizationFilterId} activeOwnerId={activeOrganizationOwnerFilterId} setActiveFilterId={setActiveOrganizationFilterId} setActiveOwnerId={setActiveOrganizationOwnerFilterId} users={crmUsers} filterFields={filterFields} filterContext={filterContext} saveDealFilter={saveDealFilter} onDeleteFilter={deleteDealFilter} onToggleFavoriteFilter={toggleDealFilterFavorite} applyFilterColumns={applyFilterColumns} visibleColumns={organizationListColumns} setVisibleColumns={setOrganizationColumns} reload={loadAll} />}
                 {activeView === 'activities' && <ActivitiesView activities={activities} deals={deals} crmUsers={crmUsers} completeActivity={completeActivity} markActivityTodo={markActivityTodo} updateActivity={updateActivity} openDealPage={openDealPage} canDelete deleteActivity={(id, label) => deleteActivityRecord(id, label)} />}
                 {activeView === 'warnings' && <WarningsView deals={deals} people={people} organizations={organizations} activities={activities} crmUsers={crmUsers} openDealPage={openDealPage} reload={loadAll} setError={setError} />}
                 {activeView === 'lead-distribution' && profile?.role === 'admin_vmarket' && <LeadDistributionView users={crmUsers} deals={deals} />}
@@ -2046,7 +2068,7 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
   })
   const [currentDate] = useState(() => new Date())
   const activeFilter = savedDealFilters.find((filter) => filter.id === activeDealFilterId)
-  const activeOwner = crmUsers.find((user) => user.auth_user_id === activeOwnerFilterId)
+  const activeOwner = crmUsers.find((user) => user.id === activeOwnerFilterId || user.auth_user_id === activeOwnerFilterId)
   const filterButtonLabel = activeFilter?.name || activeOwner?.full_name || 'Filtro'
   const toggleStageTotals = (stageId: string) => setExpandedStageTotals((current) => {
     const next = new Set(current)
@@ -2330,6 +2352,18 @@ function DealFilterDropdown({ filters, activeFilterId, activeOwnerId, users, mob
   const visibleUsers = users.filter((user) => user.full_name.toLocaleLowerCase('pt-BR').includes(normalizedQuery) || (user.email || '').toLocaleLowerCase('pt-BR').includes(normalizedQuery))
   const favoriteFilters = filters.filter((filter) => filter.favorite)
   const visibleFilters = (tab === 'favorites' ? favoriteFilters : filters).filter((filter) => filter.name.toLocaleLowerCase('pt-BR').includes(normalizedQuery))
+  const selectOwner = (id: string) => {
+    onSelectOwner(id)
+    onClose()
+  }
+  const selectFilter = (id: string) => {
+    onSelectFilter(id)
+    onClose()
+  }
+  const clearFilter = () => {
+    onClear()
+    onClose()
+  }
 
   return <div ref={dropdownRef} className={cn('z-40 overflow-hidden rounded border border-slate-200 bg-white text-slate-800 shadow-2xl', mobileCentered ? 'fixed left-1/2 top-1/2 w-[min(92vw,370px)] -translate-x-1/2 -translate-y-1/2' : 'absolute right-0 top-full mt-2 w-[min(92vw,370px)]')}>
     <div className="border-b border-slate-200 p-2">
@@ -2349,11 +2383,11 @@ function DealFilterDropdown({ filters, activeFilterId, activeOwnerId, users, mob
     </div>
     <div className={cn('overflow-y-auto py-1', mobileCentered ? 'max-h-[60dvh]' : 'max-h-[430px]')}>
       {tab === 'owners' && <>
-        <button type="button" onClick={onClear} className="flex w-full items-center justify-between px-4 py-2 text-left text-sm font-bold hover:bg-blue-50"><span>Todos</span>{!activeFilterId && !activeOwnerId && <span>✓</span>}</button>
-        {visibleUsers.map((user) => <button type="button" key={user.id} onClick={() => user.auth_user_id ? onSelectOwner(user.auth_user_id) : undefined} disabled={!user.auth_user_id} className="flex w-full items-center gap-3 px-4 py-2 text-left text-sm hover:bg-blue-50 disabled:opacity-45">
+        <button type="button" onClick={clearFilter} className="flex w-full items-center justify-between px-4 py-2 text-left text-sm font-bold hover:bg-blue-50"><span>Todos</span>{!activeFilterId && !activeOwnerId && <span>✓</span>}</button>
+        {visibleUsers.map((user) => <button type="button" key={user.id} onClick={() => selectOwner(user.id)} className="flex w-full items-center gap-3 px-4 py-2 text-left text-sm hover:bg-blue-50 disabled:opacity-45">
           <UserAvatar name={user.full_name} avatarUrl={user.avatar_url} sizeClass="h-7 w-7" textClass="text-xs" />
           <span className="min-w-0 flex-1 truncate">{user.full_name}</span>
-          {activeOwnerId === user.auth_user_id && <span>✓</span>}
+          {crmOwnerMatches(users, user.id, activeOwnerId) && <span>✓</span>}
         </button>)}
       </>}
       {(tab === 'favorites' || tab === 'filters') && <>
@@ -2361,7 +2395,7 @@ function DealFilterDropdown({ filters, activeFilterId, activeOwnerId, users, mob
           <button type="button" onClick={() => onToggleFavorite(filter.id)} className={cn('grid h-8 w-8 shrink-0 place-items-center rounded hover:bg-amber-50', filter.favorite ? 'text-amber-400' : 'text-slate-300 hover:text-amber-400')} aria-label={filter.favorite ? `Remover ${filter.name} dos favoritos` : `Adicionar ${filter.name} aos favoritos`} title={filter.favorite ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}>
             <Star size={17} fill={filter.favorite ? 'currentColor' : 'none'} />
           </button>
-          <button type="button" onClick={() => onSelectFilter(filter.id)} className="flex min-w-0 flex-1 items-center gap-2 text-left text-sm">
+          <button type="button" onClick={() => selectFilter(filter.id)} className="flex min-w-0 flex-1 items-center gap-2 text-left text-sm">
             <span className="min-w-0 flex-1 truncate font-semibold">{filter.name}</span>
             {activeFilterId === filter.id && <span>✓</span>}
           </button>
@@ -4184,7 +4218,7 @@ function EntityListView({ title, icon, entity, rows, deals, people, organization
   const selectedColumns = visibleColumns.map((id) => columns.find((column) => column.id === id)).filter((column): column is ColumnDef => Boolean(column))
   const effectiveColumns = selectedColumns.length ? selectedColumns : columns.filter((column) => defaultColumns.includes(column.id))
   const activeFilter = savedFilters.find((filter) => filter.id === activeFilterId)
-  const activeOwner = users.find((user) => user.auth_user_id === activeOwnerId)
+  const activeOwner = users.find((user) => user.id === activeOwnerId || user.auth_user_id === activeOwnerId)
   const filterButtonLabel = activeFilter?.name || activeOwner?.full_name || 'Filtro'
   const contextFor = (row: Person | Organization): ListRowContext => {
     if (entity === 'person') {
