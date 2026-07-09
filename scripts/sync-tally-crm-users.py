@@ -232,6 +232,11 @@ def sync_users_cli(users):
         return 0, skipped, "supabase_cli"
     payload = json.dumps(valid, ensure_ascii=False)
     sql = f"""
+-- Supabase CLI connects as postgres without JWT request claims, so auth.role()
+-- is NULL by default. The self-update guard allows service_role/admin only;
+-- set the request claim for this one CLI session before running the upsert.
+select set_config('request.jwt.claim.role', 'service_role', false);
+
 with rows as (
   select * from jsonb_to_recordset({sql_literal(payload)}::jsonb) as x(
     full_name text,

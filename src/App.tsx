@@ -1634,6 +1634,30 @@ function App() {
       setError(message)
       throw new Error(message)
     }
+    const cleanTitle = form.title.trim()
+    const cleanOrganizationName = form.organization_name.trim()
+    const cleanPersonName = form.person_name.trim()
+    const cleanPersonEmail = form.person_email.trim()
+    if (!cleanTitle) {
+      const message = 'O título do negócio não pode ficar vazio.'
+      setError(message)
+      throw new Error(message)
+    }
+    if (detailDeal.organization_id && !cleanOrganizationName) {
+      const message = 'O nome da empresa não pode ficar vazio.'
+      setError(message)
+      throw new Error(message)
+    }
+    if (detailDeal.person_id && !cleanPersonName) {
+      const message = 'O nome do contato não pode ficar vazio.'
+      setError(message)
+      throw new Error(message)
+    }
+    if (detailDeal.person_id && detailDeal.people?.email && !cleanPersonEmail) {
+      const message = 'O email do contato não pode ser apagado quando já existe.'
+      setError(message)
+      throw new Error(message)
+    }
     const dealFields = canManageCustomFields ? customFields.filter((field) => field.entity === 'deal') : []
     const vmarketValue = vmarketValueFromForm(form)
     const partnerValue = partnerValueFromForm(form)
@@ -1645,7 +1669,7 @@ function App() {
     }
     try {
       const { error: dealErr } = await supabase.from('deals').update({
-        title: form.title,
+        title: cleanTitle,
         stage_id: form.stage_id || null,
         owner_id: form.owner_id || session?.user.id || null,
         status: form.status as Deal['status'],
@@ -1675,7 +1699,7 @@ function App() {
 
       if (detailDeal.organization_id) {
         const { error: orgErr } = await supabase.from('organizations').update({
-          name: form.organization_name,
+          name: cleanOrganizationName,
           type: syncedType || null,
           city: form.organization_city || null,
           state: form.organization_state || form.person_ddd_state || null,
@@ -1688,9 +1712,9 @@ function App() {
 
       if (detailDeal.person_id) {
         const { error: personErr } = await supabase.from('people').update({
-          full_name: form.person_name,
+          full_name: cleanPersonName,
           role_title: form.person_role || null,
-          email: form.person_email || null,
+          email: cleanPersonEmail || null,
           phone: form.person_phone || null,
           owner_id: form.owner_id || session?.user.id || null,
         }).eq('id', detailDeal.person_id)

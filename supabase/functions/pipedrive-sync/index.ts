@@ -499,8 +499,8 @@ async function upsertCrmDealFromPipedrive(integrationId: string, pdDeal: JsonRec
   const stageId = await stageIdFromPipedrive(pdDeal.stage_id) || await firstStageId()
   const inheritedOwnerId = stringOrNull((person as JsonRecord | null)?.owner_id) || stringOrNull((organization as JsonRecord | null)?.owner_id)
   const inheritedBpoId = stringOrNull((person as JsonRecord | null)?.bpo_id) || stringOrNull((organization as JsonRecord | null)?.bpo_id)
+  const pdTitle = stringOrNull(pdDeal.title)
   const payload: JsonRecord = {
-    title: String(pdDeal.title || `Negócio Pipedrive ${externalId}`),
     value: Number(pdDeal.value || 0),
     expected_close_date: stringOrNull(pdDeal.expected_close_date),
     status: mapPipedriveStatusToCrm(stringOrNull(pdDeal.status)),
@@ -514,6 +514,7 @@ async function upsertCrmDealFromPipedrive(integrationId: string, pdDeal: JsonRec
     pipedrive_deal_created_at: stringOrNull(pdDeal.add_time) || stringOrNull(pdDeal.create_time),
     pipedrive_stage_entered_at: stringOrNull(pdDeal.stage_change_time) || stringOrNull(pdDeal.update_time) || stringOrNull(pdDeal.add_time),
   }
+  if (pdTitle || !existing?.internal_id) payload.title = pdTitle || `Negócio Pipedrive ${externalId}`
   if (existing?.internal_id && options.clearCrmOwner) payload.owner_id = null
   if (!existing?.internal_id && inheritedOwnerId) payload.owner_id = inheritedOwnerId
   if (!existing?.internal_id && inheritedBpoId) payload.bpo_id = inheritedBpoId
@@ -547,13 +548,14 @@ async function upsertCrmDealFromPipedrive(integrationId: string, pdDeal: JsonRec
 async function upsertCrmOrganizationFromPipedrive(integrationId: string, pdOrg: JsonRecord) {
   const externalId = String(pdOrg.id)
   const existing = await findExternalRecordByExternal('organization', externalId)
-  const payload = {
-    name: String(pdOrg.name || `Organização Pipedrive ${externalId}`),
+  const cleanName = stringOrNull(pdOrg.name)?.trim() || null
+  const payload: JsonRecord = {
     segment: stringOrNull(pdOrg.industry) || stringOrNull(pdOrg['c8a0499b420080755cbbaaea3007a467d6f76300']),
     city: stringOrNull(pdOrg.address_locality),
     state: stringOrNull(pdOrg.address_admin_area_level_1),
   }
-  const naturalMatch = await findCrmOrganizationByName(payload.name)
+  if (cleanName || !existing?.internal_id) payload.name = cleanName || `Organização Pipedrive ${externalId}`
+  const naturalMatch = cleanName ? await findCrmOrganizationByName(cleanName) : null
   let org
   if (naturalMatch?.id) {
     const { data, error } = await supabase.from('organizations').update(payload).eq('id', naturalMatch.id).select('*').single()
@@ -575,14 +577,17 @@ async function upsertCrmOrganizationFromPipedrive(integrationId: string, pdOrg: 
 async function upsertCrmPersonFromPipedrive(integrationId: string, pdPerson: JsonRecord, organizationId: string | null) {
   const externalId = String(pdPerson.id)
   const existing = await findExternalRecordByExternal('person', externalId)
-  const payload = {
-    full_name: String(pdPerson.name || `Pessoa Pipedrive ${externalId}`),
+  const cleanFullName = stringOrNull(pdPerson.name)?.trim() || null
+  const cleanEmail = firstContactValue(pdPerson.email)
+  const cleanPhone = firstContactValue(pdPerson.phone)
+  const payload: JsonRecord = {
     role_title: stringOrNull(pdPerson['afd574ed8ff95c4ce19a8aba6fb4ce0be977801d']),
-    email: firstContactValue(pdPerson.email),
-    phone: firstContactValue(pdPerson.phone),
     organization_id: organizationId,
   }
-  const naturalMatch = await findCrmPersonByContact(payload.email, payload.phone)
+  if (cleanFullName || !existing?.internal_id) payload.full_name = cleanFullName || `Pessoa Pipedrive ${externalId}`
+  if (cleanEmail || !existing?.internal_id) payload.email = cleanEmail
+  if (cleanPhone || !existing?.internal_id) payload.phone = cleanPhone
+  const naturalMatch = await findCrmPersonByContact(cleanEmail, cleanPhone)
   let person
   if (naturalMatch?.id) {
     const { data, error } = await supabase.from('people').update(payload).eq('id', naturalMatch.id).select('*').single()
