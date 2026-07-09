@@ -2173,7 +2173,7 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
   const pipelinePartnerValue = deals.reduce((acc, deal) => acc + getDealPartnerValue(deal), 0)
   const pipelineTotalValue = deals.reduce((acc, deal) => acc + getDealTotalValue(deal), 0)
 
-  return <div className="flex min-h-[calc(100vh-7.5rem)] flex-col md:h-full md:min-h-0">
+  return <div className="flex h-full min-h-[calc(100dvh-4rem)] flex-col md:min-h-0">
     <div className="border-b border-slate-200 bg-white">
       <div className="flex flex-wrap items-center gap-2 px-3 py-2 md:h-12 md:flex-nowrap md:px-4 md:py-0">
         <div className="order-1 flex overflow-hidden rounded border border-slate-300 md:order-none">
@@ -2248,15 +2248,15 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
       </div>
     </div>
 
-    {pipelineView === 'kanban' ? <div className="min-h-0 flex-1 overflow-x-auto overflow-y-visible p-3 md:overflow-y-hidden md:p-4">
-      <div className="flex min-h-[420px] gap-3 md:h-full md:min-w-max">
+    {pipelineView === 'kanban' ? <div className="min-h-0 flex-1 overflow-auto p-3 md:p-4">
+      <div className="flex min-h-full gap-3 md:min-w-max">
         {stages.map((stage) => {
           const stageDeals = sortedKanbanDeals(deals.filter((d) => d.stage_id === stage.id))
           const stageVmarketValue = stageDeals.reduce((acc, d) => acc + getDealVmarketValue(d), 0)
           const stagePartnerValue = stageDeals.reduce((acc, d) => acc + getDealPartnerValue(d), 0)
           const stageValue = stageDeals.reduce((acc, d) => acc + getDealTotalValue(d), 0)
           const totalsOpen = expandedStageTotals.has(stage.id)
-          return <div key={stage.id} onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }} onDrop={(e) => handleDrop(e, stage.id)} className="flex max-h-[65vh] min-w-[78vw] flex-col bg-[#f0f2f4] ring-1 ring-slate-200 sm:min-w-[320px] md:h-full md:w-[170px] md:min-w-0 xl:w-[195px]">
+          return <div key={stage.id} onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }} onDrop={(e) => handleDrop(e, stage.id)} className="flex min-h-full min-w-[78vw] flex-col bg-[#f0f2f4] ring-1 ring-slate-200 sm:min-w-[320px] md:w-[170px] md:min-w-0 xl:w-[195px]">
             <div className="border-b border-slate-200 bg-white/60 p-2">
               <div className="flex items-center justify-between gap-1">
                 <p className="truncate text-sm font-bold text-slate-800">{stage.name}</p>
@@ -2272,7 +2272,7 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
                 <div><p className="font-black text-slate-700">Serviços</p><p className="text-slate-500">{stageDeals.length} negócios</p><p className="font-semibold text-slate-800">{money(stagePartnerValue)}</p></div>
               </div>}
             </div>
-            <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-1.5">
+            <div className="flex-1 space-y-1 overflow-visible p-1.5">
               {stageDeals.map((deal) => {
                 const indicator = activityIndicator(deal)
                 const labels = labelsForDeal(deal.id)
