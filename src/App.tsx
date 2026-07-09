@@ -2352,17 +2352,18 @@ function DealFilterDropdown({ filters, activeFilterId, activeOwnerId, users, mob
   const visibleUsers = users.filter((user) => user.full_name.toLocaleLowerCase('pt-BR').includes(normalizedQuery) || (user.email || '').toLocaleLowerCase('pt-BR').includes(normalizedQuery))
   const favoriteFilters = filters.filter((filter) => filter.favorite)
   const visibleFilters = (tab === 'favorites' ? favoriteFilters : filters).filter((filter) => filter.name.toLocaleLowerCase('pt-BR').includes(normalizedQuery))
+  const closeAfterSelection = () => window.setTimeout(onClose, 0)
   const selectOwner = (id: string) => {
     onSelectOwner(id)
-    onClose()
+    closeAfterSelection()
   }
   const selectFilter = (id: string) => {
     onSelectFilter(id)
-    onClose()
+    closeAfterSelection()
   }
   const clearFilter = () => {
     onClear()
-    onClose()
+    closeAfterSelection()
   }
 
   return <div ref={dropdownRef} className={cn('z-40 overflow-hidden rounded border border-slate-200 bg-white text-slate-800 shadow-2xl', mobileCentered ? 'fixed left-1/2 top-1/2 w-[min(92vw,370px)] -translate-x-1/2 -translate-y-1/2' : 'absolute right-0 top-full mt-2 w-[min(92vw,370px)]')}>
@@ -2383,8 +2384,8 @@ function DealFilterDropdown({ filters, activeFilterId, activeOwnerId, users, mob
     </div>
     <div className={cn('overflow-y-auto py-1', mobileCentered ? 'max-h-[60dvh]' : 'max-h-[430px]')}>
       {tab === 'owners' && <>
-        <button type="button" onClick={clearFilter} className="flex w-full items-center justify-between px-4 py-2 text-left text-sm font-bold hover:bg-blue-50"><span>Todos</span>{!activeFilterId && !activeOwnerId && <span>✓</span>}</button>
-        {visibleUsers.map((user) => <button type="button" key={user.id} onClick={() => selectOwner(user.id)} className="flex w-full items-center gap-3 px-4 py-2 text-left text-sm hover:bg-blue-50 disabled:opacity-45">
+        <button type="button" onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); clearFilter() }} onTouchStart={(event) => { event.stopPropagation(); clearFilter() }} onClick={(event) => event.preventDefault()} className="flex w-full items-center justify-between px-4 py-2 text-left text-sm font-bold hover:bg-blue-50"><span>Todos</span>{!activeFilterId && !activeOwnerId && <span>✓</span>}</button>
+        {visibleUsers.map((user) => <button type="button" key={user.id} onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); selectOwner(user.id) }} onTouchStart={(event) => { event.stopPropagation(); selectOwner(user.id) }} onClick={(event) => event.preventDefault()} className="flex w-full items-center gap-3 px-4 py-2 text-left text-sm hover:bg-blue-50 disabled:opacity-45">
           <UserAvatar name={user.full_name} avatarUrl={user.avatar_url} sizeClass="h-7 w-7" textClass="text-xs" />
           <span className="min-w-0 flex-1 truncate">{user.full_name}</span>
           {crmOwnerMatches(users, user.id, activeOwnerId) && <span>✓</span>}
@@ -2395,7 +2396,7 @@ function DealFilterDropdown({ filters, activeFilterId, activeOwnerId, users, mob
           <button type="button" onClick={() => onToggleFavorite(filter.id)} className={cn('grid h-8 w-8 shrink-0 place-items-center rounded hover:bg-amber-50', filter.favorite ? 'text-amber-400' : 'text-slate-300 hover:text-amber-400')} aria-label={filter.favorite ? `Remover ${filter.name} dos favoritos` : `Adicionar ${filter.name} aos favoritos`} title={filter.favorite ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}>
             <Star size={17} fill={filter.favorite ? 'currentColor' : 'none'} />
           </button>
-          <button type="button" onClick={() => selectFilter(filter.id)} className="flex min-w-0 flex-1 items-center gap-2 text-left text-sm">
+          <button type="button" onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); selectFilter(filter.id) }} onTouchStart={(event) => { event.stopPropagation(); selectFilter(filter.id) }} onClick={(event) => event.preventDefault()} className="flex min-w-0 flex-1 items-center gap-2 text-left text-sm">
             <span className="min-w-0 flex-1 truncate font-semibold">{filter.name}</span>
             {activeFilterId === filter.id && <span>✓</span>}
           </button>
