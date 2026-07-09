@@ -1268,6 +1268,13 @@ function App() {
   async function syncExistingDealToPipedriveIfMapped(dealId: string, stageId: string, mode: 'deal' | 'stage' = 'deal') {
     const stage = stages.find((item) => item.id === stageId)
     if (!stage?.pipedrive_stage_id) return { ok: true, ignored: true, reason: 'Etapa sem mapeamento Pipedrive' }
+    if (mode === 'stage') {
+      const deal = deals.find((item) => item.id === dealId)
+      const currentStage = stages.find((item) => item.id === deal?.stage_id)
+      if (currentStage?.pipeline_name && stage.pipeline_name && currentStage.pipeline_name !== stage.pipeline_name) {
+        return { ok: true, ignored: true, reason: 'Sincronização Pipedrive bloqueada: mudança entre funis exige ação explícita' }
+      }
+    }
     const action = mode === 'stage' ? 'sync-existing-deal-stage-to-pipedrive' : 'sync-existing-deal-to-pipedrive'
     const syncRes = await supabase.functions.invoke('pipedrive-sync', { body: { action, deal_id: dealId } })
     if (syncRes.error) {

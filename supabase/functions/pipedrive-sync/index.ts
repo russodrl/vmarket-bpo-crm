@@ -225,6 +225,7 @@ async function syncDealToPipedrive(dealId: string, userId: string | null) {
     ],
   }).catch(() => null)
   const customPayload = await buildPipedriveCustomPayload(dealId, 'deal')
+  const stageGuard = await pipedriveStageSyncGuard(external?.external_id || null, deal.pipeline_stages)
   const body: JsonRecord = {
     title: deal.title,
     value: Number(deal.value || 0),
@@ -232,7 +233,7 @@ async function syncDealToPipedrive(dealId: string, userId: string | null) {
     status: mapCrmStatusToPipedrive(deal.status),
     org_id: Number(orgExternalId),
     person_id: Number(personExternalId),
-    stage_id: deal.pipeline_stages?.pipedrive_stage_id || undefined,
+    ...(stageGuard.allowed && stageGuard.stageId ? { stage_id: stageGuard.stageId } : {}),
     user_id: ALEKSANDER_PIPEDRIVE_USER_ID || undefined,
     ...customPayload,
   }
@@ -288,11 +289,28 @@ async function syncExistingDealStageToPipedrive(dealId: string, userId: string |
     await finishAutomationExecution(execution?.id, { status: 'ignored', error_message: 'Deal has no Pipedrive external record', finished_at: new Date().toISOString() }).catch(() => null)
     return { ok: true, ignored: true, reason: 'Deal has no Pipedrive external record', deal_id: dealId }
   }
-  const pipedriveStageId = deal.pipeline_stages?.pipedrive_stage_id
-  if (!pipedriveStageId) {
+  const stageGuard = await pipedriveStageSyncGuard(external.external_id, deal.pipeline_stages)
+  if (!stageGuard.stageId) {
     await finishAutomationExecution(execution?.id, { status: 'ignored', error_message: 'CRM stage has no Pipedrive stage id', finished_at: new Date().toISOString() }).catch(() => null)
     return { ok: true, ignored: true, reason: 'CRM stage has no Pipedrive stage id', deal_id: dealId }
   }
+  if (!stageGuard.allowed) {
+    const reason = stageGuard.reason || 'CRM stage pipeline differs from current Pipedrive pipeline'
+    await finishAutomationExecution(execution?.id, {
+      status: 'ignored',
+      error_message: reason,
+      filters_evaluated: [
+        { field: 'external_records.deal', result: true },
+        { field: 'pipeline_stages.pipedrive_stage_id', actual: stageGuard.stageId, result: true },
+        { field: 'pipeline_stages.pipedrive_pipeline_id', actual: stageGuard.targetPipelineId, expected: stageGuard.currentPipelineId, result: false },
+      ],
+      details: { pipedrive_deal_id: external.external_id, target_stage_id: stageGuard.stageId, target_pipeline_id: stageGuard.targetPipelineId, current_pipeline_id: stageGuard.currentPipelineId },
+      finished_at: new Date().toISOString(),
+    }).catch(() => null)
+    await supabase.from('deal_history').insert({ deal_id: dealId, event_type: 'Integração', title: 'Sincronização de etapa bloqueada', description: `${reason}. Pipedrive deal ID ${external.external_id}` })
+    return { ok: true, ignored: true, reason, deal_id: dealId, pipedrive_deal_id: external.external_id }
+  }
+  const pipedriveStageId = stageGuard.stageId
   const response = await pipedrive(`/deals/${external.external_id}`, { method: 'PUT', body: { stage_id: pipedriveStageId } }) as JsonRecord
   const pdDeal = (response.data || response) as JsonRecord
   await upsertExternalRecord(external.integration_id, 'deal', dealId, String(external.external_id), pdDeal)
@@ -808,6 +826,27 @@ async function fetchPipedriveDeal(id: string) {
   return (response.data || response) as JsonRecord
 }
 
+async function pipedriveStageSyncGuard(externalDealId: string | null, pipelineStage: unknown) {
+  const stage = (pipelineStage || {}) as JsonRecord
+  const stageId = numberOrNull(stage.pipedrive_stage_id)
+  const targetPipelineId = numberOrNull(stage.pipedrive_pipeline_id)
+  if (!stageId) return { allowed: false, stageId: null, targetPipelineId, currentPipelineId: null, reason: 'CRM stage has no Pipedrive stage id' }
+  if (!externalDealId || !targetPipelineId) return { allowed: true, stageId, targetPipelineId, currentPipelineId: null }
+
+  const currentDeal = await fetchPipedriveDeal(externalDealId)
+  const currentPipelineId = numberOrNull(currentDeal.pipeline_id)
+  if (currentPipelineId && currentPipelineId !== targetPipelineId) {
+    return {
+      allowed: false,
+      stageId,
+      targetPipelineId,
+      currentPipelineId,
+      reason: `Blocked cross-pipeline stage sync: Pipedrive pipeline ${currentPipelineId} differs from CRM target pipeline ${targetPipelineId}`,
+    }
+  }
+  return { allowed: true, stageId, targetPipelineId, currentPipelineId }
+}
+
 async function pipedrive(path: string, opts: { method?: string; body?: JsonRecord; query?: Record<string, string> } = {}) {
   const url = new URL(`${PIPEDRIVE_BASE_URL}${path}`)
   url.searchParams.set('api_token', PIPEDRIVE_API_TOKEN)
@@ -939,6 +978,16 @@ function splitDueAt(value: string | null) {
 
 function stringOrNull(value: unknown) {
   return value === null || value === undefined || value === '' ? null : String(value)
+}
+
+function numberOrNull(value: unknown) {
+  if (value === null || value === undefined || value === '') return null
+  if (typeof value === 'object' && value) {
+    const nested = (value as JsonRecord).id || (value as JsonRecord).value
+    return numberOrNull(nested)
+  }
+  const numberValue = Number(value)
+  return Number.isFinite(numberValue) && numberValue !== 0 ? numberValue : null
 }
 
 function nestedString(value: unknown, key: string) {
