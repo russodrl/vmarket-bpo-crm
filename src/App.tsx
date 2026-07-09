@@ -2333,20 +2333,12 @@ function DealFilterDropdown({ filters, activeFilterId, activeOwnerId, users, mob
 }) {
   const [tab, setTab] = useState<'favorites' | 'owners' | 'filters'>('owners')
   const [query, setQuery] = useState('')
-  const dropdownRef = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
-    const closeOnOutsideClick = (event: MouseEvent | TouchEvent) => {
-      const target = event.target as Node | null
-      if (target && dropdownRef.current?.contains(target)) return
-      if (target instanceof Element && target.closest('[data-filter-toggle]')) return
-      onClose()
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
     }
-    document.addEventListener('mousedown', closeOnOutsideClick)
-    document.addEventListener('touchstart', closeOnOutsideClick)
-    return () => {
-      document.removeEventListener('mousedown', closeOnOutsideClick)
-      document.removeEventListener('touchstart', closeOnOutsideClick)
-    }
+    document.addEventListener('keydown', closeOnEscape)
+    return () => document.removeEventListener('keydown', closeOnEscape)
   }, [onClose])
   const normalizedQuery = query.toLocaleLowerCase('pt-BR').trim()
   const visibleUsers = users.filter((user) => user.full_name.toLocaleLowerCase('pt-BR').includes(normalizedQuery) || (user.email || '').toLocaleLowerCase('pt-BR').includes(normalizedQuery))
@@ -2366,7 +2358,7 @@ function DealFilterDropdown({ filters, activeFilterId, activeOwnerId, users, mob
     closeAfterSelection()
   }
 
-  return <div ref={dropdownRef} className={cn('z-40 overflow-hidden rounded border border-slate-200 bg-white text-slate-800 shadow-2xl', mobileCentered ? 'fixed left-1/2 top-1/2 w-[min(92vw,370px)] -translate-x-1/2 -translate-y-1/2' : 'absolute right-0 top-full mt-2 w-[min(92vw,370px)]')}>
+  return <div className={cn('z-40 overflow-hidden rounded border border-slate-200 bg-white text-slate-800 shadow-2xl', mobileCentered ? 'fixed left-1/2 top-1/2 w-[min(92vw,370px)] -translate-x-1/2 -translate-y-1/2' : 'absolute right-0 top-full mt-2 w-[min(92vw,370px)]')}>
     <div className="border-b border-slate-200 p-2">
       <div className="mb-2 flex items-center justify-between gap-2">
         <span className="text-xs font-black uppercase tracking-wide text-slate-500">Filtro</span>
