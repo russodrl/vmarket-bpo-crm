@@ -38,6 +38,8 @@ DEAL_LABEL = "Contrato BPO"
 QUALIFICATION_FORM_ID = "ODEM5M"
 REGISTRATION_FORM_ID = "pbv8PJ"
 STATE_PATH = Path(".sync-state/tally_bpo_pipedrive_state.json")
+TALLY_FETCH_ATTEMPTS = 4
+TALLY_FETCH_BACKOFF_SECONDS = 5
 
 # Pipedrive custom field keys.
 PERSON_KEYS = {
@@ -238,7 +240,25 @@ def parse_submission(sub: dict[str, Any], mapping: dict[str, str]) -> dict[str, 
     return values
 
 
-async def fetch_submissions(form_id: str) -> list[dict[str, Any]]:
+def is_transient_tally_error(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    class_name = exc.__class__.__name__.lower()
+    return (
+        "httpstatuserror" in class_name
+        or "readtimeout" in class_name
+        or "connecttimeout" in class_name
+        or "remoteprotocolerror" in class_name
+        or "connection" in text
+        or "timed out" in text
+        or "timeout" in text
+        or "503 service unavailable" in text
+        or "502 bad gateway" in text
+        or "504 gateway timeout" in text
+        or "429 too many requests" in text
+    )
+
+
+async def fetch_submissions_once(form_id: str) -> list[dict[str, Any]]:
     key = require_env("TALLY_API_KEY")
     items: list[dict[str, Any]] = []
     page = 1
@@ -254,6 +274,22 @@ async def fetch_submissions(form_id: str) -> list[dict[str, Any]]:
                     break
                 page += 1
     return items
+
+
+async def fetch_submissions(form_id: str) -> list[dict[str, Any]]:
+    for attempt in range(1, TALLY_FETCH_ATTEMPTS + 1):
+        try:
+            return await fetch_submissions_once(form_id)
+        except Exception as exc:
+            if attempt >= TALLY_FETCH_ATTEMPTS or not is_transient_tally_error(exc):
+                raise
+            wait = TALLY_FETCH_BACKOFF_SECONDS * attempt
+            print(
+                f"Tally fetch transient error for form {form_id}; retry {attempt}/{TALLY_FETCH_ATTEMPTS - 1} in {wait}s: {exc.__class__.__name__}",
+                file=sys.stderr,
+            )
+            await asyncio.sleep(wait)
+    raise RuntimeError(f"Tally fetch failed for form {form_id}")
 
 
 class Pipedrive:
