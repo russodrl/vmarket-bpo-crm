@@ -3600,7 +3600,14 @@ function ActivityEditorModal({ activity, deal, crmUsers, ownerName, mode = 'edit
   return <div className="fixed inset-0 z-[80] grid place-items-center bg-slate-950/40 p-2 backdrop-blur-sm" onClick={onClose}>
     <form onSubmit={submit} className="grid h-[calc(100dvh-1rem)] w-full max-w-6xl overflow-hidden rounded border border-slate-300 bg-white shadow-2xl lg:max-h-[94vh] lg:h-auto lg:grid-cols-[minmax(0,1fr)_320px]" onClick={(e) => e.stopPropagation()}>
       <div className="flex min-h-0 flex-col overflow-hidden">
-        <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-4 py-3"><h2 className="text-lg font-semibold text-slate-800">{mode === 'create' ? 'Adicionar atividade' : 'Editar atividade'}</h2><button type="button" onClick={onClose} className="grid h-8 w-8 place-items-center rounded text-slate-500 hover:bg-slate-100">×</button></div>
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
+          <h2 className="min-w-0 flex-1 truncate text-lg font-semibold text-slate-800">{mode === 'create' ? 'Adicionar atividade' : 'Editar atividade'}</h2>
+          <div className="flex shrink-0 items-center gap-2">
+            <button type="button" onClick={onClose} className="hidden rounded border border-slate-300 bg-white px-3 py-1.5 text-sm font-bold text-slate-700 hover:bg-slate-50 sm:inline-flex">Cancelar</button>
+            <button type="submit" disabled={saving || !draft.title.trim()} className="rounded bg-[#63ba68] px-4 py-1.5 text-sm font-bold text-white shadow-sm hover:bg-[#56a95b] disabled:opacity-60">{saving ? 'Salvando...' : 'Salvar'}</button>
+            <button type="button" onClick={onClose} className="grid h-8 w-8 place-items-center rounded text-slate-500 hover:bg-slate-100" aria-label="Fechar atividade">×</button>
+          </div>
+        </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-4">
           {localError && <p className="mb-3 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{localError}</p>}
           <input autoFocus value={draft.title} onChange={(e) => setDraft((current) => ({ ...current, title: e.target.value }))} className="w-full rounded border border-slate-300 px-3 py-2 text-2xl text-slate-800 outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400" placeholder={selectedType.label} />
