@@ -3,12 +3,13 @@
 
 Automations covered:
 - Qualification form ODEM5M: create/update person, organization and deal in Pipedrive
-  in pipeline "Contratos BPO", stage "Novos", label "Contrato BPO", then add a
+  in the configured BPO pipeline/stage, label "Contrato BPO", then add a
   qualification note with all answers.
 - Registration form pbv8PJ: find person by phone, fallback email, find linked deal in
-  "Contratos BPO", update person/deal fields and add a registration note with all answers.
+  the configured BPO pipeline, update person/deal fields and add a registration note
+  with all answers.
 - Backfill mode: add missing qualification/registration notes to existing deals in
-  "Contratos BPO" by matching Tally submissions by phone/email.
+  the configured BPO pipeline by matching Tally submissions by phone/email.
 
 No secrets are printed. Runtime secrets come from environment or /opt/data/.env.
 """
@@ -32,8 +33,11 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
 PIPEDRIVE_BASE = "https://api.pipedrive.com/v1"
-PIPELINE_NAME = "Contratos BPO"
-STAGE_NAME_NEW = "Novos"
+# Prefer stable Pipedrive IDs so renames do not break the cron sync.
+PIPELINE_ID = int(os.getenv("PIPEDRIVE_BPO_PIPELINE_ID", "14"))
+PIPELINE_NAME = os.getenv("PIPEDRIVE_BPO_PIPELINE_NAME", "Clientes com BPO")
+STAGE_NEW_ID = int(os.getenv("PIPEDRIVE_BPO_STAGE_NEW_ID", "99"))
+STAGE_NAME_NEW = os.getenv("PIPEDRIVE_BPO_STAGE_NEW_NAME", "Direcionamento BPO")
 DEAL_LABEL = "Contrato BPO"
 QUALIFICATION_FORM_ID = "ODEM5M"
 REGISTRATION_FORM_ID = "pbv8PJ"
@@ -322,15 +326,23 @@ class Pipedrive:
 
     def load_targets(self) -> None:
         pipelines = self.api("GET", "/pipelines") or []
-        pipeline = next((p for p in pipelines if str(p.get("name", "")).strip().lower() == PIPELINE_NAME.lower()), None)
+        pipeline = next((p for p in pipelines if int(p.get("id", 0)) == PIPELINE_ID), None)
         if not pipeline:
-            raise RuntimeError(f"Pipeline not found: {PIPELINE_NAME}")
+            # Fallback keeps the script usable if the ID is intentionally overridden by name.
+            pipeline = next((p for p in pipelines if str(p.get("name", "")).strip().lower() == PIPELINE_NAME.lower()), None)
+        if not pipeline:
+            available = ", ".join(f"{p.get('id')}:{p.get('name')}" for p in pipelines)
+            raise RuntimeError(f"Pipeline not found by id/name: {PIPELINE_ID}/{PIPELINE_NAME}. Available: {available}")
         self.pipeline_id = int(pipeline["id"])
         stages = self.api("GET", "/stages", {"pipeline_id": self.pipeline_id}) or []
         self.stage_ids = {int(s["id"]) for s in stages}
-        stage_new = next((s for s in stages if str(s.get("name", "")).strip().lower() == STAGE_NAME_NEW.lower()), None)
+        stage_new = next((s for s in stages if int(s.get("id", 0)) == STAGE_NEW_ID), None)
         if not stage_new:
-            raise RuntimeError(f"Stage not found: {STAGE_NAME_NEW}")
+            # Fallback keeps backward compatibility if only the name is configured.
+            stage_new = next((s for s in stages if str(s.get("name", "")).strip().lower() == STAGE_NAME_NEW.lower()), None)
+        if not stage_new:
+            available = ", ".join(f"{s.get('id')}:{s.get('name')}" for s in stages)
+            raise RuntimeError(f"Stage not found by id/name: {STAGE_NEW_ID}/{STAGE_NAME_NEW}. Available: {available}")
         self.stage_new_id = int(stage_new["id"])
         deal_fields = self.api("GET", "/dealFields") or []
         label_field = next((f for f in deal_fields if f.get("key") == "label"), None)
@@ -662,6 +674,7 @@ async def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--env", default="/opt/data/.env")
     parser.add_argument("--check-forms", action="store_true")
+    parser.add_argument("--check-targets", action="store_true", help="Validate configured Pipedrive pipeline, stage and label")
     parser.add_argument("--backfill-notes-and-fields", action="store_true")
     parser.add_argument("--process-new", action="store_true")
     args = parser.parse_args()
@@ -675,13 +688,20 @@ async def main() -> None:
 
     pd = Pipedrive()
     pd.load_targets()
+    if args.check_targets:
+        print(json.dumps({
+            "pipeline_id": pd.pipeline_id,
+            "stage_new_id": pd.stage_new_id,
+            "label_id": pd.label_id,
+        }, ensure_ascii=False, indent=2))
+        return
     if args.backfill_notes_and_fields:
         print(json.dumps(await backfill_notes_and_fields(pd), ensure_ascii=False, indent=2))
         return
     if args.process_new:
         print(json.dumps(await process_new(pd), ensure_ascii=False, indent=2))
         return
-    parser.error("choose --check-forms, --backfill-notes-and-fields or --process-new")
+    parser.error("choose --check-forms, --check-targets, --backfill-notes-and-fields or --process-new")
 
 
 if __name__ == "__main__":
