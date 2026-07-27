@@ -4721,12 +4721,30 @@ function WarningsView({ deals, people, organizations, activities, crmUsers, open
   const assignedDeleted = deals.filter((deal) => crmUserForOwner(crmUsers, deal.owner_id)?.status === 'deleted')
   const assignedDisabled = deals.filter((deal) => crmUserForOwner(crmUsers, deal.owner_id)?.status === 'disabled')
   const unassigned = deals.filter((deal) => !deal.owner_id || !crmUserForOwner(crmUsers, deal.owner_id))
+  const assignedPeopleDeleted = people.filter((person) => crmUserForOwner(crmUsers, person.owner_id)?.status === 'deleted')
+  const assignedPeopleDisabled = people.filter((person) => crmUserForOwner(crmUsers, person.owner_id)?.status === 'disabled')
+  const unassignedPeople = people.filter((person) => !person.owner_id || !crmUserForOwner(crmUsers, person.owner_id))
+  const assignedOrganizationsDeleted = organizations.filter((org) => crmUserForOwner(crmUsers, org.owner_id)?.status === 'deleted')
+  const assignedOrganizationsDisabled = organizations.filter((org) => crmUserForOwner(crmUsers, org.owner_id)?.status === 'disabled')
+  const unassignedOrganizations = organizations.filter((org) => !org.owner_id || !crmUserForOwner(crmUsers, org.owner_id))
   const dealItem = (deal: Deal): WarningItem => ({
     id: deal.id,
     title: deal.title,
     subtitle: `${deal.organizations?.name || 'Sem empresa'} · ${deal.people?.full_name || 'Sem contato'}`,
     meta: `${crmOwnerDisplay(crmUsers, deal.owner_id, 'Sem usuário')} · ${deal.pipeline_stages?.name || 'Sem etapa'}`,
     dealId: deal.id,
+  })
+  const personItem = (person: Person): WarningItem => ({
+    id: person.id,
+    title: person.full_name,
+    subtitle: `${person.email || 'sem email'} · ${person.phone || 'sem telefone'}`,
+    meta: `${crmOwnerDisplay(crmUsers, person.owner_id, 'Sem usuário')} · ${organizations.find((org) => org.id === person.organization_id)?.name || 'Sem empresa'}`,
+  })
+  const organizationItem = (org: Organization): WarningItem => ({
+    id: org.id,
+    title: org.name,
+    subtitle: `${org.city || ''} ${org.state || ''}`.trim() || 'Sem localidade',
+    meta: `${crmOwnerDisplay(crmUsers, org.owner_id, 'Sem usuário')} · ${org.type || org.segment || 'Sem tipo'}`,
   })
   const withoutActivityBase = deals.filter((deal) => deal.status === 'aberto' && deal.lead_source === 'vmarket' && !openActivitiesByDeal.get(deal.id)?.length)
   const thresholds = [
@@ -4743,6 +4761,12 @@ function WarningsView({ deals, people, organizations, activities, crmUsers, open
     { id: 'assigned-deleted', section: 'Negócios com usuários Atribuídos', title: 'Deletados', items: assignedDeleted.map(dealItem) },
     { id: 'assigned-disabled', section: 'Negócios com usuários Atribuídos', title: 'Desativados', items: assignedDisabled.map(dealItem) },
     { id: 'assigned-missing', section: 'Negócios com usuários Atribuídos', title: 'Sem usuários', items: unassigned.map(dealItem) },
+    { id: 'assigned-people-deleted', section: 'Contatos com usuários Atribuídos', title: 'Deletados', items: assignedPeopleDeleted.map(personItem) },
+    { id: 'assigned-people-disabled', section: 'Contatos com usuários Atribuídos', title: 'Desativados', items: assignedPeopleDisabled.map(personItem) },
+    { id: 'assigned-people-missing', section: 'Contatos com usuários Atribuídos', title: 'Sem usuários', items: unassignedPeople.map(personItem) },
+    { id: 'assigned-organizations-deleted', section: 'Empresas com usuários Atribuídos', title: 'Deletados', items: assignedOrganizationsDeleted.map(organizationItem) },
+    { id: 'assigned-organizations-disabled', section: 'Empresas com usuários Atribuídos', title: 'Desativados', items: assignedOrganizationsDisabled.map(organizationItem) },
+    { id: 'assigned-organizations-missing', section: 'Empresas com usuários Atribuídos', title: 'Sem usuários', items: unassignedOrganizations.map(organizationItem) },
     ...thresholds.map(([id, title, days]) => ({
       id,
       section: 'Negócios abertos VMarket sem atividade',
@@ -4855,7 +4879,7 @@ function WarningsView({ deals, people, organizations, activities, crmUsers, open
     <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
       <div>
         <h2 className="text-2xl font-black tracking-[-0.04em] text-slate-950">Avisos</h2>
-        <p className="mt-1 text-sm text-slate-500">Contagens operacionais para duplicatas, atribuições de usuários e negócios VMarket sem atividade aberta.</p>
+        <p className="mt-1 text-sm text-slate-500">Contagens operacionais para duplicatas, atribuições de usuários em negócios, contatos e empresas, e negócios VMarket sem atividade aberta.</p>
         {mergeMessage && <p className="mt-2 rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800">{mergeMessage}</p>}
       </div>
       <Badge tone={total ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-700'}>{total} registros contabilizados</Badge>
