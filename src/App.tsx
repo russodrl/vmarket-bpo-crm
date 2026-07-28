@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import type { DragEvent, FormEvent, ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import {
@@ -3989,6 +3989,16 @@ function VmarketPlansView() {
     ['1º mês', '100%', 'Paga após o pagamento da assinatura pelo cliente ou parceiro'],
     ['2º ao 12º mês', '20%', 'Apurada mensalmente'],
   ]
+  const commissionSection = <section className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+    <h3 className="text-base font-black text-slate-900">Comissão sobre mensalidade</h3>
+    <div className="mt-3 grid gap-2 md:grid-cols-2">
+      {commissionRows.map(([period, commission, note]) => <div key={period} className="rounded border border-slate-200 bg-white p-3 text-sm">
+        <p className="font-black text-slate-800">{period}</p>
+        <p className="mt-1 text-lg font-black text-[#238847]">{commission}</p>
+        <p className="mt-1 text-xs text-slate-500">{note}</p>
+      </div>)}
+    </div>
+  </section>
   return <div className="h-full overflow-y-auto p-5">
     <Panel className="overflow-hidden">
       <div className="border-b border-slate-200 bg-white p-4">
@@ -3999,16 +4009,6 @@ function VmarketPlansView() {
         <p className="mt-2 text-sm text-slate-500">Tabelas de preços para restaurantes e hotéis. O valor BPO é sugerido automaticamente na ficha do negócio, e o valor editado por CNPJ não pode ultrapassar o preço comercializado pela VMarket.</p>
       </div>
       <div className="grid gap-4 p-4">
-        <section className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-          <h3 className="text-base font-black text-slate-900">Comissão sobre mensalidade</h3>
-          <div className="mt-3 grid gap-2 md:grid-cols-2">
-            {commissionRows.map(([period, commission, note]) => <div key={period} className="rounded border border-slate-200 bg-white p-3 text-sm">
-              <p className="font-black text-slate-800">{period}</p>
-              <p className="mt-1 text-lg font-black text-[#238847]">{commission}</p>
-              <p className="mt-1 text-xs text-slate-500">{note}</p>
-            </div>)}
-          </div>
-        </section>
         {sections.map(([type, title]) => <section key={`includes-${type}`} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
           <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
             <h3 className="text-base font-black text-slate-900">O que cada plano inclui, {title}</h3>
@@ -4024,22 +4024,25 @@ function VmarketPlansView() {
             </article>)}
           </div>
         </section>)}
-        {sections.map(([type, title]) => <section key={type} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-          <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
-            <h3 className="text-base font-black text-slate-900">{title}</h3>
-            <p className="text-xs text-slate-500">Valores por CNPJ, por plano e período de fidelidade.</p>
-          </div>
-          <div className="divide-y divide-slate-100">
-            {vmarketPricingRules.filter((rule) => rule.type === type).map((rule) => <div key={`${rule.type}-${rule.range}-${rule.plan}`} className="grid gap-2 p-4 text-sm hover:bg-slate-50 md:grid-cols-[130px_110px_repeat(4,1fr)]">
-              <div><p className="text-xs font-bold uppercase text-slate-400">Faixa</p><p className="font-bold text-slate-900">{rule.range}</p></div>
-              <div><p className="text-xs font-bold uppercase text-slate-400">Plano</p><p className="font-bold text-slate-900">{rule.plan}</p></div>
-              <div><p className="text-xs font-bold uppercase text-slate-400">Mensal</p><p className="font-semibold text-slate-700">{money(rule.monthly)}</p></div>
-              <div><p className="text-xs font-bold uppercase text-slate-400">Mensal BPO</p><p className="font-semibold text-[#238847]">{money(rule.monthlyBpo)}</p></div>
-              <div><p className="text-xs font-bold uppercase text-slate-400">Semestral</p><p className="font-semibold text-slate-700">{money(rule.semester)}</p></div>
-              <div><p className="text-xs font-bold uppercase text-slate-400">Semestral BPO</p><p className="font-semibold text-[#238847]">{money(rule.semesterBpo)}</p></div>
-            </div>)}
-          </div>
-        </section>)}
+        {sections.map(([type, title]) => <Fragment key={`pricing-block-${type}`}>
+          <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+            <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+              <h3 className="text-base font-black text-slate-900">{title}</h3>
+              <p className="text-xs text-slate-500">Valores por CNPJ, por plano e período de fidelidade.</p>
+            </div>
+            <div className="divide-y divide-slate-100">
+              {vmarketPricingRules.filter((rule) => rule.type === type).map((rule) => <div key={`${rule.type}-${rule.range}-${rule.plan}`} className="grid gap-2 p-4 text-sm hover:bg-slate-50 md:grid-cols-[130px_110px_repeat(4,1fr)]">
+                <div><p className="text-xs font-bold uppercase text-slate-400">Faixa</p><p className="font-bold text-slate-900">{rule.range}</p></div>
+                <div><p className="text-xs font-bold uppercase text-slate-400">Plano</p><p className="font-bold text-slate-900">{rule.plan}</p></div>
+                <div><p className="text-xs font-bold uppercase text-slate-400">Mensal</p><p className="font-semibold text-slate-700">{money(rule.monthly)}</p></div>
+                <div><p className="text-xs font-bold uppercase text-slate-400">Mensal BPO</p><p className="font-semibold text-[#238847]">{money(rule.monthlyBpo)}</p></div>
+                <div><p className="text-xs font-bold uppercase text-slate-400">Semestral</p><p className="font-semibold text-slate-700">{money(rule.semester)}</p></div>
+                <div><p className="text-xs font-bold uppercase text-slate-400">Semestral BPO</p><p className="font-semibold text-[#238847]">{money(rule.semesterBpo)}</p></div>
+              </div>)}
+            </div>
+          </section>
+          {type === 'restaurante' ? commissionSection : null}
+        </Fragment>)}
       </div>
     </Panel>
   </div>
