@@ -1250,11 +1250,15 @@ function App() {
         personId = person.id
       }
 
+      const defaultStage = stages
+        .filter((stage) => stage.pipeline_name === activePipeline)
+        .sort((a, b) => a.sort_order - b.sort_order)[0] || stages.slice().sort((a, b) => a.sort_order - b.sort_order)[0]
+
       const { data: deal, error: dealErr } = await supabase.from('deals').insert({
         title: newDeal.title.trim(),
         organization_id: orgId,
         person_id: personId,
-        stage_id: newDeal.stage_id || null,
+        stage_id: newDeal.stage_id || defaultStage?.id,
         bpo_id: null,
         owner_id: ownerId,
         value: numberOrNull(newDeal.value),
@@ -1709,7 +1713,7 @@ function App() {
     try {
       const { error: dealErr } = await supabase.from('deals').update({
         title: cleanTitle,
-        stage_id: form.stage_id || null,
+        stage_id: form.stage_id || detailDeal.stage_id || stages[0]?.id,
         owner_id: form.owner_id || session?.user.id || null,
         status: form.status as Deal['status'],
         lost_reason: form.status === 'perdido' ? (form.lost_reason.trim() || null) : null,
@@ -2313,7 +2317,7 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
       </div>
     </div> : pipelineView === 'list' ? <ListViewDeals deals={deals} stages={stages} crmUsers={crmUsers} organizations={organizations} people={people} dealLabels={dealLabels} dealLabelAssignments={dealLabelAssignments} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} visibleColumns={visibleColumns} setVisibleColumns={setVisibleColumns} reload={reload} /> : <ForecastView deals={deals} stages={stages} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} />}
 
-    {showCreateDeal && <CreateDealModal salesStages={salesStages} crmUsers={crmUsers} organizations={organizations} people={people} canAssignOwner={canAssignOwner} newDeal={newDeal} setNewDeal={setNewDeal} createDeal={submitCreateDeal} creating={creating} close={() => { setShowCreateDeal(false); setNewDeal(blankNewDeal()) }} />}
+    {showCreateDeal && <CreateDealModal salesStages={salesStages} activePipeline={activePipeline} crmUsers={crmUsers} organizations={organizations} people={people} canAssignOwner={canAssignOwner} newDeal={newDeal} setNewDeal={setNewDeal} createDeal={submitCreateDeal} creating={creating} close={() => { setShowCreateDeal(false); setNewDeal(blankNewDeal()) }} />}
     {editingFilter && <DealFilterBuilderModal
       draft={editingFilter}
       setDraft={setEditingFilter}
@@ -2512,8 +2516,9 @@ function DealFilterBuilderModal({ draft, setDraft, fields, deals, context, onClo
   </div>
 }
 
-function CreateDealModal({ salesStages, crmUsers, organizations, people, canAssignOwner, newDeal, setNewDeal, createDeal, creating, close }: {
+function CreateDealModal({ salesStages, activePipeline, crmUsers, organizations, people, canAssignOwner, newDeal, setNewDeal, createDeal, creating, close }: {
   salesStages: Stage[]
+  activePipeline: string
   crmUsers: CrmUser[]
   organizations: Organization[]
   people: Person[]
@@ -2539,7 +2544,15 @@ function CreateDealModal({ salesStages, crmUsers, organizations, people, canAssi
         .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name, 'pt-BR')),
     }))
     .filter((group) => group.stages.length)
-    .sort((a, b) => (a.stages[0]?.sort_order || 0) - (b.stages[0]?.sort_order || 0) || a.pipelineName.localeCompare(b.pipelineName, 'pt-BR'))
+    .sort((a, b) => {
+      if (a.pipelineName === activePipeline) return -1
+      if (b.pipelineName === activePipeline) return 1
+      return (a.stages[0]?.sort_order || 0) - (b.stages[0]?.sort_order || 0) || a.pipelineName.localeCompare(b.pipelineName, 'pt-BR')
+    })
+  const defaultStageId = stageGroups.find((group) => group.pipelineName === activePipeline)?.stages[0]?.id || stageGroups[0]?.stages[0]?.id || ''
+  useEffect(() => {
+    if (!newDeal.stage_id && defaultStageId) setNewDeal({ ...newDeal, stage_id: defaultStageId })
+  }, [defaultStageId, newDeal, setNewDeal])
   const chooseOrganization = (org: Organization) => {
     setNewDeal({ ...newDeal, organization_id: org.id, organization_name: org.name, monthly_purchase: newDeal.monthly_purchase || String(org.monthly_purchase ?? '') })
     setShowOrganizationSuggestions(false)
@@ -2591,8 +2604,7 @@ function CreateDealModal({ salesStages, crmUsers, organizations, people, canAssi
         <EditInput label="GMV mensal" value={newDeal.monthly_purchase} onChange={(v) => setNewDeal({ ...newDeal, monthly_purchase: v })} type="number" />
         <label className="block text-sm">
           <span className="mb-1.5 block font-semibold text-slate-700">Etapa</span>
-          <select className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" value={newDeal.stage_id} onChange={(e) => setNewDeal({ ...newDeal, stage_id: e.target.value })}>
-            <option value="">Sem etapa</option>
+          <select className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" value={newDeal.stage_id || defaultStageId} onChange={(e) => setNewDeal({ ...newDeal, stage_id: e.target.value })}>
             {stageGroups.map((group) => <optgroup key={group.pipelineName} label={group.pipelineName}>
               {group.stages.map((stage) => <option key={stage.id} value={stage.id}>{stage.name}</option>)}
             </optgroup>)}
@@ -4107,7 +4119,7 @@ function BulkEditPanel({ entity, selectedIds, selectedRows, stages, crmUsers, or
       if (entity === 'deal') {
         const patch: Partial<Deal> = {}
         if (enabled.owner_id) patch.owner_id = draft.owner_id || null
-        if (enabled.stage_id) patch.stage_id = draft.stage_id || null
+        if (enabled.stage_id) patch.stage_id = draft.stage_id || stages[0]?.id
         if (enabled.status) patch.status = (draft.status || 'aberto') as Deal['status']
         if (enabled.expected_close_date) patch.expected_close_date = draft.expected_close_date || null
         if (enabled.value) patch.value = numberOrNull(draft.value || '')
@@ -4186,7 +4198,7 @@ function BulkEditPanel({ entity, selectedIds, selectedRows, stages, crmUsers, or
     <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
       {entity === 'deal' && <>
         {row('owner_id', 'Proprietário CRM', ownerSelect, 'Editar valor')}
-        {row('stage_id', 'Etapa', <select value={draft.stage_id || ''} onChange={(e) => setField('stage_id', e.target.value)} className="w-full rounded border border-slate-300 px-3 py-2 text-sm"><option value="">Sem etapa</option>{stages.map((stage) => <option key={stage.id} value={stage.id}>{stage.pipeline_name ? `${stage.pipeline_name} · ` : ''}{stage.name}</option>)}</select>, 'Editar valor')}
+        {row('stage_id', 'Etapa', <select value={draft.stage_id || stages[0]?.id || ''} onChange={(e) => setField('stage_id', e.target.value)} className="w-full rounded border border-slate-300 px-3 py-2 text-sm">{stages.map((stage) => <option key={stage.id} value={stage.id}>{stage.pipeline_name ? `${stage.pipeline_name} · ` : ''}{stage.name}</option>)}</select>, 'Editar valor')}
         {row('status', 'Status', <select value={draft.status || 'aberto'} onChange={(e) => setField('status', e.target.value)} className="w-full rounded border border-slate-300 px-3 py-2 text-sm"><option value="aberto">Aberto</option><option value="ganho">Ganho</option><option value="perdido">Perdido</option></select>, 'Editar valor')}
         {row('expected_close_date', 'Data prevista de fechamento', <input type="date" value={draft.expected_close_date || ''} onChange={(e) => setField('expected_close_date', e.target.value)} className="w-full rounded border border-slate-300 px-3 py-2 text-sm" />, 'Editar valor')}
         {row('value', 'Valor VMarket', <input type="number" value={draft.value || ''} onChange={(e) => setField('value', e.target.value)} className="w-full rounded border border-slate-300 px-3 py-2 text-sm" placeholder="Editar valor" />)}
