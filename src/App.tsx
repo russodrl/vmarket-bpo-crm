@@ -1091,7 +1091,6 @@ function App() {
     const source = pipelineNames.length ? stages.filter((stage) => stage.pipeline_name === activePipeline) : stages
     return source.length ? source : stages
   }, [stages, pipelineNames, activePipeline])
-  const salesStages = useMemo(() => stages.filter((stage) => stage.pipeline_name === 'Pipeline de Vendas'), [stages])
   const filterFields = useMemo(() => buildFilterFields(customFields), [customFields])
   const filterContext = useMemo(() => ({ stages, activities, customFields, customFieldValues, crmUsers }), [stages, activities, customFields, customFieldValues, crmUsers])
   const visibleDeals = useMemo(() => {
@@ -1885,7 +1884,7 @@ function App() {
             {error && <div className="m-4 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><b>Erro:</b> {error}</div>}
             {loading ? <LoadingBpo /> : (
               <>
-                {activeView === 'pipeline' && <PipelineView stages={visibleStages} salesStages={salesStages} deals={visibleDeals} allDeals={deals} activities={activities} crmUsers={crmUsers} organizations={organizations} people={people} dealLabels={dealLabels} dealLabelAssignments={dealLabelAssignments} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} setDraggingId={setDraggingId} handleDrop={handleDrop} newDeal={newDeal} setNewDeal={setNewDeal} createDeal={createDeal} creating={creating} canAssignOwner={profile?.role === 'admin_vmarket'} activePipeline={activePipeline} setActivePipeline={setActivePipeline} pipelineNames={pipelineNames} pipelineView={pipelineView} setPipelineView={setPipelineView} savedDealFilters={savedDealFilters} activeDealFilterId={activeDealFilterId} setActiveDealFilterId={setActiveDealFilterId} activeOwnerFilterId={activeOwnerFilterId} setActiveOwnerFilterId={setActiveOwnerFilterId} filterFields={filterFields} filterContext={filterContext} saveDealFilter={saveDealFilter} deleteDealFilter={deleteDealFilter} toggleDealFilterFavorite={toggleDealFilterFavorite} applyFilterColumns={applyFilterColumns} visibleColumns={dealListColumns} setVisibleColumns={setDealColumns} reload={loadAll} />}
+                {activeView === 'pipeline' && <PipelineView stages={visibleStages} salesStages={stages} deals={visibleDeals} allDeals={deals} activities={activities} crmUsers={crmUsers} organizations={organizations} people={people} dealLabels={dealLabels} dealLabelAssignments={dealLabelAssignments} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} setDraggingId={setDraggingId} handleDrop={handleDrop} newDeal={newDeal} setNewDeal={setNewDeal} createDeal={createDeal} creating={creating} canAssignOwner={profile?.role === 'admin_vmarket'} activePipeline={activePipeline} setActivePipeline={setActivePipeline} pipelineNames={pipelineNames} pipelineView={pipelineView} setPipelineView={setPipelineView} savedDealFilters={savedDealFilters} activeDealFilterId={activeDealFilterId} setActiveDealFilterId={setActiveDealFilterId} activeOwnerFilterId={activeOwnerFilterId} setActiveOwnerFilterId={setActiveOwnerFilterId} filterFields={filterFields} filterContext={filterContext} saveDealFilter={saveDealFilter} deleteDealFilter={deleteDealFilter} toggleDealFilterFavorite={toggleDealFilterFavorite} applyFilterColumns={applyFilterColumns} visibleColumns={dealListColumns} setVisibleColumns={setDealColumns} reload={loadAll} />}
                 {activeView === 'plans-vmarket' && <VmarketPlansView />}
                 {activeView === 'commissions-vmarket' && <Suspense fallback={<div className="p-5 text-sm font-semibold text-slate-500">Carregando comissões...</div>}><VmarketCommissionsView deals={deals} stages={stages} history={history} selectedId={selectedId} setSelectedId={setSelectedId} openDealPage={openDealPage} /></Suspense>}
                 {activeView === 'contacts' && <EntityListView title="Contatos" icon={<Contact size={18}/>} entity="person" rows={visiblePeople} deals={deals} people={people} organizations={organizations} stages={stages} crmUsers={crmUsers} dealLabels={dealLabels} dealLabelAssignments={dealLabelAssignments} selectedId={detailPersonId} onOpen={openPersonPage} savedFilters={savedDealFilters} activeFilterId={activePersonFilterId} activeOwnerId={activePersonOwnerFilterId} setActiveFilterId={setActivePersonFilterId} setActiveOwnerId={setActivePersonOwnerFilterId} users={crmUsers} filterFields={filterFields} filterContext={filterContext} saveDealFilter={saveDealFilter} onDeleteFilter={deleteDealFilter} onToggleFavoriteFilter={toggleDealFilterFavorite} applyFilterColumns={applyFilterColumns} visibleColumns={personListColumns} setVisibleColumns={setPersonColumns} reload={loadAll} />}
@@ -2525,13 +2524,26 @@ function CreateDealModal({ salesStages, crmUsers, organizations, people, canAssi
   creating: boolean
   close: () => void
 }) {
+  const [showOrganizationSuggestions, setShowOrganizationSuggestions] = useState(false)
   const organizationSuggestions = similarRecords(newDeal.organization_name, organizations, (org) => org.name)
     .filter((org) => org.id !== newDeal.organization_id)
   const contactSuggestions = similarRecords(newDeal.contact_name, people, (person) => person.full_name)
     .filter((person) => person.id !== newDeal.contact_id)
   const selectedOrganization = organizations.find((org) => org.id === newDeal.organization_id)
   const selectedContact = people.find((person) => person.id === newDeal.contact_id)
-  const chooseOrganization = (org: Organization) => setNewDeal({ ...newDeal, organization_id: org.id, organization_name: org.name, monthly_purchase: newDeal.monthly_purchase || String(org.monthly_purchase ?? '') })
+  const stageGroups = [...new Set(salesStages.map((stage) => stage.pipeline_name || 'Sem funil'))]
+    .map((pipelineName) => ({
+      pipelineName,
+      stages: salesStages
+        .filter((stage) => (stage.pipeline_name || 'Sem funil') === pipelineName)
+        .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name, 'pt-BR')),
+    }))
+    .filter((group) => group.stages.length)
+    .sort((a, b) => (a.stages[0]?.sort_order || 0) - (b.stages[0]?.sort_order || 0) || a.pipelineName.localeCompare(b.pipelineName, 'pt-BR'))
+  const chooseOrganization = (org: Organization) => {
+    setNewDeal({ ...newDeal, organization_id: org.id, organization_name: org.name, monthly_purchase: newDeal.monthly_purchase || String(org.monthly_purchase ?? '') })
+    setShowOrganizationSuggestions(false)
+  }
   const choosePerson = (person: Person) => setNewDeal({ ...newDeal, contact_id: person.id, contact_name: person.full_name, contact_email: person.email || newDeal.contact_email, contact_phone: person.phone || newDeal.contact_phone, organization_id: newDeal.organization_id || person.organization_id || '', organization_name: newDeal.organization_name || organizations.find((org) => org.id === person.organization_id)?.name || '' })
   return <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 p-4 backdrop-blur-sm">
     <div className="w-full max-w-3xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
@@ -2545,11 +2557,24 @@ function CreateDealModal({ salesStages, crmUsers, organizations, people, canAssi
       <form onSubmit={createDeal} className="grid gap-4 p-5 md:grid-cols-2">
         <EditInput label="Título do negócio" value={newDeal.title} onChange={(v) => setNewDeal({ ...newDeal, title: v })} className="md:col-span-2" />
         <div>
-          <EditInput label="Empresa" value={newDeal.organization_name} onChange={(v) => setNewDeal({ ...newDeal, organization_name: v, organization_id: '' })} />
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-semibold text-slate-700">Empresa</span>
+            <input
+              type="text"
+              value={newDeal.organization_name}
+              onFocus={() => setShowOrganizationSuggestions(true)}
+              onBlur={() => window.setTimeout(() => setShowOrganizationSuggestions(false), 120)}
+              onChange={(e) => {
+                setShowOrganizationSuggestions(true)
+                setNewDeal({ ...newDeal, organization_name: e.target.value, organization_id: '' })
+              }}
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-[#238847] focus:ring-4 focus:ring-emerald-100"
+            />
+          </label>
           {selectedOrganization && <p className="mt-1 rounded bg-emerald-50 px-2 py-1 text-xs font-bold text-emerald-700">Empresa selecionada: {selectedOrganization.name}</p>}
-          {!selectedOrganization && organizationSuggestions.length > 0 && <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2">
+          {showOrganizationSuggestions && !selectedOrganization && organizationSuggestions.length > 0 && <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2">
             <p className="mb-1 text-[11px] font-black uppercase tracking-wide text-amber-700">Empresas parecidas encontradas</p>
-            {organizationSuggestions.map((org) => <button key={org.id} type="button" onClick={() => chooseOrganization(org)} className="block w-full rounded px-2 py-1.5 text-left text-xs hover:bg-white"><b>{org.name}</b><span className="block text-slate-500">{org.state || 'UF não informada'} · GMV {money(org.monthly_purchase)}</span></button>)}
+            {organizationSuggestions.map((org) => <button key={org.id} type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => chooseOrganization(org)} className="block w-full rounded px-2 py-1.5 text-left text-xs hover:bg-white"><b>{org.name}</b><span className="block text-slate-500">{org.state || 'UF não informada'} · GMV {money(org.monthly_purchase)}</span></button>)}
           </div>}
         </div>
         <div>
@@ -2568,7 +2593,9 @@ function CreateDealModal({ salesStages, crmUsers, organizations, people, canAssi
           <span className="mb-1.5 block font-semibold text-slate-700">Etapa</span>
           <select className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#238847] focus:ring-4 focus:ring-emerald-100" value={newDeal.stage_id} onChange={(e) => setNewDeal({ ...newDeal, stage_id: e.target.value })}>
             <option value="">Sem etapa</option>
-            {salesStages.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            {stageGroups.map((group) => <optgroup key={group.pipelineName} label={group.pipelineName}>
+              {group.stages.map((stage) => <option key={stage.id} value={stage.id}>{stage.name}</option>)}
+            </optgroup>)}
           </select>
         </label>
         {canAssignOwner && <label className="block text-sm">
