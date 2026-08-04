@@ -3059,7 +3059,7 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
       {error && <div className="xl:col-span-2 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><b>Erro:</b> {error}</div>}
       {priceWarning && <div className="xl:col-span-2 rounded border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">{priceWarning}</div>}
 
-      <aside className="min-w-0 space-y-4 xl:sticky xl:top-32 xl:max-h-[calc(100vh-9rem)] xl:overflow-y-auto">
+      <aside className="min-w-0 space-y-4 pb-8">
         <CollapsibleSection title="Empresa" defaultOpen>
           <div className="divide-y divide-slate-100">
             <InlineField label="Empresa" value={form.organization_name} onChange={(v) => update('organization_name', v)} onSaveValue={(v) => commit('organization_name', v)} onOpen={deal.organization_id ? () => openOrganizationPage(deal.organization_id as string) : undefined} onUnlink={deal.organization_id ? () => unlinkDealOrganization(deal.id) : undefined} />
@@ -3109,21 +3109,20 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
           </div>
         </CollapsibleSection>
 
-        <CollapsibleSection title="Plataforma VMarket" defaultOpen={false}>
+        <CollapsibleSection title="Plataforma VMarket" defaultOpen>
           <div className="divide-y divide-slate-100">
             <label className="flex items-center gap-3 p-3 text-sm font-semibold text-slate-800">
               <input type="checkbox" checked={form.vm_sale} onChange={(e) => update('vm_sale', e.target.checked)} className="h-4 w-4 accent-[#238847]" />
               Venda VMarket?
             </label>
-            {form.vm_sale && <>
-              <InlineSelect label="Contrato com" value={form.contract_with} onChange={(v) => update('contract_with', v)} onSaveValue={(v) => commit('contract_with', v)} options={[['cliente', 'Cliente'], ['parceiro', 'Parceiro']]} />
-              <InlineSelect label="Tipo" value={form.vm_product_type} onChange={(v) => update('vm_product_type', v)} onSaveValue={(v) => commit('vm_product_type', v)} options={businessTypeOptions} />
-              <InlineField label="Quantidade de CNPJs" value={form.vm_cnpj_count} onChange={(v) => update('vm_cnpj_count', v)} onSaveValue={(v) => commit('vm_cnpj_count', v)} type="number" />
-              <InlineSelect label="Plano" value={form.vm_plan} onChange={(v) => update('vm_plan', v)} onSaveValue={(v) => commit('vm_plan', v)} options={(vmarketPlanOptionsByType[form.vm_product_type] || []).map((plan) => [plan, plan])} />
-              <InlineSelect label="Período de Fidelidade" value={form.vm_loyalty_period} onChange={(v) => update('vm_loyalty_period', v)} onSaveValue={(v) => commit('vm_loyalty_period', v)} options={vmarketPeriodOptions} />
-              <InlineField label="Valor por CNPJ" value={form.vm_value_per_cnpj} onChange={(v) => update('vm_value_per_cnpj', v)} onSaveValue={(v) => commit('vm_value_per_cnpj', v)} type="number" displayValue={money(Number(form.vm_value_per_cnpj || 0))} />
-              <ReadOnlyField label="Valor VMarket" value={money(vmarketValue)} />
-              <div className="p-3">
+            <InlineSelect label="Contrato com" value={form.contract_with} onChange={(v) => update('contract_with', v)} onSaveValue={(v) => commit('contract_with', v)} options={[['cliente', 'Cliente'], ['parceiro', 'Parceiro']]} />
+            <InlineSelect label="Tipo" value={form.vm_product_type} onChange={(v) => update('vm_product_type', v)} onSaveValue={(v) => commit('vm_product_type', v)} options={businessTypeOptions} />
+            <InlineField label="Quantidade de CNPJs" value={form.vm_cnpj_count} onChange={(v) => update('vm_cnpj_count', v)} onSaveValue={(v) => commit('vm_cnpj_count', v)} type="number" />
+            <InlineSelect label="Plano" value={form.vm_plan} onChange={(v) => update('vm_plan', v)} onSaveValue={(v) => commit('vm_plan', v)} options={(vmarketPlanOptionsByType[form.vm_product_type] || []).map((plan) => [plan, plan])} />
+            <InlineSelect label="Período de Fidelidade" value={form.vm_loyalty_period} onChange={(v) => update('vm_loyalty_period', v)} onSaveValue={(v) => commit('vm_loyalty_period', v)} options={vmarketPeriodOptions} />
+            <InlineField label="Valor por CNPJ" value={form.vm_value_per_cnpj} onChange={(v) => update('vm_value_per_cnpj', v)} onSaveValue={(v) => commit('vm_value_per_cnpj', v)} type="number" displayValue={money(Number(form.vm_value_per_cnpj || 0))} />
+            <ReadOnlyField label="Valor VMarket" value={money(vmarketValue)} />
+            <div className="p-3">
                 <CollapsibleSection title="Campos do Contrato" defaultOpen={false} className="border border-slate-200 shadow-none">
                   <div className="divide-y divide-slate-100">
                     <ReadOnlyField label="Tipo" value={businessTypeLabel} />
@@ -3145,7 +3144,6 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
                   </div>
                 </CollapsibleSection>
               </div>
-            </>}
           </div>
         </CollapsibleSection>
 
