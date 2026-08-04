@@ -1869,7 +1869,7 @@ function App() {
         </aside>
 
         <div className="flex min-w-0 flex-1 flex-col pb-16 md:pb-0">
-          <header className="sticky top-0 z-30 flex min-h-14 flex-wrap items-center gap-3 border-b border-slate-200 bg-white px-4 py-2 md:h-14 md:flex-nowrap md:px-5 md:py-0">
+          <header className="sticky top-0 z-[70] flex min-h-14 flex-wrap items-center gap-3 border-b border-slate-200 bg-white px-4 py-2 md:h-14 md:flex-nowrap md:px-5 md:py-0">
             <h1 className="min-w-[155px] text-base font-semibold">{navItems.find(([key]) => key === activeView)?.[2]}</h1>
             <GlobalSearchBox value={globalSearch} onChange={setGlobalSearch} results={globalSearchResults} onOpen={openSearchResult} />
             <button type="button" onClick={() => setAgentOpenRequest((current) => current + 1)} className="grid h-9 w-9 place-items-center rounded-full border border-slate-200 text-slate-600 hover:bg-slate-50" title="Abrir ajuda do Tomatinho" aria-label="Abrir ajuda do Tomatinho"><HelpCircle size={17}/></button>
@@ -2008,7 +2008,7 @@ function GlobalSearchBox({ value, onChange, results, onOpen }: { value: string; 
     return acc
   }, {})
   const groups = ['Negócios', 'Contatos', 'Empresas', 'Atividades', 'Notas', 'Itens de Foco'].filter((group) => grouped[group]?.length)
-  return <div className="relative mx-auto hidden w-full max-w-xl md:block">
+  return <div className="relative z-[90] mx-auto hidden w-full max-w-xl md:block">
     <div className="flex items-center gap-2 rounded-full border border-slate-300 bg-white px-4 py-2 text-sm text-slate-600 shadow-inner focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100">
       <Search size={17} className="text-slate-400"/>
       <input value={value} onChange={(e) => onChange(e.target.value)} className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-slate-400" placeholder="Pesquisar no CRM" />
