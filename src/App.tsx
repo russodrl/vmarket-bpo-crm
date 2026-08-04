@@ -2942,6 +2942,8 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
   const currentPipelineStages = pipelineStages.length ? pipelineStages : [currentStage].filter(Boolean) as Stage[]
   const currentStageDays = daysSince(deal.pipedrive_stage_entered_at || deal.updated_at || deal.pipedrive_deal_created_at || deal.created_at)
   const ownerName = crmOwnerDisplay(crmUsers, form.owner_id)
+  const pipedriveOwnerName = (deal.pipedrive_owner_name || '').trim()
+  const showPipedriveOwner = Boolean(pipedriveOwnerName && !normalizeKey(pipedriveOwnerName).includes('aleksander'))
   const contractPartner = crmUsers.find((user) => user.auth_user_id && user.auth_user_id === form.owner_id) || crmUsers.find((user) => user.auth_user_id && user.auth_user_id === deal.owner_id)
   const partnerContract = partnerContractValues(contractPartner)
   const contractLocked = form.vm_sale && form.contract_with === 'parceiro' && Boolean(partnerContract)
@@ -3022,9 +3024,12 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
           <p className="mt-1 truncate text-sm font-semibold text-slate-600">{companySummary}</p>
         </div>
         <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <div className="flex max-w-full items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700">
-            <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-slate-200 text-[10px] font-black">{ownerName.slice(0,1).toUpperCase()}</span>
-            <span className="truncate">{ownerName}</span>
+          <div className="flex max-w-full items-start gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700">
+            <span className="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-slate-200 text-[10px] font-black">{ownerName.slice(0,1).toUpperCase()}</span>
+            <span className="min-w-0">
+              <span className="block truncate">{ownerName}</span>
+              {showPipedriveOwner && <span className="mt-0.5 block truncate text-[11px] font-bold text-amber-700">Proprietário Pipedrive: {pipedriveOwnerName}</span>}
+            </span>
           </div>
           <Badge tone={form.status === 'perdido' ? 'bg-slate-200 text-slate-700' : form.status === 'ganho' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}>{statusLabel[form.status] || 'Aberto'}</Badge>
           <Badge tone={form.lead_source === 'parceiro' ? 'bg-purple-100 text-purple-700' : 'bg-emerald-100 text-emerald-700'}>fonte: {form.lead_source === 'parceiro' ? 'parceiro' : 'vmarket'}</Badge>
