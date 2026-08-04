@@ -4045,9 +4045,9 @@ function VmarketPlansView() {
                     {vmarketPricingRules.filter((rule) => rule.type === type && rule.plan === plan).map((rule) => <div key={`${rule.type}-${rule.range}-${rule.plan}`} className="grid gap-2 p-4 text-sm hover:bg-slate-50 md:grid-cols-[130px_repeat(4,1fr)]">
                       <div><p className="text-xs font-bold uppercase text-slate-400">Faixa</p><p className="font-bold text-slate-900">{rule.range}</p></div>
                       <div><p className="text-xs font-bold uppercase text-slate-400">Mensal</p><p className="font-semibold text-slate-700">{money(rule.monthly)}</p></div>
-                      <div><p className="text-xs font-bold uppercase text-slate-400">Mensal BPO</p><p className="font-semibold text-[#238847]">{money(rule.monthlyBpo)}</p></div>
-                      <div><p className="text-xs font-bold uppercase text-slate-400">Semestral</p><p className="font-semibold text-slate-700">{money(rule.semester)}</p></div>
-                      <div><p className="text-xs font-bold uppercase text-slate-400">Semestral BPO</p><p className="font-semibold text-[#238847]">{money(rule.semesterBpo)}</p></div>
+                      <div><p className="flex flex-wrap items-center gap-1 text-xs font-bold uppercase text-slate-400">Semestral <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-black text-blue-700">-20%</span></p><p className="font-semibold text-slate-700">{money(rule.semester)}</p></div>
+                      <div><p className="flex flex-wrap items-center gap-1 text-xs font-bold uppercase text-slate-400">Mensal BPO <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-black text-emerald-700">-25%</span></p><p className="font-semibold text-[#238847]">{money(rule.monthlyBpo)}</p></div>
+                      <div><p className="flex flex-wrap items-center gap-1 text-xs font-bold uppercase text-slate-400">Semestral BPO <span className="rounded-full bg-purple-100 px-1.5 py-0.5 text-[10px] font-black text-purple-700">-40%</span></p><p className="font-semibold text-[#238847]">{money(rule.semesterBpo)}</p></div>
                     </div>)}
                   </div>
                 </div>)}
