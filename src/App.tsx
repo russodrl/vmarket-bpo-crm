@@ -4025,25 +4025,37 @@ function VmarketPlansView() {
             </article>)}
           </div>
         </section>)}
-        {sections.map(([type, title]) => <Fragment key={`pricing-block-${type}`}>
-          <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-            <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
-              <h3 className="text-base font-black text-slate-900">{title}</h3>
-              <p className="text-xs text-slate-500">Valores por CNPJ, por plano e período de fidelidade.</p>
-            </div>
-            <div className="divide-y divide-slate-100">
-              {vmarketPricingRules.filter((rule) => rule.type === type).map((rule) => <div key={`${rule.type}-${rule.range}-${rule.plan}`} className="grid gap-2 p-4 text-sm hover:bg-slate-50 md:grid-cols-[130px_110px_repeat(4,1fr)]">
-                <div><p className="text-xs font-bold uppercase text-slate-400">Faixa</p><p className="font-bold text-slate-900">{rule.range}</p></div>
-                <div><p className="text-xs font-bold uppercase text-slate-400">Plano</p><p className="font-bold text-slate-900">{rule.plan}</p></div>
-                <div><p className="text-xs font-bold uppercase text-slate-400">Mensal</p><p className="font-semibold text-slate-700">{money(rule.monthly)}</p></div>
-                <div><p className="text-xs font-bold uppercase text-slate-400">Mensal BPO</p><p className="font-semibold text-[#238847]">{money(rule.monthlyBpo)}</p></div>
-                <div><p className="text-xs font-bold uppercase text-slate-400">Semestral</p><p className="font-semibold text-slate-700">{money(rule.semester)}</p></div>
-                <div><p className="text-xs font-bold uppercase text-slate-400">Semestral BPO</p><p className="font-semibold text-[#238847]">{money(rule.semesterBpo)}</p></div>
-              </div>)}
-            </div>
-          </section>
-          {type === 'restaurante' ? commissionSection : null}
-        </Fragment>)}
+        {sections.map(([type, title]) => {
+          const planOrder = ['Starter', 'Essencial', 'Premium']
+          const plans = [...new Set(vmarketPricingRules.filter((rule) => rule.type === type).map((rule) => rule.plan))]
+            .sort((a, b) => planOrder.indexOf(a) - planOrder.indexOf(b))
+          return <Fragment key={`pricing-block-${type}`}>
+            <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+              <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+                <h3 className="text-base font-black text-slate-900">{title}</h3>
+                <p className="text-xs text-slate-500">Valores por CNPJ separados por plano e período de fidelidade.</p>
+              </div>
+              <div className="grid gap-4 p-4">
+                {plans.map((plan) => <div key={`${type}-${plan}`} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                  <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+                    <h4 className="text-sm font-black text-slate-900">Plano {plan}</h4>
+                    <p className="text-xs text-slate-500">Valores por faixa de CNPJ.</p>
+                  </div>
+                  <div className="divide-y divide-slate-100">
+                    {vmarketPricingRules.filter((rule) => rule.type === type && rule.plan === plan).map((rule) => <div key={`${rule.type}-${rule.range}-${rule.plan}`} className="grid gap-2 p-4 text-sm hover:bg-slate-50 md:grid-cols-[130px_repeat(4,1fr)]">
+                      <div><p className="text-xs font-bold uppercase text-slate-400">Faixa</p><p className="font-bold text-slate-900">{rule.range}</p></div>
+                      <div><p className="text-xs font-bold uppercase text-slate-400">Mensal</p><p className="font-semibold text-slate-700">{money(rule.monthly)}</p></div>
+                      <div><p className="text-xs font-bold uppercase text-slate-400">Mensal BPO</p><p className="font-semibold text-[#238847]">{money(rule.monthlyBpo)}</p></div>
+                      <div><p className="text-xs font-bold uppercase text-slate-400">Semestral</p><p className="font-semibold text-slate-700">{money(rule.semester)}</p></div>
+                      <div><p className="text-xs font-bold uppercase text-slate-400">Semestral BPO</p><p className="font-semibold text-[#238847]">{money(rule.semesterBpo)}</p></div>
+                    </div>)}
+                  </div>
+                </div>)}
+              </div>
+            </section>
+            {type === 'restaurante' ? commissionSection : null}
+          </Fragment>
+        })}
       </div>
     </Panel>
   </div>
