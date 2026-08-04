@@ -3225,7 +3225,7 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
             <div className="min-h-[420px] space-y-0 p-4">
               {visibleTimeline.length ? visibleTimeline.map((item) => <div key={item.id} className="grid grid-cols-[40px_1fr] gap-3 pb-5 text-sm last:pb-0">
                 <div className="relative flex justify-center"><TimelineIcon item={item} /><span className="absolute top-10 h-full w-px bg-slate-200" /></div>
-                {item.activity ? <ActivityInlineRow activity={item.activity} deal={deal} ownerName={crmOwnerDisplay(crmUsers, item.activity.owner_id, deal.pipedrive_owner_name || 'Sem usuário')} onComplete={completeActivity} onMarkTodo={markActivityTodo} onEdit={setEditingActivity} onDelete={deleteActivity} /> : item.history && timelineCategory(item) === 'notes' ? <NoteTimelineRow note={item.history} onUpdate={updateNote} onTogglePin={toggleNotePin} onDelete={deleteNote} /> : <div className="rounded border border-slate-200 bg-white p-3 shadow-sm"><div className="flex flex-wrap items-start justify-between gap-2"><div><b className="text-slate-900">{item.title}</b></div><div className="flex items-center gap-2">{item.date && <span className="text-xs text-slate-500">{formatDateTime(item.date)}</span>}</div></div>{item.description && <p className="mt-2 whitespace-pre-wrap text-slate-600">{item.description}</p>}</div>}
+                {item.activity ? <ActivityInlineRow activity={item.activity} deal={deal} ownerName={crmOwnerDisplay(crmUsers, item.activity.owner_id, deal.pipedrive_owner_name || 'Sem usuário')} onComplete={completeActivity} onMarkTodo={markActivityTodo} onEdit={setEditingActivity} onDelete={deleteActivity} /> : item.history && timelineCategory(item) === 'notes' ? <NoteTimelineRow note={item.history} onUpdate={updateNote} onTogglePin={toggleNotePin} onDelete={deleteNote} /> : <HistoryTimelineRow title={item.title} description={item.description} date={item.date} eventType={item.kind} />}
               </div>) : <p className="rounded border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">Sem histórico para este filtro.</p>}
             </div>
           </>}
@@ -3238,6 +3238,24 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
     {showLostReason && <LostReasonModal onCancel={() => setShowLostReason(false)} onConfirm={markLost} />}
     {showLabelPicker && <LabelPickerModal deal={deal} labels={dealLabels} assignedLabelIds={assignedLabels.map((assignment) => assignment.label_id)} onClose={() => setShowLabelPicker(false)} onCreateLabel={createLabel} onDeleteLabel={deleteLabel} onSave={async (labelIds) => { await updateDealLabels(deal.id, labelIds); setShowLabelPicker(false) }} />}
   </main>
+}
+
+function HistoryTimelineRow({ title, description, date, eventType }: { title: string; description: string | null; date: string | null; eventType: string }) {
+  const lines = String(description || '').split('\n').map((line) => line.trim()).filter(Boolean)
+  const actorLine = lines.find((line) => normalizeKey(line).startsWith('ator:'))
+  return <div className="rounded border border-slate-200 bg-white p-3 shadow-sm">
+    <div className="flex flex-wrap items-start justify-between gap-2">
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <b className="text-slate-900">{title}</b>
+          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-black uppercase text-slate-500">{eventType}</span>
+        </div>
+        {actorLine && <p className="mt-1 text-xs font-bold text-amber-700">{actorLine}</p>}
+      </div>
+      <div className="flex items-center gap-2">{date && <span className="text-xs text-slate-500">{formatDateTime(date)}</span>}</div>
+    </div>
+    {description && <p className="mt-2 whitespace-pre-wrap text-slate-600">{description}</p>}
+  </div>
 }
 
 function DealAttachmentPanel({ title, buttonLabel, category, attachments, uploading, onUpload }: {
