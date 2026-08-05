@@ -33,8 +33,13 @@ const PIPEDRIVE_API_TOKEN = Deno.env.get('PIPEDRIVE_API_TOKEN') || ''
 const PIPEDRIVE_BASE_URL = Deno.env.get('PIPEDRIVE_BASE_URL') || 'https://api.pipedrive.com/v1'
 const PIPEDRIVE_WEBHOOK_SECRET = Deno.env.get('PIPEDRIVE_WEBHOOK_SECRET') || ''
 const ALEKSANDER_PIPEDRIVE_USER_ID = Number(Deno.env.get('ALEKSANDER_PIPEDRIVE_USER_ID') || '28696367')
+const PIPEDRIVE_DEAL_LEAD_ORIGIN_KEY = '35b7d222715476c8b0267d90a76ee7ccf65cb7b6'
 const PIPEDRIVE_DEAL_ESTABLISHMENT_TYPE_KEY = 'b5f8384335673360a4c562ebc8dec13b23a51279'
 const PIPEDRIVE_DEAL_STATE_KEY = 'afc28ad710ac0f144f69fddab33ee686695ad967'
+const PIPEDRIVE_DEAL_CNPJ_COUNT_KEY = '2d85a69bb070d2ad8db81959127fe906c92b9521'
+const PIPEDRIVE_DEAL_MONTHLY_INPUTS_PURCHASE_KEY = 'a59111b5743a72db4b684230b59122487fd5a752'
+const PIPEDRIVE_DEAL_SUPPLIER_CATEGORIES_KEY = '950d51f781336cbd31f3aaaa8dac5b54141cb27b'
+const PIPEDRIVE_DEAL_SUPPLIER_REGION_KEY = '3a6292e42a3f28d9921d8f19b9bc5d4d690806c5'
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
@@ -520,10 +525,14 @@ async function upsertCrmDealFromPipedrive(integrationId: string, pdDeal: JsonRec
   const stageId = await stageIdFromPipedrive(pdDeal.stage_id) || await firstStageId()
   const establishmentType = establishmentTypeFromPipedrive(pdDeal)
   const leadState = await pipedriveDealOptionLabel(PIPEDRIVE_DEAL_STATE_KEY, pdDeal)
-  if (organization?.id && (establishmentType || leadState)) {
+  const cnpjCount = positiveIntegerFromPipedriveField(pdDeal, PIPEDRIVE_DEAL_CNPJ_COUNT_KEY)
+  const monthlyInputsPurchase = moneyFromPipedriveField(pdDeal, PIPEDRIVE_DEAL_MONTHLY_INPUTS_PURCHASE_KEY)
+  if (organization?.id && (establishmentType || leadState || cnpjCount !== null || monthlyInputsPurchase !== null)) {
     const organizationPatch: JsonRecord = {}
     if (establishmentType) organizationPatch.type = establishmentType
     if (leadState) organizationPatch.state = leadState
+    if (cnpjCount !== null) organizationPatch.cnpjs = cnpjCount
+    if (monthlyInputsPurchase !== null) organizationPatch.monthly_purchase = monthlyInputsPurchase
     const { error: organizationUpdateError } = await supabase.from('organizations').update(organizationPatch).eq('id', organization.id)
     if (organizationUpdateError) throw organizationUpdateError
   }
@@ -548,6 +557,7 @@ async function upsertCrmDealFromPipedrive(integrationId: string, pdDeal: JsonRec
     payload.business_type = establishmentType
     payload.vm_product_type = establishmentType
   }
+  if (monthlyInputsPurchase !== null) payload.monthly_purchase = monthlyInputsPurchase
   if (pdTitle || !existing?.internal_id) payload.title = pdTitle || `Negócio Pipedrive ${externalId}`
   if (existing?.internal_id && options.clearCrmOwner) payload.owner_id = null
   if (!existing?.internal_id && inheritedOwnerId) payload.owner_id = inheritedOwnerId
@@ -1047,6 +1057,40 @@ function establishmentTypeFromPipedrive(payload: JsonRecord) {
   if (normalized.includes('fornecedor') || normalized.includes('distribuidor') || normalized.includes('industria')) return 'fornecedor'
   if (normalized.includes('hotel') || normalized.includes('pousada')) return 'hotel'
   return 'restaurante'
+}
+
+function positiveIntegerFromPipedriveField(payload: JsonRecord, key: string) {
+  const value = numericValueFromText(rawPipedriveFieldValue(payload, key))
+  return value && value > 0 ? Math.round(value) : null
+}
+
+function moneyFromPipedriveField(payload: JsonRecord, key: string) {
+  const value = numericValueFromText(rawPipedriveFieldValue(payload, key))
+  return value && value > 0 ? value : null
+}
+
+function numericValueFromText(value: unknown) {
+  const raw = rawPipedriveValue(value)
+  if (!raw) return null
+  const source = String(raw).trim()
+  const lowerSource = normalizeName(source)
+  const multiplier = lowerSource.includes('milhao') || lowerSource.includes('milhoes')
+    ? 1000000
+    : lowerSource.includes('mil')
+      ? 1000
+      : 1
+  const matches = source.match(/\d[\d.,]*/g)
+  if (!matches?.length) return null
+  const numbers = matches.map((match) => {
+    const compact = match.replace(/\s/g, '')
+    const normalized = compact.includes(',')
+      ? compact.replace(/\./g, '').replace(',', '.')
+      : compact.replace(/,/g, '')
+    const parsed = Number(normalized)
+    return Number.isFinite(parsed) ? parsed * multiplier : null
+  }).filter((item): item is number => item !== null)
+  if (!numbers.length) return null
+  return Math.max(...numbers)
 }
 
 function numberOrNull(value: unknown) {
