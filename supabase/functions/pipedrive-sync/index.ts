@@ -18,6 +18,7 @@ type CustomFieldRow = {
   entity: 'deal' | 'organization' | 'person' | 'activity'
   pipedrive_key?: string | null
   pipedrive_field_type?: string | null
+  pipedrive_options?: Array<{ id?: unknown; label?: unknown }> | null
 }
 
 type CustomFieldValueRow = {
@@ -32,6 +33,8 @@ const PIPEDRIVE_API_TOKEN = Deno.env.get('PIPEDRIVE_API_TOKEN') || ''
 const PIPEDRIVE_BASE_URL = Deno.env.get('PIPEDRIVE_BASE_URL') || 'https://api.pipedrive.com/v1'
 const PIPEDRIVE_WEBHOOK_SECRET = Deno.env.get('PIPEDRIVE_WEBHOOK_SECRET') || ''
 const ALEKSANDER_PIPEDRIVE_USER_ID = Number(Deno.env.get('ALEKSANDER_PIPEDRIVE_USER_ID') || '28696367')
+const PIPEDRIVE_DEAL_ESTABLISHMENT_TYPE_KEY = 'b5f8384335673360a4c562ebc8dec13b23a51279'
+const PIPEDRIVE_DEAL_STATE_KEY = 'afc28ad710ac0f144f69fddab33ee686695ad967'
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
@@ -515,6 +518,15 @@ async function upsertCrmDealFromPipedrive(integrationId: string, pdDeal: JsonRec
   const organization = pdOrg ? await upsertCrmOrganizationFromPipedrive(integrationId, pdOrg) : null
   const person = pdPerson ? await upsertCrmPersonFromPipedrive(integrationId, pdPerson, organization?.id || null) : null
   const stageId = await stageIdFromPipedrive(pdDeal.stage_id) || await firstStageId()
+  const establishmentType = establishmentTypeFromPipedrive(pdDeal)
+  const leadState = await pipedriveDealOptionLabel(PIPEDRIVE_DEAL_STATE_KEY, pdDeal)
+  if (organization?.id && (establishmentType || leadState)) {
+    const organizationPatch: JsonRecord = {}
+    if (establishmentType) organizationPatch.type = establishmentType
+    if (leadState) organizationPatch.state = leadState
+    const { error: organizationUpdateError } = await supabase.from('organizations').update(organizationPatch).eq('id', organization.id)
+    if (organizationUpdateError) throw organizationUpdateError
+  }
   const inheritedOwnerId = stringOrNull((person as JsonRecord | null)?.owner_id) || stringOrNull((organization as JsonRecord | null)?.owner_id)
   const inheritedBpoId = stringOrNull((person as JsonRecord | null)?.bpo_id) || stringOrNull((organization as JsonRecord | null)?.bpo_id)
   const pdTitle = stringOrNull(pdDeal.title)
@@ -531,6 +543,10 @@ async function upsertCrmDealFromPipedrive(integrationId: string, pdDeal: JsonRec
     pipedrive_owner_name: pipedriveOwnerName(pdDeal.user_id),
     pipedrive_deal_created_at: stringOrNull(pdDeal.add_time) || stringOrNull(pdDeal.create_time),
     pipedrive_stage_entered_at: stringOrNull(pdDeal.stage_change_time) || stringOrNull(pdDeal.update_time) || stringOrNull(pdDeal.add_time),
+  }
+  if (establishmentType) {
+    payload.business_type = establishmentType
+    payload.vm_product_type = establishmentType
   }
   if (pdTitle || !existing?.internal_id) payload.title = pdTitle || `Negócio Pipedrive ${externalId}`
   if (existing?.internal_id && options.clearCrmOwner) payload.owner_id = null
@@ -716,11 +732,11 @@ function findMeetingUrl(text: string | null | undefined) {
 }
 
 async function syncCustomFieldsFromPipedrive(entityId: string, entity: string, payload: JsonRecord) {
-  const { data: fields, error } = await supabase.from('custom_fields').select('id, entity, pipedrive_key, pipedrive_field_type').eq('entity', entity).not('pipedrive_key', 'is', null)
+  const { data: fields, error } = await supabase.from('custom_fields').select('id, entity, pipedrive_key, pipedrive_field_type, pipedrive_options').eq('entity', entity).not('pipedrive_key', 'is', null)
   if (error) throw error
   const rows = ((fields || []) as CustomFieldRow[])
     .filter((field) => field.pipedrive_key && field.pipedrive_key in payload && payload[field.pipedrive_key as string] !== null && payload[field.pipedrive_key as string] !== undefined)
-    .map((field) => ({ field_id: field.id, entity_id: entityId, value: payload[field.pipedrive_key as string] }))
+    .map((field) => ({ field_id: field.id, entity_id: entityId, value: decodePipedriveFieldValue(payload[field.pipedrive_key as string], field) }))
   if (!rows.length) return
   const { error: upsertError } = await supabase.from('custom_field_values').upsert(rows, { onConflict: 'field_id,entity_id' })
   if (upsertError) throw upsertError
@@ -978,6 +994,59 @@ function splitDueAt(value: string | null) {
 
 function stringOrNull(value: unknown) {
   return value === null || value === undefined || value === '' ? null : String(value)
+}
+
+function rawPipedriveFieldValue(payload: JsonRecord, key: string) {
+  const value = payload[key]
+  if (value === null || value === undefined || value === '') return null
+  if (Array.isArray(value)) return value.map((item) => rawPipedriveValue(item)).filter((item) => item !== null).join(', ') || null
+  return rawPipedriveValue(value)
+}
+
+function rawPipedriveValue(value: unknown) {
+  if (value === null || value === undefined || value === '') return null
+  if (typeof value === 'object') {
+    const record = value as JsonRecord
+    return stringOrNull(record.label) || stringOrNull(record.name) || stringOrNull(record.value) || stringOrNull(record.id)
+  }
+  return String(value)
+}
+
+function decodePipedriveFieldValue(value: unknown, field: CustomFieldRow) {
+  const raw = rawPipedriveValue(value)
+  if (!raw) return null
+  const option = optionLabelForValue(raw, field.pipedrive_options || [])
+  return option || raw
+}
+
+function optionLabelForValue(value: unknown, options: Array<{ id?: unknown; label?: unknown }>) {
+  const raw = rawPipedriveValue(value)
+  if (!raw) return null
+  const normalized = normalizeName(raw)
+  const match = options.find((option) => String(option.id) === raw || normalizeName(String(option.label || '')) === normalized)
+  return match ? stringOrNull(match.label) : null
+}
+
+async function pipedriveDealOptionLabel(pipedriveKey: string, payload: JsonRecord) {
+  const raw = rawPipedriveFieldValue(payload, pipedriveKey)
+  if (!raw) return null
+  const { data, error } = await supabase
+    .from('custom_fields')
+    .select('pipedrive_options')
+    .eq('entity', 'deal')
+    .eq('pipedrive_key', pipedriveKey)
+    .maybeSingle()
+  if (error) throw error
+  return optionLabelForValue(raw, (data?.pipedrive_options || []) as Array<{ id?: unknown; label?: unknown }>) || raw
+}
+
+function establishmentTypeFromPipedrive(payload: JsonRecord) {
+  const raw = rawPipedriveFieldValue(payload, PIPEDRIVE_DEAL_ESTABLISHMENT_TYPE_KEY)
+  if (!raw) return null
+  const normalized = normalizeName(raw)
+  if (normalized.includes('fornecedor') || normalized.includes('distribuidor') || normalized.includes('industria')) return 'fornecedor'
+  if (normalized.includes('hotel') || normalized.includes('pousada')) return 'hotel'
+  return 'restaurante'
 }
 
 function numberOrNull(value: unknown) {

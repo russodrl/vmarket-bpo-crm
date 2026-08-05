@@ -286,7 +286,7 @@ function buildFilterFields(customFields: CustomField[]): FilterField[] {
     { id: 'deal:status', entity: 'deal', key: 'status', label: 'Status', type: 'option' },
     { id: 'deal:lead_source', entity: 'deal', key: 'lead_source', label: 'Fonte do Lead', type: 'option' },
     { id: 'deal:source', entity: 'deal', key: 'source', label: 'Preenchimento', type: 'text' },
-    { id: 'deal:business_type', entity: 'deal', key: 'business_type', label: 'Tipo', type: 'option' },
+    { id: 'deal:business_type', entity: 'deal', key: 'business_type', label: 'Tipo de estabelecimento', type: 'option' },
     { id: 'deal:stage', entity: 'deal', key: 'stage', label: 'Etapa', type: 'option' },
     { id: 'deal:pipeline', entity: 'deal', key: 'pipeline', label: 'Funil', type: 'option' },
     { id: 'deal:owner', entity: 'deal', key: 'owner', label: 'Proprietário do negócio', type: 'text' },
@@ -304,7 +304,7 @@ function buildFilterFields(customFields: CustomField[]): FilterField[] {
     { id: 'person:ddd_state', entity: 'person', key: 'ddd_state', label: 'Estado da pessoa', type: 'text' },
     { id: 'organization:name', entity: 'organization', key: 'name', label: 'Nome da empresa', type: 'text' },
     { id: 'organization:owner_id', entity: 'organization', key: 'owner_id', label: 'Proprietário da empresa', type: 'text' },
-    { id: 'organization:type', entity: 'organization', key: 'type', label: 'Tipo da empresa', type: 'option' },
+    { id: 'organization:type', entity: 'organization', key: 'type', label: 'Tipo de estabelecimento', type: 'option' },
     { id: 'organization:state', entity: 'organization', key: 'state', label: 'Estado da empresa', type: 'text' },
     { id: 'organization:cnpjs', entity: 'organization', key: 'cnpjs', label: 'CNPJs', type: 'number' },
     { id: 'organization:monthly_purchase', entity: 'organization', key: 'monthly_purchase', label: 'Compra mensal', type: 'number' },
@@ -799,7 +799,7 @@ function buildListColumns(): ColumnDef[] {
     { id: 'deal:lead_source', entity: 'deal', label: 'Fonte do Lead', value: ({ deal }) => deal?.lead_source === 'parceiro' ? 'Parceiro' : deal?.lead_source === 'vmarket' ? 'VMarket' : '-' },
     { id: 'organization:name', entity: 'organization', label: 'Empresa', value: ({ deal, organization }) => organization?.name || deal?.organizations?.name || '-' },
     { id: 'organization:owner', entity: 'organization', label: 'Proprietário da empresa', value: ({ organization, deal, crmUsers }) => crmOwnerDisplay(crmUsers, organization?.owner_id || deal?.organizations?.owner_id, '-') },
-    { id: 'organization:type', entity: 'organization', label: 'Tipo da empresa', value: ({ organization, deal }) => businessTypeLabel(organization?.type || deal?.organizations?.type) },
+    { id: 'organization:type', entity: 'organization', label: 'Tipo de estabelecimento', value: ({ organization, deal }) => businessTypeLabel(organization?.type || deal?.organizations?.type) },
     { id: 'organization:city', entity: 'organization', label: 'Cidade', value: ({ organization, deal }) => organization?.city || deal?.organizations?.city || '-' },
     { id: 'organization:state', entity: 'organization', label: 'Estado', value: ({ organization, deal }) => organization?.state || deal?.organizations?.state || '-' },
     { id: 'organization:cnpjs', entity: 'organization', label: 'CNPJs', value: ({ organization, deal }) => organization?.cnpjs ?? deal?.organizations?.cnpjs ?? '-' },
@@ -2774,7 +2774,7 @@ function CompanyPage({ organization, loading, error, deals, people, activities, 
   }
   return <main className="min-h-screen bg-[#f4f5f7] text-slate-900">
     <header className="sticky top-0 z-30 border-b border-slate-200 bg-white shadow-sm"><div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-3 px-4 py-3"><button onClick={closeDetailPage} className="rounded border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">← Voltar</button><div className="min-w-0 flex-1"><h1 className="truncate text-2xl font-semibold tracking-[-0.03em] text-slate-950">{organization.name}</h1><p className="mt-1 truncate text-sm font-semibold text-slate-600">CNPJs: {organization.cnpjs || '-'} / GMV: {money(organization.monthly_purchase)} / UF: {organization.state || '-'}</p></div><Badge tone="bg-emerald-100 text-emerald-700">Ficha de empresa</Badge>{canDelete && <button type="button" onClick={() => deleteOrganization?.(organization.id, organization.name)} className="rounded border border-rose-200 px-4 py-2 text-sm font-bold text-rose-600 hover:bg-rose-50">Apagar</button>}</div></header>
-    <div className="mx-auto grid max-w-[1600px] gap-4 p-4 xl:grid-cols-[360px_minmax(0,1fr)]">{error && <div className="xl:col-span-2 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><b>Erro:</b> {error}</div>}<aside className="space-y-4"><CollapsibleSection title="Detalhes" defaultOpen><div className="divide-y divide-slate-100"><InlineField label="Empresa" value={organization.name} onChange={() => undefined} onSaveValue={(value) => saveOrganizationField('name', value)} /><ReadOnlyField label="Proprietário da empresa" value={organizationOwner} /><ReadOnlyField label="ID da organização no Pipedrive" value={pipedriveOrganizationId || 'Não sincronizado'} /><InlineSelect label="Tipo" value={organization.type || ''} onChange={() => undefined} onSaveValue={(value) => saveOrganizationField('type', value)} options={businessTypeOptions} /><InlineSelect label="Estado" value={organization.state || ''} onChange={() => undefined} onSaveValue={(value) => saveOrganizationField('state', value)} options={dddStateOptions} /><InlineField label="Quantidade de CNPJs" value={String(organization.cnpjs ?? '')} onChange={() => undefined} onSaveValue={(value) => saveOrganizationField('cnpjs', value)} type="number" /><InlineField label="GMV mensal total" value={String(organization.monthly_purchase ?? '')} onChange={() => undefined} onSaveValue={(value) => saveOrganizationField('monthly_purchase', value)} type="number" displayValue={money(organization.monthly_purchase)} /></div></CollapsibleSection><EntityDealsSummary deals={linkedDeals} openDealPage={openDealPage} /><Panel className="overflow-hidden"><div className="border-b border-slate-200 bg-white p-4"><h2 className="font-bold">Contatos vinculados</h2></div><div className="divide-y divide-slate-100">{companyPeople.map((person) => <LinkedEditableField key={person.id} label="Contato vinculado" value={`${person.full_name} · ${person.phone || 'sem telefone'} · ${person.email || 'sem email'}`} onOpen={() => openPersonPage(person.id)} onUnlink={() => unlinkPersonOrganization(person.id)} />)}{!companyPeople.length && <p className="p-4 text-sm text-slate-400">Nenhum contato vinculado.</p>}</div></Panel></aside><section><LinkedTimeline deals={linkedDeals} activities={activities} history={history} crmUsers={crmUsers} completeActivity={completeActivity} markActivityTodo={markActivityTodo} openDealPage={openDealPage} /></section></div>
+    <div className="mx-auto grid max-w-[1600px] gap-4 p-4 xl:grid-cols-[360px_minmax(0,1fr)]">{error && <div className="xl:col-span-2 rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><b>Erro:</b> {error}</div>}<aside className="space-y-4"><CollapsibleSection title="Detalhes" defaultOpen><div className="divide-y divide-slate-100"><InlineField label="Empresa" value={organization.name} onChange={() => undefined} onSaveValue={(value) => saveOrganizationField('name', value)} /><ReadOnlyField label="Proprietário da empresa" value={organizationOwner} /><ReadOnlyField label="ID da organização no Pipedrive" value={pipedriveOrganizationId || 'Não sincronizado'} /><InlineSelect label="Tipo de estabelecimento" value={organization.type || ''} onChange={() => undefined} onSaveValue={(value) => saveOrganizationField('type', value)} options={businessTypeOptions} /><InlineSelect label="Estado" value={organization.state || ''} onChange={() => undefined} onSaveValue={(value) => saveOrganizationField('state', value)} options={dddStateOptions} /><InlineField label="Quantidade de CNPJs" value={String(organization.cnpjs ?? '')} onChange={() => undefined} onSaveValue={(value) => saveOrganizationField('cnpjs', value)} type="number" /><InlineField label="GMV mensal total" value={String(organization.monthly_purchase ?? '')} onChange={() => undefined} onSaveValue={(value) => saveOrganizationField('monthly_purchase', value)} type="number" displayValue={money(organization.monthly_purchase)} /></div></CollapsibleSection><EntityDealsSummary deals={linkedDeals} openDealPage={openDealPage} /><Panel className="overflow-hidden"><div className="border-b border-slate-200 bg-white p-4"><h2 className="font-bold">Contatos vinculados</h2></div><div className="divide-y divide-slate-100">{companyPeople.map((person) => <LinkedEditableField key={person.id} label="Contato vinculado" value={`${person.full_name} · ${person.phone || 'sem telefone'} · ${person.email || 'sem email'}`} onOpen={() => openPersonPage(person.id)} onUnlink={() => unlinkPersonOrganization(person.id)} />)}{!companyPeople.length && <p className="p-4 text-sm text-slate-400">Nenhum contato vinculado.</p>}</div></Panel></aside><section><LinkedTimeline deals={linkedDeals} activities={activities} history={history} crmUsers={crmUsers} completeActivity={completeActivity} markActivityTodo={markActivityTodo} openDealPage={openDealPage} /></section></div>
   </main>
 }
 
@@ -3068,7 +3068,7 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
         <CollapsibleSection title="Empresa" defaultOpen>
           <div className="divide-y divide-slate-100">
             <InlineField label="Empresa" value={form.organization_name} onChange={(v) => update('organization_name', v)} onSaveValue={(v) => commit('organization_name', v)} onOpen={deal.organization_id ? () => openOrganizationPage(deal.organization_id as string) : undefined} onUnlink={deal.organization_id ? () => unlinkDealOrganization(deal.id) : undefined} />
-            <InlineSelect label="Tipo" value={form.organization_type} onChange={(v) => update('organization_type', v)} onSaveValue={(v) => commit('organization_type', v)} options={businessTypeOptions} />
+            <InlineSelect label="Tipo de estabelecimento" value={form.organization_type} onChange={(v) => update('organization_type', v)} onSaveValue={(v) => commit('organization_type', v)} options={businessTypeOptions} />
             <InlineSelect label="Estado" value={form.organization_state} onChange={(v) => update('organization_state', v)} onSaveValue={(v) => commit('organization_state', v)} options={dddStateOptions} />
             <InlineField label="Quantidade de CNPJs" value={form.organization_cnpjs} onChange={(v) => update('organization_cnpjs', v)} onSaveValue={(v) => commit('organization_cnpjs', v)} type="number" />
             <InlineField label="GMV mensal total" value={form.monthly_purchase} onChange={(v) => update('monthly_purchase', v)} onSaveValue={(v) => commit('monthly_purchase', v)} type="number" displayValue={money(Number(form.monthly_purchase || 0))} />
@@ -3096,7 +3096,7 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
         <CollapsibleSection title="Informações do Negócio" defaultOpen={false}>
           <div className="divide-y divide-slate-100">
             <ReadOnlyField label="Fonte do Lead" value={form.lead_source === 'vmarket' ? 'VMarket' : 'Parceiro'} />
-            <ReadOnlyField label="Tipo" value={businessTypeLabel} />
+            <ReadOnlyField label="Tipo de estabelecimento" value={businessTypeLabel} />
             <InlineField label="Título do negócio" value={form.title} onChange={(v) => update('title', v)} onSaveValue={(v) => commit('title', v)} />
             <ReadOnlyField label="ID do negócio no Pipedrive" value={pipedriveDealId || 'Não sincronizado'} />
             <ReadOnlyField label="Preenchimento" value={fillingSource} />
@@ -3121,7 +3121,7 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
               Venda VMarket?
             </label>
             <InlineSelect label="Contrato com" value={form.contract_with} onChange={(v) => update('contract_with', v)} onSaveValue={(v) => commit('contract_with', v)} options={[['cliente', 'Cliente'], ['parceiro', 'Parceiro']]} />
-            <InlineSelect label="Tipo" value={form.vm_product_type} onChange={(v) => update('vm_product_type', v)} onSaveValue={(v) => commit('vm_product_type', v)} options={businessTypeOptions} />
+            <InlineSelect label="Tipo de estabelecimento" value={form.vm_product_type} onChange={(v) => update('vm_product_type', v)} onSaveValue={(v) => commit('vm_product_type', v)} options={businessTypeOptions} />
             <InlineField label="Quantidade de CNPJs" value={form.vm_cnpj_count} onChange={(v) => update('vm_cnpj_count', v)} onSaveValue={(v) => commit('vm_cnpj_count', v)} type="number" />
             <InlineSelect label="Plano" value={form.vm_plan} onChange={(v) => update('vm_plan', v)} onSaveValue={(v) => commit('vm_plan', v)} options={(vmarketPlanOptionsByType[form.vm_product_type] || []).map((plan) => [plan, plan])} />
             <InlineSelect label="Período de Fidelidade" value={form.vm_loyalty_period} onChange={(v) => update('vm_loyalty_period', v)} onSaveValue={(v) => commit('vm_loyalty_period', v)} options={vmarketPeriodOptions} />
@@ -3130,7 +3130,7 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
             <div className="p-3">
                 <CollapsibleSection title="Campos do Contrato" defaultOpen={false} className="border border-slate-200 shadow-none">
                   <div className="divide-y divide-slate-100">
-                    <ReadOnlyField label="Tipo" value={businessTypeLabel} />
+                    <ReadOnlyField label="Tipo de estabelecimento" value={businessTypeLabel} />
                     {contractLocked ? <>
                       <ReadOnlyField label="Razão social" value={partnerContract?.legal || '-'} />
                       <ReadOnlyField label="CNPJ" value={partnerContract?.tax || '-'} />
@@ -4250,7 +4250,7 @@ function BulkEditPanel({ entity, selectedIds, selectedRows, stages, crmUsers, or
       </>}
       {entity === 'organization' && <>
         {row('owner_id', 'Proprietário CRM', ownerSelect, 'Editar valor')}
-        {row('type', 'Tipo', <select value={draft.type || ''} onChange={(e) => setField('type', e.target.value)} className="w-full rounded border border-slate-300 px-3 py-2 text-sm">{businessTypeOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>, 'Editar valor')}
+        {row('type', 'Tipo de estabelecimento', <select value={draft.type || ''} onChange={(e) => setField('type', e.target.value)} className="w-full rounded border border-slate-300 px-3 py-2 text-sm">{businessTypeOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>, 'Editar valor')}
         {row('segment', 'Segmento', <input value={draft.segment || ''} onChange={(e) => setField('segment', e.target.value)} className="w-full rounded border border-slate-300 px-3 py-2 text-sm" placeholder="Editar valor" />)}
         {row('city', 'Cidade', <input value={draft.city || ''} onChange={(e) => setField('city', e.target.value)} className="w-full rounded border border-slate-300 px-3 py-2 text-sm" placeholder="Editar valor" />)}
         {row('state', 'Estado/UF', <input value={draft.state || ''} onChange={(e) => setField('state', e.target.value)} className="w-full rounded border border-slate-300 px-3 py-2 text-sm" placeholder="Editar valor" />)}
@@ -4593,7 +4593,7 @@ const fieldLabels: Record<string, string> = {
   partner_value: 'Valor Parceiro',
   monthly_purchase: 'GMV mensal',
   source: 'Preenchimento',
-  business_type: 'Tipo',
+  business_type: 'Tipo de estabelecimento',
   vm_product_type: 'Tipo do contrato',
   expected_close_date: 'Data esperada de Fechamento',
   pipedrive_deal_created_at: 'Criação do Negócio',

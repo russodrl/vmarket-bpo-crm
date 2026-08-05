@@ -94,7 +94,7 @@ const mergeFieldConfig: Record<DuplicateEntity, Array<{ key: string; label: stri
     { key: 'estimated_savings', label: 'Economia estimada' },
     { key: 'status', label: 'Status' },
     { key: 'lead_source', label: 'Fonte' },
-    { key: 'business_type', label: 'Tipo' },
+    { key: 'business_type', label: 'Tipo de estabelecimento' },
     { key: 'expected_close_date', label: 'Data esperada' },
     { key: 'lost_reason', label: 'Motivo de perda' },
   ],
