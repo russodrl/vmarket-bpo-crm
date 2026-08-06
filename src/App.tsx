@@ -2986,6 +2986,13 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
     { id: 'changes' as const, label: 'Registro de alterações', count: timeline.filter((item) => timelineCategory(item) === 'changes').length },
   ]
   const visibleTimeline = historyFilter === 'all' ? timeline.filter((item) => timelineCategory(item) !== 'changes') : timeline.filter((item) => timelineCategory(item) === historyFilter)
+  const customFieldGroups = [...customFields.reduce((groups, field) => {
+    const groupName = (field.field_group || 'Geral').trim() || 'Geral'
+    groups.set(groupName, [...(groups.get(groupName) || []), field])
+    return groups
+  }, new Map<string, CustomField[]>()).entries()]
+    .map(([groupName, groupFields]) => ({ groupName, fields: groupFields.slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0) || a.name.localeCompare(b.name, 'pt-BR')) }))
+    .sort((a, b) => (a.groupName === 'Marketing' ? -1 : b.groupName === 'Marketing' ? 1 : a.groupName.localeCompare(b.groupName, 'pt-BR')))
 
   async function updateNote(noteId: string, text: string) {
     const clean = text.trim()
@@ -3175,7 +3182,15 @@ function DealPage({ deal, loading, error, stages, crmUsers, externalRecords, can
             <span className="grid h-7 w-7 place-items-center rounded-full border border-slate-200 text-lg font-bold text-slate-600">{showCustomFields ? '-' : '+'}</span>
           </button>
           {showCustomFields && <div className="grid gap-4 p-4">
-            {customFields.length ? customFields.map((field) => <CustomFieldInput key={field.id} field={field} value={customDrafts[field.id] || ''} onChange={(value) => setCustomDrafts((current) => ({ ...current, [field.id]: value }))} />) : <p className="text-sm text-slate-500">Nenhum campo customizado de negócio configurado.</p>}
+            {customFieldGroups.length ? customFieldGroups.map((group) => <section key={group.groupName} className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+              <div className="flex items-center justify-between border-b border-slate-200 bg-white px-3 py-2">
+                <h3 className="text-sm font-black text-slate-900">{group.groupName}</h3>
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-black text-slate-500">{group.fields.length}</span>
+              </div>
+              <div className="grid gap-3 p-3">
+                {group.fields.map((field) => <CustomFieldInput key={field.id} field={field} value={customDrafts[field.id] || ''} onChange={(value) => setCustomDrafts((current) => ({ ...current, [field.id]: value }))} />)}
+              </div>
+            </section>) : <p className="text-sm text-slate-500">Nenhum campo customizado de negócio configurado.</p>}
           </div>}
         </Panel>}
       </aside>
@@ -3875,7 +3890,7 @@ function CustomFieldInput({ field, value, onChange }: { field: CustomField; valu
 
 function FieldsConfigView({ fields, setError, reload }: { fields: CustomField[]; setError: (error: string) => void; reload: () => Promise<void> }) {
   const [creating, setCreating] = useState(false)
-  const [newField, setNewField] = useState<{ entity: CustomField['entity']; name: string; field_type: CustomField['field_type']; options: string }>({ entity: 'deal', name: '', field_type: 'text', options: '' })
+  const [newField, setNewField] = useState<{ entity: CustomField['entity']; name: string; field_type: CustomField['field_type']; options: string; field_group: string }>({ entity: 'deal', name: '', field_type: 'text', options: '', field_group: '' })
   const fieldTypes: CustomField['field_type'][] = ['text', 'large_text', 'single_option', 'multi_option', 'numeric', 'monetary', 'phone', 'date', 'address', 'formula', 'user_ref', 'organization_ref', 'person_ref']
   const entityLabels: Record<CustomField['entity'], string> = { deal: 'Negócios', person: 'Pessoas', organization: 'Organizações', activity: 'Atividades' }
   const entities: CustomField['entity'][] = ['deal', 'person', 'organization', 'activity']
@@ -3920,9 +3935,10 @@ function FieldsConfigView({ fields, setError, reload }: { fields: CustomField[];
         field_type: newField.field_type,
         options: newField.options.split(',').map((item) => item.trim()).filter(Boolean),
         sort_order: fields.length + 1,
+        field_group: newField.field_group.trim() || null,
       })
       if (error) throw error
-      setNewField({ entity: 'deal', name: '', field_type: 'text', options: '' })
+      setNewField({ entity: 'deal', name: '', field_type: 'text', options: '', field_group: '' })
       await reload()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -3962,10 +3978,11 @@ function FieldsConfigView({ fields, setError, reload }: { fields: CustomField[];
         </div>
         <p className="mt-2 text-sm text-slate-500">Os números mostram quantos campos configuráveis vieram do Pipedrive e quantos campos configuráveis existem no CRM BPO. IDs grandes/alfanuméricos são identificadores técnicos: a key/id do campo no Pipedrive e o UUID/id do campo configurável no CRM BPO.</p>
       </div>
-      <form onSubmit={createField} className="grid gap-3 border-b border-slate-200 bg-slate-50 p-4 md:grid-cols-[140px_1fr_180px_1fr_120px]">
+      <form onSubmit={createField} className="grid gap-3 border-b border-slate-200 bg-slate-50 p-4 md:grid-cols-[140px_1fr_180px_160px_1fr_120px]">
         <select value={newField.entity} onChange={(e) => setNewField({ ...newField, entity: e.target.value as CustomField['entity'] })} className="rounded border border-slate-300 px-3 py-2 text-sm"><option value="deal">Negócio</option><option value="organization">Empresa</option><option value="person">Pessoa</option><option value="activity">Atividade</option></select>
         <input value={newField.name} onChange={(e) => setNewField({ ...newField, name: e.target.value })} className="rounded border border-slate-300 px-3 py-2 text-sm" placeholder="Nome do campo" required />
         <select value={newField.field_type} onChange={(e) => setNewField({ ...newField, field_type: e.target.value as CustomField['field_type'] })} className="rounded border border-slate-300 px-3 py-2 text-sm">{fieldTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select>
+        <input value={newField.field_group} onChange={(e) => setNewField({ ...newField, field_group: e.target.value })} className="rounded border border-slate-300 px-3 py-2 text-sm" placeholder="Grupo ex: Marketing" />
         <input value={newField.options} onChange={(e) => setNewField({ ...newField, options: e.target.value })} className="rounded border border-slate-300 px-3 py-2 text-sm" placeholder="Opções separadas por vírgula" />
         <button disabled={creating} className="rounded bg-[#238847] px-3 py-2 text-sm font-bold text-white disabled:opacity-60">{creating ? 'Criando...' : 'Criar campo'}</button>
       </form>

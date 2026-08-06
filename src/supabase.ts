@@ -329,6 +329,7 @@ export type CustomField = {
   field_type: 'text' | 'large_text' | 'single_option' | 'multi_option' | 'autocomplete' | 'numeric' | 'monetary' | 'user_ref' | 'organization_ref' | 'person_ref' | 'phone' | 'time' | 'time_range' | 'date' | 'date_range' | 'address' | 'formula'
   options: string[] | null
   sort_order: number | null
+  field_group?: string | null
   pipedrive_key?: string | null
   pipedrive_field_type?: string | null
   pipedrive_id?: number | null
