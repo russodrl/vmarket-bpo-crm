@@ -15,12 +15,31 @@ import re
 import subprocess
 import sys
 import tempfile
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib import request, error, parse
 
 from mcp import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
+try:
+    from mcp.client.streamable_http import streamablehttp_client as _streamablehttp_client
+    _MCP_STREAMABLE_HTTP_USES_CLIENT = False
+except ImportError:  # mcp >= 1.13 renamed the helper with an underscore.
+    from mcp.client.streamable_http import httpx2, streamable_http_client as _streamablehttp_client
+    _MCP_STREAMABLE_HTTP_USES_CLIENT = True
+
+
+@asynccontextmanager
+async def tally_streamable_client(url: str, key: str, timeout: int = 60):
+    """Open a Tally MCP transport across mcp client versions."""
+    if _MCP_STREAMABLE_HTTP_USES_CLIENT:
+        async with httpx2.AsyncClient(headers={"Authorization": "Bearer " + key}, timeout=timeout) as http_client:
+            async with _streamablehttp_client(url, http_client=http_client) as streams:
+                read, write = streams
+                yield read, write, None
+    else:
+        async with _streamablehttp_client(url, headers={"Authorization": "Bearer " + key}, timeout=timeout) as streams:
+            yield streams
 
 FORM_ID = "pbv8PJ"
 SUPABASE_URL = "https://ujmjqbqhipjbkokncjja.supabase.co"
@@ -154,7 +173,7 @@ async def fetch_submissions():
         raise RuntimeError("TALLY_API_KEY missing")
     items = []
     page = 1
-    async with streamablehttp_client("https://api.tally.so/mcp", headers={"Authorization": "Bearer " + tally_key}, timeout=60) as (read, write, _):
+    async with tally_streamable_client("https://api.tally.so/mcp", tally_key, timeout=60) as (read, write, _):
         async with ClientSession(read, write) as session:
             await session.initialize()
             while True:
