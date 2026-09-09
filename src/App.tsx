@@ -1156,8 +1156,12 @@ function App() {
     if (!hasLoadedData) setLoading(true)
     setError('')
     try {
-      const [profileRes, stagesRes, crmUsersRes, crmCompaniesRes, orgRes, peopleRes, dealsRes, actsRes, histRes, attachmentsRes, auditRes, automationRulesRes, automationExecutionsRes, automationChangesRes, labelRes, labelAssignRes, fieldsRes, valuesRes] = await Promise.all([
-        supabase.from('profiles').select('*').eq('id', session!.user.id).maybeSingle(),
+      const profileRes = await supabase.from('profiles').select('*').eq('id', session!.user.id).maybeSingle()
+      if (profileRes.error) throw profileRes.error
+      setProfile(profileRes.data as Profile | null)
+      const isAdmin = profileRes.data?.role === 'admin_vmarket'
+      const emptyResult = { data: [], error: null }
+      const [stagesRes, crmUsersRes, crmCompaniesRes, orgRes, peopleRes, dealsRes, actsRes, histRes, attachmentsRes, auditRes, automationRulesRes, automationExecutionsRes, automationChangesRes, labelRes, labelAssignRes, fieldsRes, valuesRes] = await Promise.all([
         supabase.from('pipeline_stages').select('*').order('sort_order'),
         supabase.from('crm_users').select('*, crm_companies(*)').order('full_name'),
         supabase.from('crm_companies').select('*').order('name'),
@@ -1167,17 +1171,18 @@ function App() {
         supabase.from('activities').select('*').order('due_at', { ascending: true }),
         supabase.from('deal_history').select('*').order('created_at', { ascending: false }),
         supabase.from('deal_attachments').select('*').order('created_at', { ascending: false }),
-        supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(1000),
-        supabase.from('automation_rules').select('*').order('name'),
-        supabase.from('automation_rule_executions').select('*').order('started_at', { ascending: false }).limit(1000),
-        supabase.from('automation_rule_changes').select('*').order('created_at', { ascending: false }).limit(500),
+        isAdmin ? supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(1000) : emptyResult,
+        isAdmin ? supabase.from('automation_rules').select('*').order('name') : emptyResult,
+        isAdmin ? supabase.from('automation_rule_executions').select('*').order('started_at', { ascending: false }).limit(1000) : emptyResult,
+        isAdmin ? supabase.from('automation_rule_changes').select('*').order('created_at', { ascending: false }).limit(500) : emptyResult,
         supabase.from('deal_labels').select('*').order('name'),
         supabase.from('deal_label_assignments').select('*, deal_labels(*)'),
         supabase.from('custom_fields').select('*').order('sort_order'),
         supabase.from('custom_field_values').select('*'),
       ])
-      const firstError = [profileRes, stagesRes, crmUsersRes, crmCompaniesRes, orgRes, peopleRes, dealsRes, actsRes, histRes, attachmentsRes, auditRes, automationRulesRes, automationExecutionsRes, automationChangesRes, labelRes, labelAssignRes, fieldsRes, valuesRes].find((r) => r.error)?.error
-      if (firstError) throw firstError
+      const results = { etapas: stagesRes, usuários: crmUsersRes, empresasBpo: crmCompaniesRes, empresas: orgRes, contatos: peopleRes, negócios: dealsRes, atividades: actsRes, histórico: histRes, anexos: attachmentsRes, auditoria: auditRes, automações: automationRulesRes, execuções: automationExecutionsRes, alterações: automationChangesRes, etiquetas: labelRes, vínculos: labelAssignRes, campos: fieldsRes, valores: valuesRes }
+      const failures = Object.entries(results).filter(([, result]) => result.error)
+      if (failures.length) setError(failures.map(([name, result]) => `Falha ao carregar ${name}: ${errorMessage(result.error)}`).join(' • '))
       setProfile(profileRes.data as Profile | null)
       setStages((stagesRes.data || []) as Stage[])
       const loadedStages = (stagesRes.data || []) as Stage[]
@@ -1203,7 +1208,7 @@ function App() {
       setCustomFieldValues((valuesRes.data || []) as CustomFieldValue[])
       if (!selectedId && dealsRes.data?.[0]) setSelectedId(dealsRes.data[0].id)
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(errorMessage(e))
     } finally {
       setLoading(false)
     }
@@ -1847,10 +1852,11 @@ function App() {
     ['contacts', <Contact size={19}/>, 'Contatos'],
     ['companies', <Building2 size={19}/>, 'Empresas'],
     ['activities', <Activity size={19}/>, 'Atividades'],
-    ['warnings', <AlertTriangle size={19}/>, 'Avisos'],
+
     ['plans-vmarket', <FileText size={19}/>, 'Planos VMarket'],
     ['commissions-vmarket', <Star size={19}/>, 'Comissões VMarket'],
   ]
+  if (profile?.role === 'admin_vmarket') navItems.splice(4, 0, ['warnings', <AlertTriangle size={19}/>, 'Avisos'])
   if (profile?.role === 'admin_vmarket') navItems.push(['lead-distribution', <Users size={19}/>, 'Distribuição de Leads'])
   if (profile?.role === 'admin_vmarket') navItems.push(['automations', <Settings size={19}/>, 'Automações'])
   if (profile?.role === 'admin_vmarket') navItems.push(['audit', <ClipboardList size={19}/>, 'Log de Alterações'])
@@ -1891,7 +1897,7 @@ function App() {
                 {!detailDealId && activeView === 'contacts' && <EntityListView title="Contatos" icon={<Contact size={18}/>} entity="person" rows={visiblePeople} deals={deals} people={people} organizations={organizations} stages={stages} crmUsers={crmUsers} dealLabels={dealLabels} dealLabelAssignments={dealLabelAssignments} selectedId={detailPersonId} onOpen={openPersonPage} savedFilters={savedDealFilters} activeFilterId={activePersonFilterId} activeOwnerId={activePersonOwnerFilterId} setActiveFilterId={setActivePersonFilterId} setActiveOwnerId={setActivePersonOwnerFilterId} users={crmUsers} filterFields={filterFields} filterContext={filterContext} saveDealFilter={saveDealFilter} onDeleteFilter={deleteDealFilter} onToggleFavoriteFilter={toggleDealFilterFavorite} applyFilterColumns={applyFilterColumns} visibleColumns={personListColumns} setVisibleColumns={setPersonColumns} reload={loadAll} />}
                 {!detailDealId && activeView === 'companies' && <EntityListView title="Empresas" icon={<Building2 size={18}/>} entity="organization" rows={visibleOrganizations} deals={deals} people={people} organizations={organizations} stages={stages} crmUsers={crmUsers} dealLabels={dealLabels} dealLabelAssignments={dealLabelAssignments} selectedId={detailOrganizationId} onOpen={openOrganizationPage} savedFilters={savedDealFilters} activeFilterId={activeOrganizationFilterId} activeOwnerId={activeOrganizationOwnerFilterId} setActiveFilterId={setActiveOrganizationFilterId} setActiveOwnerId={setActiveOrganizationOwnerFilterId} users={crmUsers} filterFields={filterFields} filterContext={filterContext} saveDealFilter={saveDealFilter} onDeleteFilter={deleteDealFilter} onToggleFavoriteFilter={toggleDealFilterFavorite} applyFilterColumns={applyFilterColumns} visibleColumns={organizationListColumns} setVisibleColumns={setOrganizationColumns} reload={loadAll} />}
                 {!detailDealId && activeView === 'activities' && <ActivitiesView activities={activities} deals={deals} crmUsers={crmUsers} completeActivity={completeActivity} markActivityTodo={markActivityTodo} updateActivity={updateActivity} openDealPage={openDealPage} canDelete deleteActivity={(id, label) => deleteActivityRecord(id, label)} />}
-                {!detailDealId && activeView === 'warnings' && <Suspense fallback={<div className="p-5 text-sm font-semibold text-slate-500">Carregando avisos...</div>}><WarningsView deals={deals} people={people} organizations={organizations} activities={activities} crmUsers={crmUsers} openDealPage={openDealPage} reload={loadAll} setError={setError} /></Suspense>}
+                {!detailDealId && activeView === 'warnings' && profile?.role === 'admin_vmarket' && <Suspense fallback={<div className="p-5 text-sm font-semibold text-slate-500">Carregando avisos...</div>}><WarningsView deals={deals} people={people} organizations={organizations} activities={activities} crmUsers={crmUsers} openDealPage={openDealPage} reload={loadAll} setError={setError} /></Suspense>}
                 {!detailDealId && activeView === 'lead-distribution' && profile?.role === 'admin_vmarket' && <Suspense fallback={<div className="p-5 text-sm font-semibold text-slate-500">Carregando distribuição...</div>}><LeadDistributionView users={crmUsers} deals={deals} /></Suspense>}
                 {!detailDealId && activeView === 'automations' && profile?.role === 'admin_vmarket' && <AutomationsView rules={automationRules} executions={automationExecutions} changes={automationChanges} />}
                 {!detailDealId && activeView === 'audit' && profile?.role === 'admin_vmarket' && <AuditLogView logs={auditLogs} />}
@@ -2259,7 +2265,7 @@ function PipelineView({ stages, salesStages, deals, allDeals, activities, crmUse
       </div>
     </div>
 
-    {pipelineView === 'kanban' ? <div className="min-h-0 flex-1 overflow-auto p-3 md:p-4">
+    {allDeals.length === 0 ? <div role="status" className="m-4 rounded border border-slate-200 bg-white p-8 text-center text-slate-500">Você não tem negócios no momento.</div> : pipelineView === 'kanban' ? <div className="min-h-0 flex-1 overflow-auto p-3 md:p-4">
       <div className="flex min-h-full gap-3 md:min-w-max">
         {stages.map((stage) => {
           const stageDeals = sortedKanbanDeals(deals.filter((d) => d.stage_id === stage.id))
@@ -4372,7 +4378,7 @@ function EntityListView({ title, icon, entity, rows, deals, people, organization
             })}
           </tbody>
         </table>
-        {rows.length === 0 && <div className="p-8 text-center text-slate-400">Nenhum registro encontrado.</div>}
+        {rows.length === 0 && <div role="status" className="p-8 text-center text-slate-500">{entity === 'person' && people.length === 0 ? 'Você não tem contatos no momento.' : entity === 'organization' && organizations.length === 0 ? 'Você não tem empresa no momento.' : 'Nenhum registro encontrado para os filtros selecionados.'}</div>}
       </div>
       {selectedRows.length > 0 && <div className="hidden md:block"><BulkEditPanel entity={entity} selectedIds={selectedRows} selectedRows={selectedVisibleRows} stages={stages} crmUsers={crmUsers} organizations={organizations} dealLabels={dealLabels} dealLabelAssignments={dealLabelAssignments} onClose={closeBulk} onSaved={reload} /></div>}
       </div>
