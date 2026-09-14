@@ -303,11 +303,13 @@ function loadSavedDealFilters(): SavedDealFilter[] {
 function saveDealFilters(filters: SavedDealFilter[]) {
   window.localStorage.setItem(dealFilterStorageKey, JSON.stringify(filters))
 }
-async function loadAllFilterRows(table: 'custom_fields' | 'custom_field_values') {
+async function loadAllFilterRows(table: 'custom_fields' | 'custom_field_values', entityId?: string) {
   const rows: Record<string, unknown>[] = []
   const pageSize = 500
   for (let offset = 0; ; ) {
-    const result = await supabase.from(table).select('*').order('id').range(offset, offset + pageSize - 1)
+    let query = supabase.from(table).select('*').order('id').range(offset, offset + pageSize - 1)
+    if (entityId && table === 'custom_field_values') query = query.eq('entity_id', entityId)
+    const result = await query
     if (result.error) return { data: null, error: result.error }
     const page = result.data || []
     if (!page.length) break
@@ -1731,6 +1733,29 @@ function App() {
     if (activeOrganizationFilterId === id) setActiveOrganizationFilterId('')
   }
 
+  async function refreshSavedDeal(dealId: string) {
+    // Read back only the saved record; never block a field edit on a CRM-wide reload.
+    const [dealRes, historyRes, valuesRes] = await Promise.all([
+      supabase.from('deals').select('*, organizations(*), people(*), bpo_partners(*), pipeline_stages(*)').eq('id', dealId).single(),
+      supabase.from('deal_history').select('*').eq('deal_id', dealId).order('created_at', { ascending: false }),
+      loadAllFilterRows('custom_field_values', dealId),
+    ])
+    if (dealRes.error) throw dealRes.error
+    const saved = dealRes.data as Deal
+    // Other deals may share the edited contact/company. Update their joined snapshots too.
+    setDeals((current) => current.map((item) => item.id === saved.id ? saved : {
+      ...item,
+      ...(saved.organizations && item.organization_id === saved.organization_id ? { organizations: saved.organizations } : {}),
+      ...(saved.people && item.person_id === saved.person_id ? { people: saved.people } : {}),
+    }))
+    if (saved.organizations) setOrganizations((current) => current.map((item) => item.id === saved.organization_id ? saved.organizations! : item))
+    if (saved.people) setPeople((current) => current.map((item) => item.id === saved.person_id ? saved.people! : item))
+    if (!historyRes.error) setHistory((current) => [...current.filter((item) => item.deal_id !== dealId), ...((historyRes.data || []) as HistoryRow[])])
+    if (!valuesRes.error) setCustomFieldValues((current) => [...current.filter((item) => item.entity_id !== dealId), ...((valuesRes.data || []) as CustomFieldValue[])])
+    const errors = [historyRes.error, valuesRes.error].filter(Boolean)
+    if (errors.length) setError(`Negócio salvo, mas houve falha ao atualizar dados complementares: ${errors.map(errorMessage).join(' • ')}`)
+  }
+
   async function saveDeal(form: DealForm, customValues: Record<string, string>) {
     if (!detailDeal) return
     setError('')
@@ -1870,7 +1895,7 @@ function App() {
       const pipedriveSync = form.stage_id ? await syncExistingDealToPipedriveIfMapped(detailDeal.id, form.stage_id) : null
 
       await supabase.from('deal_history').insert({ deal_id: detailDeal.id, event_type: 'Edição', title: 'Ficha do negócio atualizada', description: pipedriveSync?.ignored ? 'Campos editados na URL da ficha completa.' : 'Campos editados na URL da ficha completa e enviados ao Pipedrive quando havia vínculo.' })
-      await loadAll()
+      await refreshSavedDeal(detailDeal.id)
     } catch (e) {
       setError(errorMessage(e))
       throw e
