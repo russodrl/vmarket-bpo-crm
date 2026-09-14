@@ -201,7 +201,31 @@ function uniqueValues(values: unknown[]) {
     const key = value.toLocaleLowerCase('pt-BR')
     if (value && !seen.has(key)) seen.set(key, value)
   })
-  return [...seen.values()].sort((a, b) => a.localeCompare(b, 'pt-BR')).slice(0, 80)
+  return [...seen.values()].sort((a, b) => a.localeCompare(b, 'pt-BR'))
+}
+const filterStateNames: Record<string, string> = {
+  AC: 'Acre', AL: 'Alagoas', AP: 'Amapá', AM: 'Amazonas', BA: 'Bahia', CE: 'Ceará',
+  DF: 'Distrito Federal', ES: 'Espírito Santo', GO: 'Goiás', MA: 'Maranhão',
+  MT: 'Mato Grosso', MS: 'Mato Grosso do Sul', MG: 'Minas Gerais', PA: 'Pará',
+  PB: 'Paraíba', PR: 'Paraná', PE: 'Pernambuco', PI: 'Piauí', RJ: 'Rio de Janeiro',
+  RN: 'Rio Grande do Norte', RS: 'Rio Grande do Sul', RO: 'Rondônia', RR: 'Roraima',
+  SC: 'Santa Catarina', SP: 'São Paulo', SE: 'Sergipe', TO: 'Tocantins',
+}
+function isStateFilterField(field?: FilterField) {
+  return Boolean(field && (['state', 'ddd_state'].includes(field.key) || /^estado(?:\s|$)/i.test(field.label.trim())))
+}
+function normalizeStateFilterValue(value: unknown) {
+  const text = normalizeFilterValue(value).trim()
+  return normalizeForCompare(filterStateNames[text.toUpperCase()] || text).normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+}
+function getFilterSuggestions(rule: FilterRule, fields: FilterField[], deals: Deal[], context: FilterContext) {
+  const field = fields.find((item) => item.id === rule.fieldId)
+  if (!field) return []
+  const custom = context.customFields.find((item) => item.id === field.customFieldId)
+  const values: unknown[] = [...(custom?.options || []), ...deals.map((deal) => getFilterRawValue(deal, rule, fields, context))]
+  if (custom) values.push(...context.customFieldValues.filter((item) => item.field_id === custom.id).flatMap((item) => Array.isArray(item.value) ? item.value : [item.value]))
+  if (isStateFilterField(field)) values.push(...Object.values(filterStateNames))
+  return uniqueValues(values.filter((value) => normalizeFilterValue(value).trim()))
 }
 function getCustomFieldValue(customFieldValues: CustomFieldValue[], fieldId: string, entityId?: string | null) {
   if (!entityId) return ''
@@ -220,6 +244,7 @@ function getFilterRawValue(deal: Deal, rule: FilterRule, fields: FilterField[], 
     return activityValues.filter(Boolean).join(', ')
   }
   if (field.entity === 'deal') {
+    if (field.key === 'state') return deal.organizations?.state || ''
     if (field.key === 'stage') return context.stages.find((stage) => stage.id === deal.stage_id)?.name || deal.pipeline_stages?.name || ''
     if (field.key === 'pipeline') return context.stages.find((stage) => stage.id === deal.stage_id)?.pipeline_name || deal.pipeline_stages?.pipeline_name || ''
     if (field.key === 'owner') return crmOwnerDisplay(context.crmUsers, deal.owner_id, deal.pipedrive_owner_name || deal.bpo_partners?.name || deal.owner_id || '')
@@ -234,6 +259,7 @@ function getFilterRawValue(deal: Deal, rule: FilterRule, fields: FilterField[], 
     return (deal.organizations as unknown as Record<string, unknown> | undefined)?.[field.key]
   }
   const values = context.activities.filter((activity) => activity.deal_id === deal.id).map((activity) => {
+    if (field.key === 'owner_id') return crmOwnerDisplay(context.crmUsers, activity.owner_id, activity.owner_id || '')
     if (field.key === 'display_status') return activityDisplayStatus(activity)
     return (activity as unknown as Record<string, unknown>)[field.key]
   })
@@ -242,8 +268,10 @@ function getFilterRawValue(deal: Deal, rule: FilterRule, fields: FilterField[], 
 function matchesFilterRule(deal: Deal, rule: FilterRule, fields: FilterField[], context: FilterContext) {
   if (!rule.fieldId) return true
   const raw = getFilterRawValue(deal, rule, fields, context)
-  const value = normalizeForCompare(raw)
-  const expected = normalizeForCompare(rule.value)
+  const field = fields.find((item) => item.id === rule.fieldId)
+  const normalize = isStateFilterField(field) ? normalizeStateFilterValue : normalizeForCompare
+  const value = normalize(raw)
+  const expected = normalize(rule.value)
   if (rule.operator === 'is_empty') return !value
   if (rule.operator === 'is_not_empty') return Boolean(value)
   if (!expected) return true
@@ -275,8 +303,56 @@ function loadSavedDealFilters(): SavedDealFilter[] {
 function saveDealFilters(filters: SavedDealFilter[]) {
   window.localStorage.setItem(dealFilterStorageKey, JSON.stringify(filters))
 }
+async function loadAllFilterRows(table: 'custom_fields' | 'custom_field_values') {
+  const rows: Record<string, unknown>[] = []
+  const pageSize = 500
+  for (let offset = 0; ; ) {
+    const result = await supabase.from(table).select('*').order('id').range(offset, offset + pageSize - 1)
+    if (result.error) return { data: null, error: result.error }
+    const page = result.data || []
+    if (!page.length) break
+    rows.push(...page)
+    offset += page.length
+  }
+  if (table === 'custom_fields') rows.sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0))
+  return { data: rows, error: null }
+}
 function buildFilterFields(customFields: CustomField[]): FilterField[] {
   const base: FilterField[] = [
+    { id: 'deal:state', entity: 'deal', key: 'state', label: 'Estado', type: 'option' },
+    { id: 'deal:lost_reason', entity: 'deal', key: 'lost_reason', label: 'Motivo da perda', type: 'text' },
+    { id: 'deal:vm_sale', entity: 'deal', key: 'vm_sale', label: 'Venda VMarket?', type: 'option' },
+    { id: 'deal:contract_with', entity: 'deal', key: 'contract_with', label: 'Contrato com', type: 'option' },
+    { id: 'deal:vm_product_type', entity: 'deal', key: 'vm_product_type', label: 'Tipo de produto VMarket', type: 'option' },
+    { id: 'deal:vm_cnpj_count', entity: 'deal', key: 'vm_cnpj_count', label: 'Quantidade de CNPJs VMarket', type: 'number' },
+    { id: 'deal:vm_plan', entity: 'deal', key: 'vm_plan', label: 'Plano VMarket', type: 'option' },
+    { id: 'deal:vm_loyalty_period', entity: 'deal', key: 'vm_loyalty_period', label: 'Fidelidade VMarket', type: 'option' },
+    { id: 'deal:vm_value_per_cnpj', entity: 'deal', key: 'vm_value_per_cnpj', label: 'Valor por CNPJ', type: 'number' },
+    { id: 'deal:total_value', entity: 'deal', key: 'total_value', label: 'Valor total', type: 'number' },
+    { id: 'deal:contract_legal_name', entity: 'deal', key: 'contract_legal_name', label: 'Razão social do contrato', type: 'text' },
+    { id: 'deal:contract_tax_id', entity: 'deal', key: 'contract_tax_id', label: 'CNPJ do contrato', type: 'text' },
+    { id: 'deal:contract_address', entity: 'deal', key: 'contract_address', label: 'Endereço do contrato', type: 'text' },
+    { id: 'deal:contract_representative', entity: 'deal', key: 'contract_representative', label: 'Representante do contrato', type: 'text' },
+    { id: 'deal:contract_email', entity: 'deal', key: 'contract_email', label: 'Email do contrato', type: 'text' },
+    { id: 'deal:contract_phone', entity: 'deal', key: 'contract_phone', label: 'Telefone do contrato', type: 'text' },
+    { id: 'deal:partner_services', entity: 'deal', key: 'partner_services', label: 'Serviços do parceiro', type: 'text' },
+    { id: 'deal:plan', entity: 'deal', key: 'plan', label: 'Plano', type: 'text' },
+    { id: 'deal:pipedrive_stage_entered_at', entity: 'deal', key: 'pipedrive_stage_entered_at', label: 'Entrada na etapa', type: 'date' },
+    { id: 'deal:score', entity: 'deal', key: 'score', label: 'Pontuação', type: 'number' },
+    { id: 'deal:focus_items', entity: 'deal', key: 'focus_items', label: 'Itens de interesse', type: 'text' },
+    { id: 'person:ddd_region', entity: 'person', key: 'ddd_region', label: 'Região da pessoa', type: 'option' },
+    { id: 'person:labels', entity: 'person', key: 'labels', label: 'Etiquetas da pessoa', type: 'text' },
+    { id: 'person:created_at', entity: 'person', key: 'created_at', label: 'Pessoa criada em', type: 'date' },
+    { id: 'person:updated_at', entity: 'person', key: 'updated_at', label: 'Pessoa atualizada em', type: 'date' },
+    { id: 'organization:segment', entity: 'organization', key: 'segment', label: 'Segmento da empresa', type: 'text' },
+    { id: 'organization:city', entity: 'organization', key: 'city', label: 'Cidade da empresa', type: 'text' },
+    { id: 'organization:supplier_count', entity: 'organization', key: 'supplier_count', label: 'Quantidade de fornecedores', type: 'number' },
+    { id: 'organization:created_at', entity: 'organization', key: 'created_at', label: 'Empresa criada em', type: 'date' },
+    { id: 'organization:updated_at', entity: 'organization', key: 'updated_at', label: 'Empresa atualizada em', type: 'date' },
+    { id: 'activity:meeting_link', entity: 'activity', key: 'meeting_link', label: 'Link da reunião', type: 'text' },
+    { id: 'activity:owner_id', entity: 'activity', key: 'owner_id', label: 'Proprietário da atividade', type: 'text' },
+    { id: 'activity:created_at', entity: 'activity', key: 'created_at', label: 'Atividade criada em', type: 'date' },
+    { id: 'activity:updated_at', entity: 'activity', key: 'updated_at', label: 'Atividade atualizada em', type: 'date' },
     { id: 'deal:title', entity: 'deal', key: 'title', label: 'Título', type: 'text' },
     { id: 'deal:value', entity: 'deal', key: 'value', label: 'Valor VMarket', type: 'number' },
     { id: 'deal:partner_value', entity: 'deal', key: 'partner_value', label: 'Valor Parceiro', type: 'number' },
@@ -1177,8 +1253,8 @@ function App() {
         isAdmin ? supabase.from('automation_rule_changes').select('*').order('created_at', { ascending: false }).limit(500) : emptyResult,
         supabase.from('deal_labels').select('*').order('name'),
         supabase.from('deal_label_assignments').select('*, deal_labels(*)'),
-        supabase.from('custom_fields').select('*').order('sort_order'),
-        supabase.from('custom_field_values').select('*'),
+        loadAllFilterRows('custom_fields'),
+        loadAllFilterRows('custom_field_values'),
       ])
       const results = { etapas: stagesRes, usuários: crmUsersRes, empresasBpo: crmCompaniesRes, empresas: orgRes, contatos: peopleRes, negócios: dealsRes, atividades: actsRes, histórico: histRes, anexos: attachmentsRes, auditoria: auditRes, automações: automationRulesRes, execuções: automationExecutionsRes, alterações: automationChangesRes, etiquetas: labelRes, vínculos: labelAssignRes, campos: fieldsRes, valores: valuesRes }
       const failures = Object.entries(results).filter(([, result]) => result.error)
@@ -2437,8 +2513,7 @@ function DealFilterBuilderModal({ draft, setDraft, fields, deals, context, onClo
   const updateRule = (id: string, patch: Partial<FilterRule>) => setDraft({ ...draft, rules: draft.rules.map((rule) => rule.id === id ? { ...rule, ...patch, fieldId: patch.entity && patch.entity !== rule.entity ? '' : (patch.fieldId ?? rule.fieldId) } : rule) })
   const removeRule = (id: string) => setDraft({ ...draft, rules: draft.rules.filter((rule) => rule.id !== id) })
   const addRule = (group: FilterGroup) => setDraft({ ...draft, rules: [...draft.rules, newFilterRule(group)] })
-  const fieldsForEntity = (entity: FilterEntity) => filteredFields.filter((field) => field.entity === entity)
-  const valuesForRule = (rule: FilterRule) => uniqueValues(deals.map((deal) => getFilterRawValue(deal, rule, fields, context)))
+  const valuesForRule = (rule: FilterRule) => getFilterSuggestions(rule, fields, deals, context)
   const previewCount = filterDealsBySavedFilter(deals, { id: draft.id || 'preview', name: draft.name, favorite: draft.favorite, visibility: 'private', rules: draft.rules, columns: draft.columns, createdAt: new Date().toISOString() }, fields, context).length
   const renderRules = (group: FilterGroup) => {
     const rules = draft.rules.filter((rule) => rule.group === group)
@@ -2453,7 +2528,7 @@ function DealFilterBuilderModal({ draft, setDraft, fields, deals, context, onClo
             </select>
             <select value={rule.fieldId} onChange={(e) => updateRule(rule.id, { fieldId: e.target.value })} className="w-full min-w-0 rounded border border-slate-300 bg-white px-2 py-2 text-sm outline-none">
               <option value="">Selecione o campo</option>
-              {fieldsForEntity(rule.entity).map((field) => <option key={field.id} value={field.id}>{field.label}</option>)}
+              {fields.filter((field) => field.entity === rule.entity && (filteredFields.includes(field) || field.id === rule.fieldId)).map((field) => <option key={field.id} value={field.id}>{field.label}{field.customFieldId ? ' (personalizado)' : ''}</option>)}
             </select>
             <select value={rule.operator} onChange={(e) => updateRule(rule.id, { operator: e.target.value as FilterOperator })} className="w-full min-w-0 rounded border border-slate-300 bg-white px-2 py-2 text-sm outline-none">
               {(Object.keys(filterOperatorLabel) as FilterOperator[]).map((operator) => <option key={operator} value={operator}>{filterOperatorLabel[operator]}</option>)}
@@ -5303,7 +5378,11 @@ function ListViewDeals({ deals, stages, crmUsers, organizations, people, dealLab
   const toggleAll = () => setSelectedRows((current) => allVisibleSelected ? current.filter((id) => !visibleIds.includes(id)) : [...new Set([...current, ...visibleIds])])
   const closeBulk = () => { setSelectedRows([]); setMobileBulkOpen(false) }
   return <div className="min-h-0 flex-1 overflow-hidden md:flex">
-    <div className="min-w-0 flex-1 overflow-auto">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+    <div className="flex shrink-0 justify-end border-b border-slate-200 bg-white px-3 py-2">
+      <button type="button" onClick={() => setShowColumns(true)} className="inline-flex items-center gap-2 rounded border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50" title="Adicionar ou remover colunas" aria-label="Campos da lista"><Settings size={16}/>Colunas</button>
+    </div>
+    <div className="min-h-0 flex-1 overflow-auto">
     <table className="w-full text-sm">
       <thead className="sticky top-0 bg-white">
         <tr className="border-b border-slate-200 text-left text-[11px] font-semibold uppercase text-slate-500">
@@ -5324,6 +5403,7 @@ function ListViewDeals({ deals, stages, crmUsers, organizations, people, dealLab
       </tbody>
     </table>
     {deals.length === 0 && <div className="p-8 text-center text-slate-400">Nenhum negócio encontrado.</div>}
+    </div>
     </div>
     {selectedRows.length > 0 && <div className="hidden md:block"><BulkEditPanel entity="deal" selectedIds={selectedRows} selectedRows={selectedVisibleRows} stages={stages} crmUsers={crmUsers} organizations={organizations} dealLabels={dealLabels} dealLabelAssignments={dealLabelAssignments} onClose={closeBulk} onSaved={reload} /></div>}
     {selectedRows.length > 0 && <div className="fixed inset-x-0 bottom-16 z-50 border-t border-emerald-200 bg-white p-3 shadow-2xl md:hidden"><button type="button" onClick={() => setMobileBulkOpen(true)} className="w-full rounded-xl bg-[#238847] px-4 py-3 text-sm font-black text-white">Editar {selectedRows.length} registros</button></div>}

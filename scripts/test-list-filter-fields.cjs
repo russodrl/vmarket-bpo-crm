@@ -1,0 +1,38 @@
+const fs = require('node:fs');
+const vm = require('node:vm');
+const assert = require('node:assert/strict');
+const ts = require('typescript');
+const source = fs.readFileSync('src/App.tsx', 'utf8');
+const ast = ts.createSourceFile('App.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+const names = ['normalizeFilterValue', 'normalizeForCompare', 'formatFilterValue', 'uniqueValues', 'isStateFilterField', 'normalizeStateFilterValue', 'getFilterSuggestions', 'getCustomFieldValue', 'getFilterRawValue', 'matchesFilterRule', 'filterDealsBySavedFilter', 'buildFilterFields', 'loadAllFilterRows'];
+const nodes = ast.statements.filter(n => (ts.isFunctionDeclaration(n) && names.includes(n.name?.text)) || (ts.isVariableStatement(n) && n.declarationList.declarations.some(d => d.name.getText(ast) === 'filterStateNames')));
+const context = vm.createContext({});
+vm.runInContext(ts.transpileModule(nodes.map(n => n.getText(ast)).join('\n'), {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText, context);
+const custom = [{id:'state-custom',entity:'deal',name:'Estado',options:['Rio de Janeiro','São Paulo']}, {id:'utm',entity:'deal',name:'UTM campaign',options:['Campanha ainda sem negócios']}];
+const fields = context.buildFilterFields(custom);
+assert.equal(new Set(fields.map(f => f.id)).size, fields.length);
+for (const id of ['deal:state','deal:vm_plan','deal:contract_tax_id','organization:city','person:ddd_region','activity:meeting_link','deal:custom:utm']) assert(fields.some(f => f.id === id), id);
+const ctx = {stages:[],activities:[],crmUsers:[],customFields:custom,customFieldValues:[{field_id:'state-custom',entity_id:'custom',value:'RJ'}]};
+const deals = [{id:'rj',organizations:{state:'RJ'}},{id:'rio',organizations:{state:'Rio de Janeiro'}},{id:'sp',organizations:{state:'SP'}},{id:'empty',organizations:null}];
+const rule = {id:'rule',group:'all',entity:'deal',fieldId:'deal:state',operator:'equals',value:'Rio de Janeiro'};
+const ids = (r) => Array.from(context.filterDealsBySavedFilter(deals,{rules:[r]},fields,ctx), d => d.id);
+assert.deepEqual(ids(rule),['rj','rio']);
+assert.deepEqual(ids({...rule,value:'rj'}),['rj','rio']);
+assert.deepEqual(ids({...rule,value:'rio',operator:'contains'}),['rj','rio']);
+assert.deepEqual(ids({...rule,operator:'is_empty'}),['empty']);
+assert.equal(context.matchesFilterRule({id:'custom'}, {...rule,fieldId:'deal:custom:state-custom'}, fields,ctx),true);
+assert(context.getFilterSuggestions(rule,fields,[],ctx).includes('Rio de Janeiro'));
+assert(context.getFilterSuggestions({...rule,fieldId:'deal:custom:utm'},fields,[],ctx).includes('Campanha ainda sem negócios'));
+assert.equal(context.uniqueValues(Array.from({length:150},(_,i)=>`opcao-${i}`)).length,150);
+// Paginate past the server row limit, including a short server-capped page.
+(async () => {
+ const rows = Array.from({length:1201},(_,i)=>({id:String(i),sort_order:i}));
+ let requests=0;
+ context.supabase={from:()=>({select:()=>({order:()=>({range:async(from,to)=>{requests++;return {data:rows.slice(from, Math.min(to+1,from+300)),error:null}}})})})};
+ const result=await context.loadAllFilterRows('custom_fields');
+ assert.equal(result.data.length,1201); assert.equal(requests,6);
+ context.supabase={from:()=>({select:()=>({order:()=>({range:async()=>({data:null,error:{message:'RLS test'}})})})})};
+ const failure=await context.loadAllFilterRows('custom_field_values');
+ assert.equal(failure.data,null); assert.equal(failure.error.message,'RLS test');
+ console.log(`PASS: ${fields.length} fields; RJ/full-name/contains/empty/custom state; configured suggestions; no 80-value cap; 1201 paginated rows; errors preserved.`);
+})().catch(e=>{console.error(e);process.exit(1)});
