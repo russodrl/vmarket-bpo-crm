@@ -10,6 +10,12 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Keep the list footer scrollbar visible and easy to drag. */
+.list-horizontal-scroll { scrollbar-color: #64748b #e2e8f0; scrollbar-width: auto; }
+.list-horizontal-scroll::-webkit-scrollbar { height: 16px; }
+.list-horizontal-scroll::-webkit-scrollbar-track { background: #e2e8f0; }
+.list-horizontal-scroll::-webkit-scrollbar-thumb { background: #64748b; border: 3px solid #e2e8f0; border-radius: 8px; }
+
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; min-height: 100vh; }
 button, input, textarea, select { font: inherit; }

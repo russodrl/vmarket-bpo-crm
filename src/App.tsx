@@ -4185,6 +4185,28 @@ function EditInput({ label, value, onChange, type = 'text', className }: { label
 }
 
 
+function ListScrollArea({ children }: { children: ReactNode }) {
+  const contentRef = useRef<HTMLDivElement>(null)
+  const barRef = useRef<HTMLDivElement>(null)
+  const [scrollWidth, setScrollWidth] = useState(0)
+  useEffect(() => {
+    const content = contentRef.current
+    if (!content) return
+    const measure = () => setScrollWidth(content.scrollWidth)
+    const observer = new ResizeObserver(measure)
+    observer.observe(content)
+    if (content.firstElementChild) observer.observe(content.firstElementChild)
+    measure()
+    return () => observer.disconnect()
+  }, [])
+  return <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+    <div ref={contentRef} className="min-h-0 min-w-0 flex-1 overflow-auto" onScroll={(event) => { if (barRef.current) barRef.current.scrollLeft = event.currentTarget.scrollLeft }}>{children}</div>
+    <div className="shrink-0 border-t border-slate-200 bg-slate-50 px-3 pt-1 text-[11px] text-slate-500">← Arraste a barra para ver todas as colunas →</div>
+    <div ref={barRef} tabIndex={0} role="region" aria-label="Rolagem horizontal da lista" className="list-horizontal-scroll h-5 shrink-0 overflow-x-scroll overflow-y-hidden bg-slate-50" onScroll={(event) => { if (contentRef.current) contentRef.current.scrollLeft = event.currentTarget.scrollLeft }}>
+      <div style={{ width: scrollWidth, height: 1 }} />
+    </div>
+  </div>
+}
 function ColumnPickerModal({ columns, visibleColumns, setVisibleColumns, onClose }: { columns: ColumnDef[]; visibleColumns: string[]; setVisibleColumns: (columns: string[]) => void; onClose: () => void }) {
   const toggle = (id: string) => {
     const next = visibleColumns.includes(id) ? visibleColumns.filter((item) => item !== id) : [...visibleColumns, id]
@@ -4433,7 +4455,7 @@ function EntityListView({ title, icon, entity, rows, deals, people, organization
         </div>
       </div>
       <div className="flex min-h-[360px] flex-col md:flex-row">
-      <div className="min-w-0 flex-1 overflow-x-auto">
+      <ListScrollArea>
         <table className="w-full text-sm">
           <thead className="sticky top-0 bg-white">
             <tr className="border-b border-slate-200 text-left text-[11px] font-semibold uppercase text-slate-500">
@@ -4454,7 +4476,7 @@ function EntityListView({ title, icon, entity, rows, deals, people, organization
           </tbody>
         </table>
         {rows.length === 0 && <div role="status" className="p-8 text-center text-slate-500">{entity === 'person' && people.length === 0 ? 'Você não tem contatos no momento.' : entity === 'organization' && organizations.length === 0 ? 'Você não tem empresa no momento.' : 'Nenhum registro encontrado para os filtros selecionados.'}</div>}
-      </div>
+      </ListScrollArea>
       {selectedRows.length > 0 && <div className="hidden md:block"><BulkEditPanel entity={entity} selectedIds={selectedRows} selectedRows={selectedVisibleRows} stages={stages} crmUsers={crmUsers} organizations={organizations} dealLabels={dealLabels} dealLabelAssignments={dealLabelAssignments} onClose={closeBulk} onSaved={reload} /></div>}
       </div>
     </Panel>
@@ -5382,7 +5404,7 @@ function ListViewDeals({ deals, stages, crmUsers, organizations, people, dealLab
     <div className="flex shrink-0 justify-end border-b border-slate-200 bg-white px-3 py-2">
       <button type="button" onClick={() => setShowColumns(true)} className="inline-flex items-center gap-2 rounded border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50" title="Adicionar ou remover colunas" aria-label="Campos da lista"><Settings size={16}/>Colunas</button>
     </div>
-    <div className="min-h-0 flex-1 overflow-auto">
+    <ListScrollArea>
     <table className="w-full text-sm">
       <thead className="sticky top-0 bg-white">
         <tr className="border-b border-slate-200 text-left text-[11px] font-semibold uppercase text-slate-500">
@@ -5403,7 +5425,7 @@ function ListViewDeals({ deals, stages, crmUsers, organizations, people, dealLab
       </tbody>
     </table>
     {deals.length === 0 && <div className="p-8 text-center text-slate-400">Nenhum negócio encontrado.</div>}
-    </div>
+    </ListScrollArea>
     </div>
     {selectedRows.length > 0 && <div className="hidden md:block"><BulkEditPanel entity="deal" selectedIds={selectedRows} selectedRows={selectedVisibleRows} stages={stages} crmUsers={crmUsers} organizations={organizations} dealLabels={dealLabels} dealLabelAssignments={dealLabelAssignments} onClose={closeBulk} onSaved={reload} /></div>}
     {selectedRows.length > 0 && <div className="fixed inset-x-0 bottom-16 z-50 border-t border-emerald-200 bg-white p-3 shadow-2xl md:hidden"><button type="button" onClick={() => setMobileBulkOpen(true)} className="w-full rounded-xl bg-[#238847] px-4 py-3 text-sm font-black text-white">Editar {selectedRows.length} registros</button></div>}
